@@ -13,4 +13,5 @@ dependencies = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["control4_transport*"]
+namespaces = true
+include = ["control4_transport*", "custom_components.control4_advanced*"]

@@ -83,6 +83,12 @@ class EventNormalizationTests(unittest.TestCase):
         )
         self.assertNotIn("current_temperature_c", fahrenheit.changes)
 
+    def test_rest_on_off_only_light_state_is_readable_but_not_push_proven(self) -> None:
+        off = normalize_rest_variables(978, "light_v2", [{"varName": "LIGHT_STATE", "value": 0}])
+        on = normalize_rest_variables(719, "light_v2", [{"varName": "LIGHT_STATE", "value": 1}])
+        self.assertEqual(off.changes, {"is_on": False})
+        self.assertEqual(on.changes, {"is_on": True})
+
     def test_stale_rest_field_does_not_replace_newer_push_field(self) -> None:
         cache = DeviceStateCache()
         baseline = cache.revision

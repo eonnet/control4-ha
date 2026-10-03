@@ -1,0 +1,10 @@
+{
+  "domain": "control4_advanced",
+  "name": "Control4 Advanced",
+  "version": "0.1.0",
+  "config_flow": true,
+  "integration_type": "hub",
+  "iot_class": "local_push",
+  "codeowners": [],
+  "requirements": ["pyControl4==2.0.2"]
+}

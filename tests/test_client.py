@@ -125,10 +125,14 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.transport.state.snapshot(2726)["brightness_percent"], 41.0)
 
     async def test_reconnect_reloads_rest_state(self) -> None:
+        statuses = []
+        self.transport.subscribe_connection(statuses.append)
         await self.transport.start()
+        self.assertEqual(statuses, [True])
         first_reads = self.rest.read_count
         socket = FakeWebsocket.instances[-1]
         await socket.sio_disconnect()
+        self.assertEqual(statuses[-1], False)
         self.rest.variables = [{"varName": "Brightness Percent", "value": 58}]
         await socket.sio_connect("test-token")
         for _ in range(100):
@@ -137,6 +141,7 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.01)
         self.assertGreater(self.rest.read_count, first_reads)
         self.assertEqual(self.transport.state.snapshot(2726)["brightness_percent"], 58.0)
+        self.assertEqual(statuses[-1], True)
 
     async def test_ready_waits_for_director_subscription_id(self) -> None:
         FakeWebsocket.delay_subscription = True

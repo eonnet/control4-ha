@@ -1,6 +1,9 @@
 # Phase 2 transport design
 
-`control4_transport` has no Home Assistant or C4SOAP dependency. Its runtime
+The canonical transport package is now
+`custom_components/control4_advanced/transport`; the root `control4_transport`
+package remains a compatibility import for standalone scripts/tests. The
+transport has no Home Assistant or C4SOAP dependency. Its runtime
 dependencies are `aiohttp` and the tested `pyControl4` 2.0.2 Socket.IO client.
 
 ## Flow
