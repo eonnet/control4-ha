@@ -1,0 +1,12 @@
+{
+  "domain": "control4_advanced",
+  "name": "Control4 Advanced",
+  "version": "0.1.0",
+  "documentation": "https://github.com/eonnet/control4-ha#readme",
+  "issue_tracker": "https://github.com/eonnet/control4-ha/issues",
+  "config_flow": true,
+  "integration_type": "hub",
+  "iot_class": "local_push",
+  "codeowners": ["@eonnet"],
+  "requirements": ["pyControl4==2.0.2"]
+}

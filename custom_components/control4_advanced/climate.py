@@ -1,0 +1,115 @@
+"""Push-driven Control4 thermostatV2 climate entities (Celsius first)."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from homeassistant.components.climate import ClimateEntity, ClimateEntityFeature, HVACMode
+from homeassistant.components.climate.const import ATTR_HVAC_MODE
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+
+from . import Control4Runtime
+from .entity import Control4Entity
+
+
+WIRE_MODES = {
+    "OFF": HVACMode.OFF,
+    "HEAT": HVACMode.HEAT,
+    "COOL": HVACMode.COOL,
+    "AUTO": HVACMode.AUTO,
+}
+MODE_COMMAND_KIND = {
+    HVACMode.HEAT: "HEAT",
+    HVACMode.COOL: "COOL",
+    HVACMode.AUTO: "SINGLE",
+}
+
+
+async def async_setup_entry(
+    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddConfigEntryEntitiesCallback
+) -> None:
+    runtime: Control4Runtime = entry.runtime_data
+    items = runtime.transport.inventory.items
+    async_add_entities([
+        Control4Climate(runtime, items[device_id])
+        for device_id in sorted(runtime.transport.tracked_ids)
+        if items[device_id].get("proxy") == "thermostatV2"
+        and runtime.transport.state.snapshot(device_id).get("scale") in {"CELSIUS", "C"}
+        and runtime.commands.supports(device_id, "SET_MODE_HVAC")
+        and any(runtime.commands.supports(device_id, f"SET_SETPOINT_{kind}")
+                for kind in MODE_COMMAND_KIND.values())
+    ])
+
+
+class Control4Climate(Control4Entity, ClimateEntity):
+    """Expose only advertised modes and Celsius setpoint commands."""
+
+    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _attr_target_temperature_step = 1.0
+    _attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE
+
+    @property
+    def hvac_modes(self) -> list[HVACMode]:
+        choices = self.runtime.commands.choices(self.device_id, "SET_MODE_HVAC", "MODE")
+        return [WIRE_MODES[choice.upper()] for choice in choices if choice.upper() in WIRE_MODES]
+
+    @property
+    def hvac_mode(self) -> HVACMode | None:
+        raw = self.state_data.get("hvac_mode")
+        return WIRE_MODES.get(raw) if isinstance(raw, str) else None
+
+    @property
+    def current_temperature(self) -> float | None:
+        return self.state_data.get("current_temperature_c")
+
+    @property
+    def target_temperature(self) -> float | None:
+        state = self.state_data
+        if self.hvac_mode == HVACMode.HEAT:
+            return state.get("heat_setpoint_c")
+        if self.hvac_mode == HVACMode.COOL:
+            return state.get("cool_setpoint_c")
+        if self.hvac_mode == HVACMode.AUTO:
+            return state.get("target_temperature_c")
+        return None
+
+    @property
+    def min_temp(self) -> float:
+        return self._setpoint_bounds()[0]
+
+    @property
+    def max_temp(self) -> float:
+        return self._setpoint_bounds()[1]
+
+    def _setpoint_bounds(self) -> tuple[float, float]:
+        kind = MODE_COMMAND_KIND.get(self.hvac_mode, "SINGLE")
+        if self.runtime.commands.supports(self.device_id, f"SET_SETPOINT_{kind}"):
+            bounds = self.runtime.commands.range(
+                self.device_id, f"SET_SETPOINT_{kind}", "CELSIUS"
+            )
+            if bounds is not None:
+                return bounds
+        return (6.0, 32.0)
+
+    async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
+        if hvac_mode not in self.hvac_modes:
+            raise HomeAssistantError("HVAC mode is not advertised by this thermostat")
+        await self.runtime.commands.hvac_mode(self.device_id, hvac_mode.value)
+
+    async def async_set_temperature(self, **kwargs: Any) -> None:
+        temperature = kwargs.get(ATTR_TEMPERATURE)
+        if temperature is None:
+            raise HomeAssistantError("A target temperature is required")
+        mode = kwargs.get(ATTR_HVAC_MODE, self.hvac_mode)
+        if mode not in MODE_COMMAND_KIND:
+            raise HomeAssistantError("Choose Heat, Cool, or Auto before setting a temperature")
+        kind = MODE_COMMAND_KIND[mode]
+        if not self.runtime.commands.supports(self.device_id, f"SET_SETPOINT_{kind}"):
+            raise HomeAssistantError("This thermostat does not advertise that setpoint command")
+        if ATTR_HVAC_MODE in kwargs and mode != self.hvac_mode:
+            await self.async_set_hvac_mode(mode)
+        await self.runtime.commands.setpoint(self.device_id, kind, temperature, "CELSIUS")

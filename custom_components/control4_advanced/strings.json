@@ -1,0 +1,31 @@
+{
+  "title": "Control4 Advanced",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Control4",
+        "description": "Use your Control4 account and local Director address. Credentials stay in Home Assistant's config entry.",
+        "data": {
+          "host": "Director address",
+          "username": "Control4 account username",
+          "password": "Control4 account password"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reauthenticate Control4",
+        "description": "Enter the current Control4 account password.",
+        "data": {"password": "Password"}
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot reach Control4 account service or Director",
+      "invalid_auth": "Control4 authentication failed",
+      "invalid_host": "Enter an address without a scheme, port, or path",
+      "no_devices": "No supported lights or thermostats were found"
+    },
+    "abort": {
+      "already_configured": "This Director is already configured",
+      "reauth_successful": "Control4 authentication updated"
+    }
+  }
+}
