@@ -1,0 +1,5 @@
+# Control4 Director speaks Socket.IO / Engine.IO v3.  pyControl4 selects the
+# compatible socketio_v4 client and implements the Director subscription flow.
+pyControl4==2.0.2
+aiohttp>=3.10,<4
+
