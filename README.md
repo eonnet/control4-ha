@@ -5,12 +5,11 @@ REST for authentication, inventory, initial state, and commands, and the
 `/api/v1/items/datatoui` WebSocket for normal state updates. It does not
 require C4SOAP or the separate Control4 MCP project.
 
-This is an early preview: the transport has been exercised against a Core3,
-but the custom component has **not yet been tested inside Home Assistant**.
-The REST command POST path is implemented from existing Control4 tooling and
-read-only Director command metadata; **this project has not issued a live
-write**. Test it in a non-critical Home Assistant instance before using
-controls or automations.
+This is an early preview: a user running Home Assistant 2026.9.4 reports that
+a light can be controlled and its state feedback appears about 3–4 seconds
+later. That interval has not been instrumented, and climate commands have not
+yet been verified in Home Assistant. Test each device type before using it in
+automations.
 
 ## Install with HACS
 
