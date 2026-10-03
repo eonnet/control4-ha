@@ -32,6 +32,16 @@ setpoint and HVAC mode. The probe prints JSON Lines with redacted payloads.
 Use `--force-reconnect-after 20` only to exercise a client-initiated local
 disconnect/reconnect; it does not command a Control4 device.
 
+For a focused, three-minute manual test of the currently identified entities:
+
+```bash
+/opt/control4-mcp/.venv/bin/python -u tools/websocket_probe.py \
+  --duration 180 --watch-ids 2646,2726,3177
+```
+
+The IDs are Living AC, Lamp Table, and Hallway respectively. Record the UTC
+time of each manual change; the Director's `time` field has only whole-second
+precision, while `received_at` is the probe's millisecond timestamp.
+
 See `docs/websocket-protocol.md` for the observed/upstream-derived protocol
 model and an evidence checklist.
-

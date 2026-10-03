@@ -53,6 +53,37 @@ The connection began producing many events immediately. That alone is
 insufficient to call them an initial snapshot: the probe must compare behavior
 before and after controlled state changes and REST reads.
 
+### Focused capture, 19:27:09–19:30:05 UTC
+
+The read-only probe watched REST inventory IDs `2646`, `2726`, and `3177` for
+180 seconds. It reached `LISTENING` at 19:27:09.274Z and exited cleanly at the
+duration limit. The following are observed Director events; the times of
+physical/user actions were not recorded independently, so their exact
+action-to-event latencies remain unmeasured.
+
+| Device ID | REST item | Received UTC | Observed payload |
+| ---: | --- | --- | --- |
+| 2726 | Lamp Table, `light_v2` | 19:27:17.551–19:27:19.070 | Brightness ramp 0→41; `LIGHT_LEVEL: 41`, then 41→0; `LIGHT_LEVEL: 0` |
+| 3177 | Hallway, `light_v2` | 19:27:19.939–19:27:23.730 | Ramp targets 21, 0, 62; `LIGHT_LEVEL: 70` |
+| 2646 | Living AC, `thermostatV2` | 19:27:28.118 | `settings` object plus separate `hvac_mode: Heat`, `hvacmode: HEAT`, `hvac_state: Heat`, `hvacstate: HEAT` |
+| 2646 | Living AC, `thermostatV2` | 19:27:31.929–19:27:32.127 | `setpoint_single_c: 19`, `setpoint_cool_c: 19`, `setpoint_heat_c: 19`, `cool_setpoint: 19`, `heat_setpoint: 19`; Fahrenheit and raw values also arrived separately |
+| 2646 | Living AC, `thermostatV2` | 19:27:42.911–19:27:42.912 | `hvac_mode: Off`, `hvacmode: OFF`, `hvac_state: Off`, `hvacstate: OFF` |
+| 3177 | Hallway, `light_v2` | 19:29:03.205–19:29:05.968 | Brightness target 0 followed by `LIGHT_LEVEL: 0` and changed 70→0 |
+
+These events establish useful push data for both light and thermostat proxy
+types, with `iddevice` matching the REST child item IDs. The payloads are
+partial: brightness ramps, settled levels, setpoint units, and HVAC mode can
+arrive as separate messages. The Director `time` value is Unix seconds;
+`received_at` adds the probe's millisecond timestamp. This permits only an
+approximate Director-to-probe delay because the Director timestamp is rounded
+to a whole second and its clock offset is not independently measured.
+
+The event sequence is consistent with the requested manual light and AC test,
+but no manual action log was provided during capture. Confirm which changes
+were manual and their UTC times before claiming measured physical-to-event
+latency. Initial snapshot behavior and recovery from an actual network outage
+also remain open.
+
 ## Flow
 
 ```text
