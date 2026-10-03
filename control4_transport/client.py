@@ -134,7 +134,21 @@ class Control4Transport:
 
     @property
     def connected(self) -> bool:
-        return self._connected
+        return self._connected and self._socket_active()
+
+    def _socket_active(self) -> bool:
+        if self._websocket is None:
+            return False
+        socket = getattr(self._websocket, "_sio", None)
+        if not getattr(socket, "connected", False):
+            return False
+        handlers = getattr(socket, "namespace_handlers", {})
+        return any(
+            getattr(handler, "uri", None) == "/api/v1/items/datatoui"
+            and getattr(handler, "connected", False)
+            and bool(getattr(handler, "subscription_id", None))
+            for handler in handlers.values()
+        )
 
     async def start(self, *, ready_timeout: float = 30.0) -> None:
         if self._run_task is not None:
@@ -269,8 +283,10 @@ class Control4Transport:
             refresh_at = token_expires_at - 300
             if now >= refresh_at:
                 return
+            if not self._socket_active():
+                return  # rebuild if upstream omitted the disconnect callback
             deadline = min(refresh_at, next_reconcile)
-            timeout = max(0.1, deadline - now)
+            timeout = min(1.0, max(0.1, deadline - now))
             try:
                 await asyncio.wait_for(self._disconnect_event.wait(), timeout=timeout)
                 self._disconnect_event.clear()
@@ -285,6 +301,8 @@ class Control4Transport:
                     await self._wait_for_subscription()
                     await self.sync_all(reason="reconnect")
             except asyncio.TimeoutError:
+                if not self._socket_active():
+                    return
                 if time.monotonic() >= next_reconcile:
                     await self.sync_all(reason="reconciliation")
                     next_reconcile = time.monotonic() + (self.reconciliation_seconds or 0)

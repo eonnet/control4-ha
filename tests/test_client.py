@@ -38,6 +38,7 @@ class FakeRest:
 class FakeWebsocket:
     instances: list[FakeWebsocket] = []
     delay_subscription = False
+    silent_disconnect = False
 
     def __init__(self, host, session, on_connect, on_disconnect) -> None:
         self.on_connect = on_connect
@@ -47,7 +48,9 @@ class FakeWebsocket:
         self.namespace = SimpleNamespace(
             uri="/api/v1/items/datatoui", connected=False, subscription_id=None
         )
-        self._sio = SimpleNamespace(namespace_handlers={"/": self.namespace})
+        self._sio = SimpleNamespace(
+            connected=False, namespace_handlers={"/": self.namespace}
+        )
         self.instances.append(self)
 
     def add_item_callback(self, item_id, callback) -> None:
@@ -55,6 +58,7 @@ class FakeWebsocket:
 
     async def sio_connect(self, token) -> None:
         self.connected = True
+        self._sio.connected = True
         await self.on_connect()
         if not self.delay_subscription:
             self.finish_subscription()
@@ -66,9 +70,11 @@ class FakeWebsocket:
     async def sio_disconnect(self) -> None:
         if self.connected:
             self.connected = False
+            self._sio.connected = False
             self.namespace.connected = False
             self.namespace.subscription_id = None
-            await self.on_disconnect()
+            if not self.silent_disconnect:
+                await self.on_disconnect()
 
     async def push(self, item_id: int, data: dict) -> None:
         await self.callbacks[item_id](
@@ -80,6 +86,7 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         FakeWebsocket.instances.clear()
         FakeWebsocket.delay_subscription = False
+        FakeWebsocket.silent_disconnect = False
         self.rest = FakeRest()
         self.transport = Control4Transport(
             self.rest, [2726], websocket_factory=FakeWebsocket
@@ -143,6 +150,20 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         FakeWebsocket.instances[-1].finish_subscription()
         await starting
         self.assertTrue(self.transport.connected)
+
+    async def test_silent_disconnect_rebuilds_websocket_and_resyncs(self) -> None:
+        await self.transport.start()
+        first = FakeWebsocket.instances[-1]
+        first_reads = self.rest.read_count
+        FakeWebsocket.silent_disconnect = True
+        await first.sio_disconnect()
+        self.assertFalse(self.transport.connected)
+        for _ in range(250):
+            if len(FakeWebsocket.instances) > 1 and self.rest.read_count > first_reads:
+                break
+            await asyncio.sleep(0.01)
+        self.assertGreater(len(FakeWebsocket.instances), 1)
+        self.assertGreater(self.rest.read_count, first_reads)
 
 
 if __name__ == "__main__":

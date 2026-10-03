@@ -38,8 +38,17 @@ Raw generic setpoint values such as `2921` are deliberately left uninterpreted.
 Unknown proxy payloads remain available in the event's `raw` field but do not
 mutate normalized state. Raw events and tokens are not logged by the library.
 
-The current live smoke test established a Director subscription and loaded
+Live verification on 2026-10-03 established a Director subscription and loaded
 REST snapshots for Living AC `2646` and Lamp Table `2726` through the new
-transport. Offline tests cover normalization, stale-read protection, 401
-refresh, reconnection resync, and callback delivery. A live normalized push
-event through this layer and a real network outage are still unverified.
+transport. A focused run then received two settled Lamp Table messages at
+19:51:28.552–19:51:28.553Z, both normalized to `brightness_percent: 26` and
+`is_on: true`. Director emitted the same settled value twice; consumers should
+treat repeated state values as idempotent.
+
+A local client disconnect initially exposed a stale connection flag. After
+the supervisor was changed to inspect the actual Socket.IO and subscription
+state, a repeated live test reported `connected: false` on disconnect,
+reconnected, and emitted a second REST snapshot before clean shutdown. Offline
+tests cover normalization, stale-read protection, 401 refresh, subscription
+readiness, silent disconnect recovery, reconnection resync, and callback
+delivery. Recovery from an actual network outage remains unverified.
