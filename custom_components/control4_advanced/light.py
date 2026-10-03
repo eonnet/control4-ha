@@ -11,6 +11,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import Control4Runtime
 from .entity import Control4Entity
+from .selection import supported_light_ids
 
 
 async def async_setup_entry(
@@ -20,11 +21,9 @@ async def async_setup_entry(
     items = runtime.transport.inventory.items
     async_add_entities([
         Control4Light(runtime, items[device_id])
-        for device_id in sorted(runtime.transport.tracked_ids)
-        if items[device_id].get("proxy") == "light_v2"
-        and bool(runtime.transport.state.snapshot(device_id))
-        and runtime.commands.supports(device_id, "ON")
-        and runtime.commands.supports(device_id, "OFF")
+        for device_id in supported_light_ids(
+            items, runtime.transport.tracked_ids, runtime.commands.supports
+        )
     ])
 
 
