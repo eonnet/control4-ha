@@ -244,6 +244,9 @@ class Control4Transport:
             event = normalize_websocket_event(raw, self.inventory.proxy(routed_device_id))
             if event is None or event.device_id not in self.tracked_ids:
                 return
+            if event.device_id != routed_device_id:
+                _LOGGER.warning("Control4 WebSocket event route mismatch; ignoring")
+                return
             self.state.apply(event)
             await self.events.publish(event)
         except Exception as exc:
