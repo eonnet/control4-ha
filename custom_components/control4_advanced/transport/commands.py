@@ -1,8 +1,8 @@
 """REST command validation against live Director metadata.
 
 This module never sends a command unless one of its explicit methods is called.
-The REST body shape follows the existing MCP client; it has not yet been
-validated with a live write from this integration.
+The REST body shape follows the existing MCP client. A user has reported live
+light control through this integration; climate commands remain unverified.
 """
 
 from __future__ import annotations

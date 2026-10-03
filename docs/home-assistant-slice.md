@@ -5,8 +5,8 @@ The deployable custom component now lives at
 Home Assistant-independent; `control4_transport` at the repository root is a
 compatibility import for standalone scripts and tests. Copy the component
 directory into Home Assistant's `custom_components/` and restart Home
-Assistant. The manifest installs pinned `pyControl4` 2.0.2. This component
-has **not yet been run inside a Home Assistant instance**.
+Assistant. The manifest installs pinned `pyControl4` 2.0.2. A user reports
+running the component in Home Assistant 2026.9.4.
 
 The config flow accepts a local Director hostname/IP and Control4 account
 credentials. The account service issues a Director JWT; a separate local
@@ -43,8 +43,12 @@ Command requests are checked against a live read of `/items/{id}/commands`
 before sending. The JSON POST body follows the production MCP REST client:
 `{"command": "...", "params": {...}}`. The command names, parameter names,
 allowed modes, and setpoint ranges were confirmed by read-only Director
-metadata on 2026-10-03. **No command POST has been issued by this project**;
-successful live writes and subsequent HA state transitions remain unverified.
+metadata on 2026-10-03. No agent-initiated command POST has been issued.
+On 2026-10-03, a user reported that a Home Assistant light command worked and
+the light's state feedback appeared about 3–4 seconds later. This is a
+user-reported end-to-end light result, not an instrumented latency measurement.
+The split between command execution, Director event delivery, and Home
+Assistant rendering is unknown. Climate writes and feedback remain unverified.
 
 A read-only Core3 smoke run on 2026-10-03 found 107 items with one of the
 target proxy names, but only 25 dimmable lights and 7 heating/cooling

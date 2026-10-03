@@ -3,7 +3,9 @@
 Phase 1 established usable Director WebSocket push events on this Core3.
 Phase 2 provides a small Home Assistant-independent transport layer. Phase 3
 now contains a first `light_v2` and Celsius `thermostatV2` custom-component
-slice; it has not yet been loaded in Home Assistant or used to send a command.
+slice. A user has installed it in Home Assistant 2026.9.4 and reports that a
+light command works and state feedback follows about 3–4 seconds later. That
+interval has not been instrumented, and climate control remains unverified.
 
 ## WebSocket probe
 
@@ -95,6 +97,6 @@ See [transport design](docs/transport.md) for field mappings and recovery rules.
 
 See [component scope and verification status](docs/home-assistant-slice.md).
 The component is self-contained under `custom_components/control4_advanced/`
-and can be copied into a Home Assistant configuration for an initial integration
-test. Do not enable write actions until the REST POST body and resulting push
-state have been separately verified against the live Director.
+and can be installed through HACS. One light's command and feedback have been
+reported working in Home Assistant; verify other device types separately
+before using them in automations.
