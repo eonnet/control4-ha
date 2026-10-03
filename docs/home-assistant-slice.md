@@ -27,8 +27,11 @@ The light platform currently selects only dimmable `light_v2` items with
 observed push semantics. It offers on/off and brightness only if Director
 advertises the matching commands/capabilities. On/off-only light variants were
 readable via REST `LIGHT_STATE` but their WebSocket payload has not been
-observed, so they are intentionally not exposed yet. The climate platform currently exposes
-only Celsius `thermostatV2` devices and advertised Off/Heat/Cool/Auto modes.
+observed, so they are intentionally not exposed yet. A supported light is
+registered even when its initial REST read fails: it remains unavailable until
+a settled push event or later REST reconciliation provides state. The climate
+platform currently exposes only Celsius `thermostatV2` devices and advertised
+Off/Heat/Cool/Auto modes.
 Heat/Cool/Auto setpoint routing uses Director's advertised
 `SET_SETPOINT_HEAT`, `SET_SETPOINT_COOL`, and `SET_SETPOINT_SINGLE` metadata.
 Device registry metadata comes from inventory (`roomName`, manufacturer,

@@ -20,18 +20,22 @@ class FakeRest:
         self.session = object()
         self.token_provider = FakeTokenProvider()
         self.variables = [{"varName": "Brightness Percent", "value": 0}]
+        self.items = [{"id": 2726, "name": "Lamp Table", "proxy": "light_v2"}]
         self.read_started = asyncio.Event()
         self.read_release: asyncio.Event | None = None
+        self.read_error: Exception | None = None
         self.read_count = 0
 
     async def get_items(self):
-        return [{"id": 2726, "name": "Lamp Table", "proxy": "light_v2"}]
+        return list(self.items)
 
     async def get_variables(self, device_id: int):
         self.read_count += 1
         self.read_started.set()
         if self.read_release is not None:
             await self.read_release.wait()
+        if self.read_error is not None:
+            raise self.read_error
         return list(self.variables)
 
 
@@ -124,6 +128,20 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         await sync
         self.assertEqual(self.transport.state.snapshot(2726)["brightness_percent"], 41.0)
 
+    async def test_push_recovers_state_after_initial_rest_read_failure(self) -> None:
+        self.rest.read_error = RuntimeError("temporary REST failure")
+        with self.assertLogs(
+            "custom_components.control4_advanced.transport.client", level="WARNING"
+        ):
+            await self.transport.start()
+        self.assertTrue(self.transport.connected)
+        self.assertEqual(self.transport.state.snapshot(2726), {})
+        await FakeWebsocket.instances[-1].push(2726, {"LIGHT_LEVEL": 41})
+        self.assertEqual(
+            self.transport.state.snapshot(2726),
+            {"brightness_percent": 41.0, "is_on": True},
+        )
+
     async def test_reconnect_reloads_rest_state(self) -> None:
         statuses = []
         self.transport.subscribe_connection(statuses.append)
@@ -169,6 +187,31 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.01)
         self.assertGreater(len(FakeWebsocket.instances), 1)
         self.assertGreater(self.rest.read_count, first_reads)
+
+    async def test_misrouted_websocket_event_cannot_update_another_device(self) -> None:
+        self.rest.items.append({"id": 2646, "name": "Second Lamp", "proxy": "light_v2"})
+        self.transport = Control4Transport(
+            self.rest, [2726, 2646], websocket_factory=FakeWebsocket
+        )
+        seen = []
+
+        async def observe(event):
+            seen.append(event)
+
+        self.transport.events.subscribe(observe)
+        await self.transport.start()
+        seen.clear()
+        socket = FakeWebsocket.instances[-1]
+        with self.assertLogs(
+            "custom_components.control4_advanced.transport.client", level="WARNING"
+        ):
+            await socket.callbacks[2726](
+                2726, {"evtName": "OnDataToUI", "iddevice": 2646, "data": {"LIGHT_LEVEL": 41}}
+            )
+        self.assertEqual(self.transport.state.snapshot(2646)["brightness_percent"], 0.0)
+        self.assertEqual(seen, [])
+        await socket.push(2646, {"LIGHT_LEVEL": 41})
+        self.assertEqual(self.transport.state.snapshot(2646)["brightness_percent"], 41.0)
 
 
 if __name__ == "__main__":
