@@ -1,7 +1,8 @@
 # Control4 Home Assistant integration
 
-This repository is intentionally in Phase 1: proving Control4 Director WebSocket
-events before any Home Assistant integration is created.
+Phase 1 established usable Director WebSocket push events on this Core3.
+Phase 2 provides a small Home Assistant independent transport layer. No custom
+component has been scaffolded yet.
 
 ## WebSocket probe
 
@@ -45,3 +46,46 @@ precision, while `received_at` is the probe's millisecond timestamp.
 
 See `docs/websocket-protocol.md` for the observed/upstream-derived protocol
 model and an evidence checklist.
+
+## Transport layer (Phase 2)
+
+`control4_transport` contains a direct Control4 account token provider, an
+authenticated Director REST client, inventory and state caches, an event
+dispatcher, and a WebSocket connection supervisor. It reads the tracked items'
+REST variables on startup and after reconnection. Periodic reconciliation is
+optional (`reconciliation_seconds=None` disables it). Normal push updates come
+from WebSocket events.
+
+The account provider accepts credentials in memory from its caller and obtains
+a Director token through Control4's account API. It does not invoke the MCP
+project or read that project's `.env`. Local Director TLS verification is
+controlled by the caller's `aiohttp.ClientSession` connector; cloud account
+requests always use verified TLS.
+
+```python
+import aiohttp
+from control4_transport import AccountTokenProvider, Control4Transport, DirectorRestClient
+
+provider = AccountTokenProvider(username, password, controller_common_name=None)
+async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
+    rest = DirectorRestClient("192.168.0.24", provider, session)
+    transport = Control4Transport(rest, tracked_ids=[2646, 2726])
+    try:
+        transport.events.subscribe(async_callback)
+        await transport.start()
+        # Read state with transport.state.snapshot(2646).
+    finally:
+        await transport.stop()
+```
+
+The example assumes `username` and `password` were supplied securely by the
+caller; do not log them. `DirectorRestClient.post_json()` exists as a generic
+REST operation, but the transport itself sends no device command.
+
+Run the offline transport tests with:
+
+```bash
+/opt/control4-mcp/.venv/bin/python -m unittest discover -s tests -v
+```
+
+See [transport design](docs/transport.md) for field mappings and recovery rules.

@@ -79,10 +79,10 @@ approximate Director-to-probe delay because the Director timestamp is rounded
 to a whole second and its clock offset is not independently measured.
 
 The event sequence is consistent with the requested manual light and AC test,
-but no manual action log was provided during capture. Confirm which changes
-were manual and their UTC times before claiming measured physical-to-event
-latency. Initial snapshot behavior and recovery from an actual network outage
-also remain open.
+and the user subsequently confirmed those changes were manual. Exact action
+times were not provided, so physical-to-event latency remains unmeasured.
+Initial snapshot behavior and recovery from an actual network outage also
+remain open.
 
 ## Flow
 

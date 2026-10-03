@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "control4-ha-transport"
+version = "0.1.0"
+description = "Push-first Control4 Director transport for Home Assistant integration work"
+requires-python = ">=3.12"
+dependencies = [
+    "aiohttp>=3.10,<4",
+    "pyControl4==2.0.2",
+]
+
+[tool.setuptools.packages.find]
+include = ["control4_transport*"]
