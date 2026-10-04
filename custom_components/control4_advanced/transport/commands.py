@@ -14,6 +14,7 @@ import math
 from typing import Any
 
 from .rest import DirectorRestClient, DirectorRestError
+from .sources import RoomSource
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -27,6 +28,16 @@ class DeviceCommandClient:
     def __init__(self, rest: DirectorRestClient) -> None:
         self.rest = rest
         self._metadata: dict[int, dict[str, dict[str, Any]]] = {}
+        self._room_sources: dict[int, frozenset[RoomSource]] = {}
+
+    def register_room_sources(self, room_id: int, sources: Iterable[RoomSource]) -> None:
+        """Register sources returned by the inventory-validated UI parser."""
+        if type(room_id) is not int or room_id <= 0:
+            raise ValueError("room ID must be a positive integer")
+        values = tuple(sources)
+        if not all(isinstance(source, RoomSource) for source in values):
+            raise ValueError("room sources must be parsed RoomSource records")
+        self._room_sources[room_id] = frozenset(values)
 
     async def refresh(self, device_ids: Iterable[int]) -> None:
         limit = asyncio.Semaphore(6)
@@ -98,6 +109,24 @@ class DeviceCommandClient:
     def supports_room_mute(self, room_id: int) -> bool:
         return self.supports_parameterless(room_id, "MUTE_ON") and self.supports_parameterless(
             room_id, "MUTE_OFF"
+        )
+
+    def supports_room_source(self, room_id: int, experience: str) -> bool:
+        """Require the source command shape observed on this Core3 room."""
+        command = {
+            "listen": "SELECT_AUDIO_DEVICE", "watch": "SELECT_VIDEO_DEVICE",
+        }.get(experience)
+        if command is None:
+            return False
+        record = self._metadata.get(room_id, {}).get(command)
+        if record is None or not isinstance(record.get("params"), list):
+            return False
+        specs = record["params"]
+        return (
+            len(specs) == 2
+            and all(isinstance(spec, dict) for spec in specs)
+            and {spec.get("name"): spec.get("valueType") for spec in specs}
+            == {"deviceid": "INTEGER", "deselect": "BOOL"}
         )
 
     def _parameter(self, device_id: int, command: str, name: str) -> dict[str, Any]:
@@ -179,6 +208,28 @@ class DeviceCommandClient:
         if type(muted) is not bool:
             raise UnsupportedCommand("room mute must be a boolean")
         return await self.send(room_id, "MUTE_ON" if muted else "MUTE_OFF")
+
+    async def room_source(self, room_id: int, source: RoomSource) -> Any:
+        """Select a validated UI source using pyControl4's documented argument.
+
+        `deselect` is advertised but is not supplied by pyControl4's source
+        selection method. This command deliberately sends only `deviceid`.
+        """
+        if type(room_id) is not int or room_id <= 0:
+            raise UnsupportedCommand("room ID must be a positive integer")
+        if not isinstance(source, RoomSource) or not self.supports_room_source(
+            room_id, source.experience
+        ):
+            raise UnsupportedCommand("Director did not advertise a compatible room-source command")
+        if type(source.device_id) is not int or not 0 < source.device_id <= 2147483647:
+            raise UnsupportedCommand("room source ID must be a positive inventory ID")
+        if source not in self._room_sources.get(room_id, frozenset()):
+            raise UnsupportedCommand("room source is not in the validated UI catalog")
+        command = "SELECT_AUDIO_DEVICE" if source.experience == "listen" else "SELECT_VIDEO_DEVICE"
+        return await self.rest.post_json(
+            f"/api/v1/items/{room_id}/commands",
+            {"command": command, "params": {"deviceid": source.device_id}},
+        )
 
     async def hvac_mode(self, device_id: int, mode: str) -> Any:
         return await self.send(device_id, "SET_MODE_HVAC", {"MODE": mode})

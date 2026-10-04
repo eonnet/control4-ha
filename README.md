@@ -57,7 +57,8 @@ Version 0.1.8 reads GREE's active target from its single-setpoint Celsius
 field in Heat and Cool. When REST confirms the separate heat/cool fields are
 zero, HA uses the Director-advertised `SET_SETPOINT_SINGLE` command for that
 thermostat; other thermostats keep their existing setpoint behavior. This is
-offline-tested and still needs a GREE HA write/feedback field test.
+offline-tested, and the user subsequently confirmed GREE setpoint operation
+in both directions.
 
 Version 0.1.9 adds a read-only room media player for rooms whose REST power,
 volume, and mute state is complete and whose active volume device uses the
@@ -70,8 +71,19 @@ the user confirmed volume and mute feedback in Home Assistant.
 Version 0.1.10 adds room volume and mute controls when Director advertises
 the exact integer 0–100 volume parameter and both parameterless mute
 commands. HA continues to display settled Director feedback rather than
-optimistically changing state. These Control4 write paths have not yet been
-field-tested. Playback, power, and source controls remain unavailable.
+optimistically changing state. The user confirmed volume and mute operation
+in both directions. Playback and power controls remain unavailable.
+
+Version 0.1.11 adds a Living room source selector from Director's
+`/api/v1/agents/ui_configuration` Watch/Listen catalog. Only entries mapped
+to supported inventory devices and a room-advertised source command appear;
+synthetic entries and UI buttons are excluded. The selector reads Director
+state after a command and does not optimistically claim a new source. Source
+selection has offline tests and a read-only Core3 catalog check, but the
+write path and external source-change latency still need a Home Assistant
+field test. The media player still requires a supported volume binding at
+startup, and external source changes may appear only after slow REST
+reconciliation if no usable push event arrives.
 
 State is initialized through REST, then updated from WebSocket events;
 entities do not poll for normal state. REST re-syncs after reconnect and on

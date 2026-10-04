@@ -7,7 +7,7 @@ runnable without installing Home Assistant.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import logging
 from typing import TYPE_CHECKING
 
@@ -26,6 +26,7 @@ from .transport import (
 )
 from .transport.auth import AuthenticationError, AuthenticationTransportError
 from .transport.rest import DirectorRestError
+from .transport.sources import RoomSource, room_sources
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -41,6 +42,7 @@ class Control4Runtime:
     transport: Control4Transport
     commands: DeviceCommandClient
     media_coordinators: dict[int, RoomVolumeCoordinator]
+    media_sources: dict[int, tuple[RoomSource, ...]] = field(default_factory=dict)
 
 
 async def _discover_media_room_ids(transport: Control4Transport) -> list[int]:
@@ -117,7 +119,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 # Media controls are optional; a failed metadata read leaves
                 # the room entity read-only without breaking other platforms.
                 pass
-        entry.runtime_data = Control4Runtime(session, transport, commands, media_coordinators)
+        media_sources: dict[int, tuple[RoomSource, ...]] = {}
+        if media_coordinators:
+            try:
+                ui_configuration = await rest.get_ui_configuration()
+            except Exception as exc:
+                # Source discovery is optional and raw UI configuration may
+                # include account or media labels; never log it.
+                _LOGGER.warning("Control4 source discovery failed: %s", type(exc).__name__)
+            else:
+                media_sources = {
+                    room_id: room_sources(ui_configuration, room_id, transport.inventory.items)
+                    for room_id in media_coordinators
+                }
+                for room_id, sources in media_sources.items():
+                    commands.register_room_sources(room_id, sources)
+        entry.runtime_data = Control4Runtime(
+            session, transport, commands, media_coordinators, media_sources
+        )
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
         try:
             remove_stale_registry_entries(

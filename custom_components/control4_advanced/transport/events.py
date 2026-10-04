@@ -259,6 +259,13 @@ def normalize_rest_variables(
         power = _rest_binary_state(by_name.get("POWER_STATE"))
         if power is not None:
             changes["is_on"] = power
+        selected = by_name.get("CURRENT_SELECTED_DEVICE")
+        if type(selected) is int and 0 <= selected <= 2147483647:
+            changes["selected_source_id"] = selected
+        elif isinstance(selected, str) and selected.isdecimal() and len(selected) <= 10:
+            parsed = int(selected)
+            if parsed <= 2147483647:
+                changes["selected_source_id"] = parsed
         volume = _number(by_name.get("CURRENT_VOLUME"))
         if volume is not None and 0 <= volume <= 100:
             changes["volume_percent"] = volume

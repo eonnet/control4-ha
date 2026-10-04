@@ -72,6 +72,13 @@ class DirectorRestClient:
             raise DirectorRestError("Director command metadata has an unexpected shape")
         return payload
 
+    async def get_ui_configuration(self) -> dict[str, Any]:
+        """Read Director's Watch/Listen source catalog without retaining raw media data."""
+        payload = await self.request_json("GET", "/api/v1/agents/ui_configuration")
+        if not isinstance(payload, dict) or not isinstance(payload.get("experiences"), list):
+            raise DirectorRestError("Director UI configuration has an unexpected shape")
+        return payload
+
     async def post_json(self, path: str, body: dict[str, Any]) -> Any:
         """Send caller-supplied REST JSON; no command schema is assumed here."""
         return await self.request_json("POST", path, body=body)
