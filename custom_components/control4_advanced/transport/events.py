@@ -236,6 +236,15 @@ def normalize_rest_variables(
         scale = _mode(_first(by_name, "SCALE", "V1 SCALE"))
         if scale:
             changes["scale"] = scale
+        single = _number(by_name.get("SINGLE_SETPOINT_C"))
+        heat = _number(by_name.get("HEAT_SETPOINT_C"))
+        cool = _number(by_name.get("COOL_SETPOINT_C"))
+        # GREE reports its active Celsius target in SINGLE_SETPOINT_C even
+        # while heating or cooling. Its heat/cool-specific REST fields are 0.
+        # Require all three fields before selecting this device profile; a
+        # missing field alone is not evidence of a single-setpoint thermostat.
+        if single is not None and single > 0 and heat == 0 and cool == 0:
+            changes["setpoint_profile"] = "SINGLE"
         hold_mode = _label(_first(by_name, "HOLD_MODE"))
         if hold_mode:
             changes["hold_mode"] = hold_mode

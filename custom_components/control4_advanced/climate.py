@@ -126,6 +126,8 @@ class Control4Climate(Control4Entity, ClimateEntity):
     @property
     def target_temperature(self) -> float | None:
         state = self.state_data
+        if state.get("setpoint_profile") == "SINGLE" and self.hvac_mode in MODE_COMMAND_KIND:
+            return state.get("target_temperature_c")
         if self.hvac_mode == HVACMode.HEAT:
             return state.get("heat_setpoint_c")
         if self.hvac_mode == HVACMode.COOL:
@@ -143,7 +145,7 @@ class Control4Climate(Control4Entity, ClimateEntity):
         return self._setpoint_bounds()[1]
 
     def _setpoint_bounds(self) -> tuple[float, float]:
-        kind = MODE_COMMAND_KIND.get(self.hvac_mode, "SINGLE")
+        kind = self._setpoint_kind(self.hvac_mode)
         if self.runtime.commands.supports(self.device_id, f"SET_SETPOINT_{kind}"):
             bounds = self.runtime.commands.range(
                 self.device_id, f"SET_SETPOINT_{kind}", "CELSIUS"
@@ -151,6 +153,11 @@ class Control4Climate(Control4Entity, ClimateEntity):
             if bounds is not None:
                 return bounds
         return (6.0, 32.0)
+
+    def _setpoint_kind(self, mode: HVACMode | None) -> str:
+        if self.state_data.get("setpoint_profile") == "SINGLE":
+            return "SINGLE"
+        return MODE_COMMAND_KIND.get(mode, "SINGLE")
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         if hvac_mode not in self.hvac_modes:
@@ -174,7 +181,7 @@ class Control4Climate(Control4Entity, ClimateEntity):
         mode = kwargs.get(ATTR_HVAC_MODE, self.hvac_mode)
         if mode not in MODE_COMMAND_KIND:
             raise HomeAssistantError("Choose Heat, Cool, or Auto before setting a temperature")
-        kind = MODE_COMMAND_KIND[mode]
+        kind = self._setpoint_kind(mode)
         if not self.runtime.commands.supports(self.device_id, f"SET_SETPOINT_{kind}"):
             raise HomeAssistantError("This thermostat does not advertise that setpoint command")
         if ATTR_HVAC_MODE in kwargs and mode != self.hvac_mode:

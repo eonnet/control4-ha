@@ -53,6 +53,12 @@ entity under **Settings → Devices & services → Entities**, then verify feedb
 from a manual Control4 change before testing HA control. Other relay proxies,
 `uibutton`, color, and dedicated fan entities remain excluded.
 
+Version 0.1.8 reads GREE's active target from its single-setpoint Celsius
+field in Heat and Cool. When REST confirms the separate heat/cool fields are
+zero, HA uses the Director-advertised `SET_SETPOINT_SINGLE` command for that
+thermostat; other thermostats keep their existing setpoint behavior. This is
+offline-tested and still needs a GREE HA write/feedback field test.
+
 State is initialized through REST, then updated from WebSocket events;
 entities do not poll for normal state. REST re-syncs after reconnect and on
 a slow reconciliation interval. Home Assistant device metadata includes the
