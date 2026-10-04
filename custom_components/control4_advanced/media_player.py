@@ -1,6 +1,8 @@
-"""Read-only room media status from Director REST, refreshed by bound-device push."""
+"""Room volume and mute, with settled state from Director REST."""
 
 from __future__ import annotations
+
+import math
 
 from homeassistant.components.media_player import (
     MediaPlayerEntity,
@@ -13,6 +15,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import Control4Runtime
 from .entity import Control4Entity
+from .transport.commands import UnsupportedCommand
 
 
 async def async_setup_entry(
@@ -27,9 +30,26 @@ async def async_setup_entry(
 
 
 class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
-    """Report the room's power, volume, and mute state without media writes."""
+    """Expose only commands supported by this room's Director metadata."""
 
-    _attr_supported_features = MediaPlayerEntityFeature(0)
+    @property
+    def supported_features(self) -> MediaPlayerEntityFeature:
+        features = MediaPlayerEntityFeature(0)
+        if self.runtime.commands.supports_room_volume(self.device_id):
+            features |= MediaPlayerEntityFeature.VOLUME_SET
+        if self.runtime.commands.supports_room_mute(self.device_id):
+            features |= MediaPlayerEntityFeature.VOLUME_MUTE
+        return features
+
+    async def async_set_volume_level(self, volume: float) -> None:
+        if not isinstance(volume, (int, float)) or isinstance(volume, bool):
+            raise UnsupportedCommand("Home Assistant room volume must be numeric")
+        if not math.isfinite(volume) or not 0 <= volume <= 1:
+            raise UnsupportedCommand("Home Assistant room volume must be between 0 and 1")
+        await self.runtime.commands.room_volume(self.device_id, math.floor(volume * 100 + 0.5))
+
+    async def async_mute_volume(self, mute: bool) -> None:
+        await self.runtime.commands.room_mute(self.device_id, mute)
 
     @property
     def state(self) -> MediaPlayerState | None:

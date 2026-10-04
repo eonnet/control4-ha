@@ -110,6 +110,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.warning("Control4 room volume setup failed: %s", type(exc).__name__)
                 continue
             media_coordinators[room_id] = coordinator
+        if media_coordinators:
+            try:
+                await commands.refresh(media_coordinators)
+            except DirectorRestError:
+                # Media controls are optional; a failed metadata read leaves
+                # the room entity read-only without breaking other platforms.
+                pass
         entry.runtime_data = Control4Runtime(session, transport, commands, media_coordinators)
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
         try:

@@ -64,8 +64,14 @@ volume, and mute state is complete and whose active volume device uses the
 observed `aswitch` push profile. Bound-device notifications trigger an
 immediate room REST refresh; the device notification itself does not set the
 room value. This first media slice advertises no volume, mute, playback,
-power, or source controls. Living/Wiim supplied the Director evidence, but
-the new HA entity still needs a field test.
+power, or source controls. Living/Wiim supplied the Director evidence, and
+the user confirmed volume and mute feedback in Home Assistant.
+
+Version 0.1.10 adds room volume and mute controls when Director advertises
+the exact integer 0–100 volume parameter and both parameterless mute
+commands. HA continues to display settled Director feedback rather than
+optimistically changing state. These Control4 write paths have not yet been
+field-tested. Playback, power, and source controls remain unavailable.
 
 State is initialized through REST, then updated from WebSocket events;
 entities do not poll for normal state. REST re-syncs after reconnect and on

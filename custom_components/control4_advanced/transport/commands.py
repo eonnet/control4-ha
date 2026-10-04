@@ -77,6 +77,29 @@ class DeviceCommandClient:
             return float(low), float(high)
         return None
 
+    def supports_room_volume(self, room_id: int) -> bool:
+        """Require the exact integer 0–100 room-volume contract seen on Director."""
+        record = self._metadata.get(room_id, {}).get("SET_VOLUME_LEVEL")
+        if record is None or not isinstance(record.get("params"), list):
+            return False
+        specs = record["params"]
+        if len(specs) != 1 or not isinstance(specs[0], dict):
+            return False
+        spec = specs[0]
+        resolution = spec.get("resolution")
+        return (
+            spec.get("name") == "LEVEL"
+            and spec.get("valueType") == "INTEGER"
+            and spec.get("low") == 0
+            and spec.get("high") == 100
+            and (resolution is None or resolution == 1)
+        )
+
+    def supports_room_mute(self, room_id: int) -> bool:
+        return self.supports_parameterless(room_id, "MUTE_ON") and self.supports_parameterless(
+            room_id, "MUTE_OFF"
+        )
+
     def _parameter(self, device_id: int, command: str, name: str) -> dict[str, Any]:
         record = self._metadata.get(device_id, {}).get(command)
         if record is None:
@@ -142,6 +165,20 @@ class DeviceCommandClient:
     async def relay_open(self, device_id: int) -> Any:
         """Open an advertised relay; physical mapping was observed for both supported proxies."""
         return await self.send(device_id, "OPEN")
+
+    async def room_volume(self, room_id: int, level_percent: int) -> Any:
+        if not self.supports_room_volume(room_id):
+            raise UnsupportedCommand("Director did not advertise a compatible room-volume command")
+        if type(level_percent) is not int or not 0 <= level_percent <= 100:
+            raise UnsupportedCommand("room volume must be an integer percentage from 0 to 100")
+        return await self.send(room_id, "SET_VOLUME_LEVEL", {"LEVEL": level_percent})
+
+    async def room_mute(self, room_id: int, muted: bool) -> Any:
+        if not self.supports_room_mute(room_id):
+            raise UnsupportedCommand("Director did not advertise both room-mute commands")
+        if type(muted) is not bool:
+            raise UnsupportedCommand("room mute must be a boolean")
+        return await self.send(room_id, "MUTE_ON" if muted else "MUTE_OFF")
 
     async def hvac_mode(self, device_id: int, mode: str) -> Any:
         return await self.send(device_id, "SET_MODE_HVAC", {"MODE": mode})
