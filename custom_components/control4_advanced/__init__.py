@@ -15,7 +15,10 @@ import aiohttp
 
 from .const import DEFAULT_RECONCILIATION_SECONDS, PLATFORMS
 from .registry_cleanup import remove_stale_registry_entries
-from .selection import command_metadata_ids, is_candidate_item, supported_media_room_ids
+from .selection import (
+    command_metadata_ids, is_candidate_item, registered_media_room_ids,
+    supported_media_room_ids,
+)
 from .transport import (
     AccountTokenProvider,
     Control4Transport,
@@ -45,8 +48,10 @@ class Control4Runtime:
     media_sources: dict[int, tuple[RoomSource, ...]] = field(default_factory=dict)
 
 
-async def _discover_media_room_ids(transport: Control4Transport) -> list[int]:
-    """Read candidate rooms once; expose only the observed volume profile."""
+async def _discover_media_room_ids(
+    transport: Control4Transport, known_room_ids: set[int] | None = None,
+) -> list[int]:
+    """Read rooms once; retain registered media rooms while powered off."""
     room_ids = [
         room_id
         for room_id, item in sorted(transport.inventory.items.items())
@@ -70,7 +75,7 @@ async def _discover_media_room_ids(transport: Control4Transport) -> list[int]:
         result for result in await asyncio.gather(*(inspect(room_id) for room_id in room_ids))
         if result is not None
     )
-    return supported_media_room_ids(transport.inventory.items, snapshots)
+    return supported_media_room_ids(transport.inventory.items, snapshots, known_room_ids or ())
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -104,7 +109,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await transport.start(ready_timeout=90)
         commands = DeviceCommandClient(rest)
         await commands.refresh(command_metadata_ids(transport.inventory.items, tracked_ids))
-        for room_id in await _discover_media_room_ids(transport):
+        known_media_rooms: set[int] = set()
+        try:
+            from homeassistant.helpers import entity_registry as er
+
+            known_media_rooms = registered_media_room_ids(
+                er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id),
+                config_entry_id=entry.entry_id,
+                host=host,
+                items=transport.inventory.items,
+            )
+        except Exception as exc:
+            _LOGGER.warning("Control4 media registry lookup failed: %s", type(exc).__name__)
+        for room_id in await _discover_media_room_ids(transport, known_media_rooms):
             coordinator = RoomVolumeCoordinator(transport, room_id)
             try:
                 await asyncio.wait_for(coordinator.start(), timeout=10)

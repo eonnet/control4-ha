@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
+from .const import DOMAIN
 from .transport.proxies import CONTACT_SENSOR_PROXIES, SUPPORTED_RELAY_PROXIES
 
 
@@ -77,14 +78,16 @@ def supported_binary_sensor_ids(
 
 
 def supported_media_room_ids(
-    items: Mapping[int, dict[str, Any]], snapshots: Mapping[int, Mapping[str, Any]]
+    items: Mapping[int, dict[str, Any]], snapshots: Mapping[int, Mapping[str, Any]],
+    known_room_ids: Iterable[int] = (),
 ) -> list[int]:
-    """Expose only rooms with a complete REST state and observed push profile.
+    """Expose proven rooms, retaining an already registered room while off.
 
     The bound ``aswitch`` OutputStatus stream is proven for Living/Wiim. A
     room with another volume-device proxy may still have useful REST state,
     but its normal push feedback has not yet been established.
     """
+    known = set(known_room_ids)
     result: list[int] = []
     for room_id, state in snapshots.items():
         item = items.get(room_id)
@@ -93,16 +96,46 @@ def supported_media_room_ids(
         bound_id = state.get("volume_device_id")
         bound = items.get(bound_id) if type(bound_id) is int and bound_id > 0 else None
         volume = state.get("volume_percent")
-        if (
+        supported_on = (
             bound is not None
             and bound.get("proxy") == "aswitch"
             and isinstance(state.get("is_on"), bool)
             and isinstance(state.get("is_muted"), bool)
             and type(volume) in (int, float)
             and 0 <= volume <= 100
-        ):
+        )
+        known_off = (
+            room_id in known
+            and state.get("is_on") is False
+            and type(state.get("selected_source_id")) is int
+            and state.get("selected_source_id") == 0
+            and type(state.get("volume_device_id")) is int
+            and state.get("volume_device_id") == 0
+        )
+        if supported_on or known_off:
             result.append(room_id)
     return sorted(result)
+
+
+def registered_media_room_ids(
+    entity_entries: Iterable[Any], *, config_entry_id: str, host: str,
+    items: Mapping[int, dict[str, Any]],
+) -> set[int]:
+    """Recognize only this integration's existing media entities for live rooms."""
+    room_unique_ids = {
+        f"{host}_{room_id}": room_id for room_id, item in items.items()
+        if item.get("typeName") == "room" and item.get("proxy") == "roomdevice"
+    }
+    return {
+        room_unique_ids[entry.unique_id]
+        for entry in entity_entries
+        if entry.config_entry_id == config_entry_id
+        and entry.platform == DOMAIN
+        and isinstance(entry.entity_id, str)
+        and entry.entity_id.startswith("media_player.")
+        and isinstance(entry.unique_id, str)
+        and entry.unique_id in room_unique_ids
+    }
 
 
 def command_metadata_ids(
