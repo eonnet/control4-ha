@@ -5,13 +5,12 @@ REST for authentication, inventory, initial state, and commands, and the
 `/api/v1/items/datatoui` WebSocket for normal state updates. It does not
 require C4SOAP or the separate Control4 MCP project.
 
-This is an early preview: a user running Home Assistant 2026.9.4 reports that
-light control works. A manual Control4 dimmer change appeared in Home
-Assistant about 3–4 seconds later; that interval has not been instrumented
-end-to-end. The same user also reports that thermostat state changes and HA
-setpoint/HVAC-mode commands work in both directions. These are field reports,
-not automated Home Assistant integration tests. Test each device before using
-it in automations.
+This is an early preview. In Home Assistant 2026.9.4, a user confirmed
+bidirectional light, climate, and radiant-floor relay operation, plus removal
+of a deleted Director device after reload. A manual Control4 dimmer change
+appeared in HA about 3–4 seconds later; that interval was not instrumented
+end-to-end. These are field reports, not automated HA integration tests. Test
+each device before using it in automations.
 
 ## Install with HACS
 
@@ -24,14 +23,15 @@ it in automations.
 
 The integration selects dimmable and on/off-only `light_v2` devices with
 advertised `ON`/`OFF` commands, Celsius `thermostatV2` devices with heat/cool
-capability, and `relaysingle_radiantfloor_c4` switches with advertised
-`OPEN`/`CLOSE` commands and a readable initial state. The radiant-floor
-switches are disabled by default because they control heating loads. Enable
-only the intended entity under **Settings → Devices & services → Entities**,
-then verify feedback from a manual Control4 change before testing HA control.
-On/off-only light and radiant-floor push were observed on a Core3, but these
-new HA entity paths have not yet been verified in a live HA installation.
-Other relay proxies, `uibutton`, and color/fan/hold controls remain excluded.
+capability, and `relaysingle_radiantfloor_c4` or `relaysingle_relay_c4`
+switches with advertised parameterless `OPEN`/`CLOSE` commands and a readable
+initial state. All newly discovered relay switches are disabled by default:
+these proxies include heating, fans, and other loads. Enable only the intended
+entity under **Settings → Devices & services → Entities**, then verify feedback
+from a manual Control4 change before testing HA control. Push and physical
+on/off mapping for one regular relay were observed on a Core3, but the new HA
+regular-relay path has not yet been verified. Other relay proxies, `uibutton`,
+and color/fan/hold controls remain excluded.
 
 State is initialized through REST, then updated from WebSocket events;
 entities do not poll for normal state. REST re-syncs after reconnect and on
@@ -40,7 +40,8 @@ Control4 room as a suggested area. Diagnostics omit credentials, raw events,
 locations, and device names.
 On reload, registry entries for Director items deleted from inventory are
 removed only after two successful inventory reads. This cleanup has offline
-tests but has not yet been verified in a live HA reload.
+tests and has been confirmed for one previously deleted device in a live HA
+reload.
 
 Authentication requires access to the Control4 account service. Once a
 Director token has been obtained, device communication is local. The local

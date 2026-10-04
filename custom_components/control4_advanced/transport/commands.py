@@ -9,10 +9,14 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Iterable
+import logging
 import math
 from typing import Any
 
-from .rest import DirectorRestClient
+from .rest import DirectorRestClient, DirectorRestError
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class UnsupportedCommand(ValueError):
@@ -27,17 +31,30 @@ class DeviceCommandClient:
     async def refresh(self, device_ids: Iterable[int]) -> None:
         limit = asyncio.Semaphore(6)
 
-        async def load_one(device_id: int) -> None:
+        async def load_one(device_id: int) -> bool:
             async with limit:
-                records = await self.rest.get_commands(device_id)
+                try:
+                    records = await self.rest.get_commands(device_id)
+                except DirectorRestError as exc:
+                    # A single unsupported relay must not hide healthy lights/climates.
+                    # Do not log the HTTP exception text; it may contain auth data.
+                    self._metadata.pop(device_id, None)
+                    _LOGGER.warning(
+                        "Control4 command metadata unavailable for item %s: %s",
+                        device_id, type(exc).__name__,
+                    )
+                    return False
                 self._metadata[device_id] = {
                     record["command"]: record
                     for record in records
                     if record.get("deviceId") == device_id
                     and isinstance(record.get("command"), str)
                 }
+                return True
 
-        await asyncio.gather(*(load_one(device_id) for device_id in sorted(set(device_ids))))
+        results = await asyncio.gather(*(load_one(device_id) for device_id in sorted(set(device_ids))))
+        if results and not any(results):
+            raise DirectorRestError("no Control4 command metadata could be read")
 
     def supports(self, device_id: int, command: str) -> bool:
         return command in self._metadata.get(device_id, {})
@@ -119,11 +136,11 @@ class DeviceCommandClient:
         return await self.send(device_id, "SET_LEVEL", {"LEVEL": level_percent})
 
     async def relay_close(self, device_id: int) -> Any:
-        """Close an advertised relay; physical on/off mapping was observed for the radiant-floor proxy."""
+        """Close an advertised relay; physical mapping was observed for both supported proxies."""
         return await self.send(device_id, "CLOSE")
 
     async def relay_open(self, device_id: int) -> Any:
-        """Open an advertised relay; physical on/off mapping was observed for the radiant-floor proxy."""
+        """Open an advertised relay; physical mapping was observed for both supported proxies."""
         return await self.send(device_id, "OPEN")
 
     async def hvac_mode(self, device_id: int, mode: str) -> Any:

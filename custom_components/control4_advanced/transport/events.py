@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from .proxies import RADIANT_FLOOR_RELAY_PROXY
+from .proxies import SUPPORTED_RELAY_PROXIES
 
 
 Source = Literal["websocket", "rest"]
@@ -145,7 +145,7 @@ def normalize_websocket_event(raw: Any, proxy: str | None) -> NormalizedEvent | 
     if event_type == "OnDataToUI":
         if proxy == "light_v2":
             changes, authoritative = _light_changes(data)
-        elif proxy == RADIANT_FLOOR_RELAY_PROXY:
+        elif proxy in SUPPORTED_RELAY_PROXIES:
             changes, authoritative = _relay_changes(data)
         elif proxy == "thermostatV2":
             changes = _thermostat_changes(data)
@@ -178,7 +178,7 @@ def normalize_rest_variables(
             state = _first(by_name, "LIGHT_STATE")
             if state is not None and str(state).strip().upper() in {"0", "1", "FALSE", "TRUE"}:
                 changes = {"is_on": str(state).strip().upper() in {"1", "TRUE"}}
-    elif proxy == RADIANT_FLOOR_RELAY_PROXY:
+    elif proxy in SUPPORTED_RELAY_PROXIES:
         state = _rest_relay_state(_first(by_name, "RELAYSTATE"))
         if state is not None:
             changes = {"is_on": state}

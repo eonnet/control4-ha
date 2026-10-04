@@ -1,4 +1,4 @@
-"""Push-driven radiant-floor relay switches, disabled until explicitly enabled in HA."""
+"""Push-driven relays, disabled until explicitly enabled in Home Assistant."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ async def async_setup_entry(
     runtime: Control4Runtime = entry.runtime_data
     items = runtime.transport.inventory.items
     async_add_entities([
-        Control4RadiantFloorSwitch(runtime, items[device_id])
+        Control4RelaySwitch(runtime, items[device_id])
         for device_id in supported_relay_ids(
             items,
             runtime.transport.tracked_ids,
@@ -32,10 +32,10 @@ async def async_setup_entry(
     ])
 
 
-class Control4RadiantFloorSwitch(Control4Entity, SwitchEntity):
+class Control4RelaySwitch(Control4Entity, SwitchEntity):
     """Use verified relay feedback; never optimistically flip HA state."""
 
-    # This proxy controls heating loads. Let the user enable each entity deliberately.
+    # Some relay loads are heating, fans, or other equipment. Require opt-in.
     _attr_entity_registry_enabled_default = False
 
     @property
