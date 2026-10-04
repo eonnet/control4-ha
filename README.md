@@ -59,6 +59,14 @@ zero, HA uses the Director-advertised `SET_SETPOINT_SINGLE` command for that
 thermostat; other thermostats keep their existing setpoint behavior. This is
 offline-tested and still needs a GREE HA write/feedback field test.
 
+Version 0.1.9 adds a read-only room media player for rooms whose REST power,
+volume, and mute state is complete and whose active volume device uses the
+observed `aswitch` push profile. Bound-device notifications trigger an
+immediate room REST refresh; the device notification itself does not set the
+room value. This first media slice advertises no volume, mute, playback,
+power, or source controls. Living/Wiim supplied the Director evidence, but
+the new HA entity still needs a field test.
+
 State is initialized through REST, then updated from WebSocket events;
 entities do not poll for normal state. REST re-syncs after reconnect and on
 a slow reconciliation interval. Home Assistant device metadata includes the

@@ -6,6 +6,7 @@ runnable without installing Home Assistant.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 import logging
 from typing import TYPE_CHECKING
@@ -14,8 +15,15 @@ import aiohttp
 
 from .const import DEFAULT_RECONCILIATION_SECONDS, PLATFORMS
 from .registry_cleanup import remove_stale_registry_entries
-from .selection import command_metadata_ids, is_candidate_item
-from .transport import AccountTokenProvider, Control4Transport, DeviceCommandClient, DirectorRestClient
+from .selection import command_metadata_ids, is_candidate_item, supported_media_room_ids
+from .transport import (
+    AccountTokenProvider,
+    Control4Transport,
+    DeviceCommandClient,
+    DirectorRestClient,
+    RoomVolumeCoordinator,
+    normalize_rest_variables,
+)
 from .transport.auth import AuthenticationError, AuthenticationTransportError
 from .transport.rest import DirectorRestError
 
@@ -32,6 +40,35 @@ class Control4Runtime:
     session: aiohttp.ClientSession
     transport: Control4Transport
     commands: DeviceCommandClient
+    media_coordinators: dict[int, RoomVolumeCoordinator]
+
+
+async def _discover_media_room_ids(transport: Control4Transport) -> list[int]:
+    """Read candidate rooms once; expose only the observed volume profile."""
+    room_ids = [
+        room_id
+        for room_id, item in sorted(transport.inventory.items.items())
+        if item.get("typeName") == "room" and item.get("proxy") == "roomdevice"
+    ]
+    limit = asyncio.Semaphore(4)
+
+    async def inspect(room_id: int) -> tuple[int, dict] | None:
+        async with limit:
+            try:
+                variables = await asyncio.wait_for(
+                    transport.rest.get_variables(room_id), timeout=5
+                )
+            except Exception as exc:
+                # Optional media discovery must not hold up existing devices.
+                _LOGGER.warning("Control4 room state discovery failed: %s", type(exc).__name__)
+                return None
+            return room_id, normalize_rest_variables(room_id, "roomdevice", variables).changes
+
+    snapshots = dict(
+        result for result in await asyncio.gather(*(inspect(room_id) for room_id in room_ids))
+        if result is not None
+    )
+    return supported_media_room_ids(transport.inventory.items, snapshots)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -43,6 +80,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     provider = AccountTokenProvider(entry.data[CONF_USERNAME], entry.data[CONF_PASSWORD])
     session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False))
     transport = None
+    media_coordinators: dict[int, RoomVolumeCoordinator] = {}
     setup_complete = False
     try:
         rest = DirectorRestClient(host, provider, session)
@@ -64,7 +102,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await transport.start(ready_timeout=90)
         commands = DeviceCommandClient(rest)
         await commands.refresh(command_metadata_ids(transport.inventory.items, tracked_ids))
-        entry.runtime_data = Control4Runtime(session, transport, commands)
+        for room_id in await _discover_media_room_ids(transport):
+            coordinator = RoomVolumeCoordinator(transport, room_id)
+            try:
+                await asyncio.wait_for(coordinator.start(), timeout=10)
+            except Exception as exc:
+                _LOGGER.warning("Control4 room volume setup failed: %s", type(exc).__name__)
+                continue
+            media_coordinators[room_id] = coordinator
+        entry.runtime_data = Control4Runtime(session, transport, commands, media_coordinators)
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
         try:
             remove_stale_registry_entries(
@@ -89,6 +135,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         raise ConfigEntryNotReady(f"Control4 connection failed ({type(exc).__name__})") from None
     finally:
         if not setup_complete:
+            for coordinator in media_coordinators.values():
+                await coordinator.stop()
             if transport is not None:
                 await transport.stop()
             await session.close()
@@ -99,6 +147,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
         runtime: Control4Runtime = entry.runtime_data
+        for coordinator in runtime.media_coordinators.values():
+            await coordinator.stop()
         await runtime.transport.stop()
         await runtime.session.close()
     return unloaded

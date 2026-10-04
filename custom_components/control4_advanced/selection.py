@@ -76,6 +76,35 @@ def supported_binary_sensor_ids(
     ]
 
 
+def supported_media_room_ids(
+    items: Mapping[int, dict[str, Any]], snapshots: Mapping[int, Mapping[str, Any]]
+) -> list[int]:
+    """Expose only rooms with a complete REST state and observed push profile.
+
+    The bound ``aswitch`` OutputStatus stream is proven for Living/Wiim. A
+    room with another volume-device proxy may still have useful REST state,
+    but its normal push feedback has not yet been established.
+    """
+    result: list[int] = []
+    for room_id, state in snapshots.items():
+        item = items.get(room_id)
+        if not item or item.get("typeName") != "room" or item.get("proxy") != "roomdevice":
+            continue
+        bound_id = state.get("volume_device_id")
+        bound = items.get(bound_id) if type(bound_id) is int and bound_id > 0 else None
+        volume = state.get("volume_percent")
+        if (
+            bound is not None
+            and bound.get("proxy") == "aswitch"
+            and isinstance(state.get("is_on"), bool)
+            and isinstance(state.get("is_muted"), bool)
+            and type(volume) in (int, float)
+            and 0 <= volume <= 100
+        ):
+            result.append(room_id)
+    return sorted(result)
+
+
 def command_metadata_ids(
     items: Mapping[int, dict[str, Any]], tracked_ids: Iterable[int]
 ) -> list[int]:

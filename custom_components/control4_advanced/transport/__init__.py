@@ -4,6 +4,7 @@ from .auth import AccountTokenProvider, DirectorToken, TokenProvider
 from .client import Control4Transport, DeviceStateCache, EventDispatcher, InventoryCache
 from .commands import DeviceCommandClient, UnsupportedCommand
 from .events import NormalizedEvent, normalize_rest_variables, normalize_websocket_event
+from .media import RoomVolumeCoordinator
 from .rest import DirectorRestClient, DirectorRestError
 
 __all__ = [
@@ -17,6 +18,7 @@ __all__ = [
     "EventDispatcher",
     "InventoryCache",
     "NormalizedEvent",
+    "RoomVolumeCoordinator",
     "TokenProvider",
     "UnsupportedCommand",
     "normalize_rest_variables",

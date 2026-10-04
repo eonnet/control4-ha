@@ -117,6 +117,26 @@ def _contact_changes(data: Mapping[str, Any]) -> tuple[dict[str, Any], bool]:
     return {}, False
 
 
+def _volume_device_changes(data: Mapping[str, Any]) -> dict[str, Any]:
+    """Decode the observed Wiim aswitch OutputStatus without assuming a room."""
+    status = data.get("OutputStatus")
+    if not isinstance(status, Mapping):
+        return {}
+    output_id = status.get("OutputID")
+    if type(output_id) is not int or not 0 <= output_id <= 2147483647:
+        return {}
+    changes: dict[str, Any] = {}
+    volume = _number(status.get("VolumeLevel"))
+    if volume is not None and 0 <= volume <= 100:
+        changes["output_volume_percent"] = volume
+    muted = status.get("MuteFlag")
+    if isinstance(muted, bool):
+        changes["output_is_muted"] = muted
+    if changes:
+        changes["output_id"] = output_id
+    return changes
+
+
 def _thermostat_changes(data: Mapping[str, Any]) -> dict[str, Any]:
     settings = data.get("settings")
     settings = settings if isinstance(settings, Mapping) else {}
@@ -193,6 +213,9 @@ def normalize_websocket_event(raw: Any, proxy: str | None) -> NormalizedEvent | 
             changes, authoritative = _relay_changes(data)
         elif proxy in CONTACT_SENSOR_PROXIES:
             changes, authoritative = _contact_changes(data)
+        elif proxy == "aswitch":
+            changes = _volume_device_changes(data)
+            authoritative = bool(changes)
         elif proxy == "thermostatV2":
             changes = _thermostat_changes(data)
             authoritative = bool(changes)
@@ -232,6 +255,21 @@ def normalize_rest_variables(
         state = _rest_binary_state(_first(by_name, "CONTACTSTATE"))
         if state is not None:
             changes = {"director_contact_state": "CLOSED" if state else "OPENED", "is_on": not state}
+    elif proxy == "roomdevice":
+        power = _rest_binary_state(by_name.get("POWER_STATE"))
+        if power is not None:
+            changes["is_on"] = power
+        volume = _number(by_name.get("CURRENT_VOLUME"))
+        if volume is not None and 0 <= volume <= 100:
+            changes["volume_percent"] = volume
+        muted = _rest_binary_state(by_name.get("IS_MUTED"))
+        if muted is not None:
+            changes["is_muted"] = muted
+        volume_device_id = by_name.get("CURRENT_VOLUME_DEVICE_ID")
+        if type(volume_device_id) is int and 0 <= volume_device_id <= 2147483647:
+            changes["volume_device_id"] = volume_device_id
+        elif isinstance(volume_device_id, str) and volume_device_id.isdecimal() and len(volume_device_id) <= 10:
+            changes["volume_device_id"] = int(volume_device_id)
     elif proxy == "thermostatV2":
         scale = _mode(_first(by_name, "SCALE", "V1 SCALE"))
         if scale:
