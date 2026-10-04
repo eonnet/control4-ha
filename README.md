@@ -92,8 +92,11 @@ a reload while its off-state binding is zero. A guarded Off control is shown
 when the room is on and Director advertises `ROOM_OFF`; HA confirms the result
 with a settled REST read. The user confirmed that selecting a source turns
 Living on. There is no generic On control because no source can be chosen
-without a user-defined rule. The new Off control and off-state reload still
-need an HA field test.
+without a user-defined rule. The user subsequently confirmed that Living
+turned off from HA, remained visible as Off after an integration reload,
+and turned back on through source selection with the previous volume and
+mute values. Both volume and mute feedback worked after that power cycle.
+These reports validate the current Living/Wiim binding, not other rooms.
 
 State is initialized through REST, then updated from WebSocket events;
 entities do not poll when a usable push path has been proven. REST re-syncs
