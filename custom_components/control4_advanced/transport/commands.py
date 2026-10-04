@@ -146,6 +146,18 @@ class DeviceCommandClient:
     async def hvac_mode(self, device_id: int, mode: str) -> Any:
         return await self.send(device_id, "SET_MODE_HVAC", {"MODE": mode})
 
+    async def hold_mode(self, device_id: int, mode: str) -> Any:
+        """Set only a hold mode explicitly listed in this device's metadata."""
+        if not self.choices(device_id, "SET_MODE_HOLD", "MODE"):
+            raise UnsupportedCommand("Director did not advertise hold-mode choices")
+        return await self.send(device_id, "SET_MODE_HOLD", {"MODE": mode})
+
+    async def preset(self, device_id: int, name: str) -> Any:
+        """Apply only a named preset explicitly listed in this device's metadata."""
+        if not self.choices(device_id, "SET_PRESET", "NAME"):
+            raise UnsupportedCommand("Director did not advertise preset choices")
+        return await self.send(device_id, "SET_PRESET", {"NAME": name})
+
     async def setpoint(self, device_id: int, kind: str, temperature: float, scale: str) -> Any:
         if kind not in {"HEAT", "COOL", "SINGLE"} or scale not in {"CELSIUS", "FAHRENHEIT"}:
             raise UnsupportedCommand("unsupported setpoint kind or scale")

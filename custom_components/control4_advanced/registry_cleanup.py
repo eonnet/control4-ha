@@ -18,6 +18,8 @@ def _director_id(unique_id: str, host: str) -> int | None:
     if not unique_id.startswith(prefix):
         return None
     suffix = unique_id[len(prefix):]
+    if suffix.endswith("_hold_mode"):
+        suffix = suffix[:-len("_hold_mode")]
     if not suffix.isascii() or not suffix.isdecimal():
         return None
     device_id = int(suffix)

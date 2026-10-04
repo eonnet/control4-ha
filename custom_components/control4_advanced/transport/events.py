@@ -48,6 +48,14 @@ def _mode(value: Any) -> str | None:
     return result if result and result != "-" else None
 
 
+def _label(value: Any) -> str | None:
+    """Preserve Director's display casing for named thermostat settings."""
+    if not isinstance(value, str):
+        return None
+    result = value.strip()
+    return result if result and result != "-" else None
+
+
 def _first(mapping: Mapping[str, Any], *keys: str) -> Any:
     for key in keys:
         value = mapping.get(key)
@@ -117,6 +125,16 @@ def _thermostat_changes(data: Mapping[str, Any]) -> dict[str, Any]:
     scale = _mode(_first(data, "scale") or settings.get("scale"))
     if scale:
         changes["scale"] = scale
+
+    # Core3 emits the UI labels separately. Do not use `holdmode` or
+    # `settings.holdmode`: the captured transition briefly mixed old and new
+    # values in those legacy-shaped fields before the direct `hold_mode` update.
+    hold_mode = _label(data.get("hold_mode"))
+    if hold_mode:
+        changes["hold_mode"] = hold_mode
+    preset_mode = _label(data.get("preset"))
+    if preset_mode:
+        changes["preset_mode"] = preset_mode
 
     mode = _mode(_first(data, "hvac_mode", "hvacmode") or _first(settings, "hvacmode"))
     if mode:
@@ -208,6 +226,12 @@ def normalize_rest_variables(
         scale = _mode(_first(by_name, "SCALE", "V1 SCALE"))
         if scale:
             changes["scale"] = scale
+        hold_mode = _label(_first(by_name, "HOLD_MODE"))
+        if hold_mode:
+            changes["hold_mode"] = hold_mode
+        preset_mode = _label(_first(by_name, "PRESET"))
+        if preset_mode:
+            changes["preset_mode"] = preset_mode
         mode = _mode(_first(by_name, "HVAC_MODE", "V1 HVACMODE", "ANA_HVACMODE"))
         if mode:
             changes["hvac_mode"] = mode

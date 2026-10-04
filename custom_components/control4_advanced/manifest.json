@@ -1,7 +1,7 @@
 {
   "domain": "control4_advanced",
   "name": "Control4 Advanced",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "documentation": "https://github.com/eonnet/control4-ha#readme",
   "issue_tracker": "https://github.com/eonnet/control4-ha/issues",
   "config_flow": true,

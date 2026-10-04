@@ -29,13 +29,18 @@ switches with advertised parameterless `OPEN`/`CLOSE` commands and a readable
 initial state. Version 0.1.4 also adds read-only `window` and `motion` binary
 sensors for the observed `contactsingle_windowcontactsensor_c4` and
 `contactsingle_motionsensor_c4` proxies. Their REST initial-state and settled
-WebSocket mappings were traced on a Core3, but the new HA entities have not
-yet been field-tested. All newly discovered relay switches are disabled by
-default:
+WebSocket mappings were traced on a Core3, and the user reports both Kid
+Window and Kid PIR working correctly in HA. Version 0.1.5 adds the
+Director-advertised named presets to the climate selector for thermostats
+with a readable active preset, plus a companion hold-mode select for
+thermostats with a readable hold state. Living AC supplied the preset and
+hold push evidence; Kid AC advertised hold but no `SET_PRESET` command.
+These new HA controls are offline-tested but not yet field-tested. All newly
+discovered relay switches are disabled by default:
 these proxies include heating, fans, and other loads. Enable only the intended
 entity under **Settings → Devices & services → Entities**, then verify feedback
 from a manual Control4 change before testing HA control. Other relay proxies, `uibutton`,
-and color/fan/hold controls remain excluded.
+and color/fan controls remain excluded.
 
 State is initialized through REST, then updated from WebSocket events;
 entities do not poll for normal state. REST re-syncs after reconnect and on

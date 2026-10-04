@@ -14,6 +14,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import Control4Runtime
 from .entity import Control4Entity
+from .transport.commands import UnsupportedCommand
 
 
 WIRE_MODES = {
@@ -46,11 +47,45 @@ async def async_setup_entry(
 
 
 class Control4Climate(Control4Entity, ClimateEntity):
-    """Expose only advertised modes and Celsius setpoint commands."""
+    """Expose advertised Celsius controls, observed presets, and hold status."""
 
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_target_temperature_step = 1.0
     _attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE
+
+    def __init__(self, runtime: Control4Runtime, item: dict[str, Any]) -> None:
+        super().__init__(runtime, item)
+        self._preset_options: list[str] = []
+        if runtime.commands.supports(self.device_id, "SET_PRESET"):
+            try:
+                choices = runtime.commands.choices(self.device_id, "SET_PRESET", "NAME")
+            except UnsupportedCommand:
+                choices = []
+            current = self.state_data.get("preset_mode")
+            if isinstance(current, str) and any(
+                choice.casefold() == current.casefold() for choice in choices
+            ):
+                self._preset_options = choices
+                self._attr_supported_features |= ClimateEntityFeature.PRESET_MODE
+
+    @property
+    def preset_modes(self) -> list[str]:
+        return self._preset_options
+
+    @property
+    def preset_mode(self) -> str | None:
+        current = self.state_data.get("preset_mode")
+        if not isinstance(current, str):
+            return None
+        return next(
+            (choice for choice in self._preset_options if choice.casefold() == current.casefold()),
+            None,
+        )
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str]:
+        hold = self.state_data.get("hold_mode")
+        return {"control4_hold_mode": hold} if isinstance(hold, str) else {}
 
     @property
     def hvac_modes(self) -> list[HVACMode]:
@@ -99,6 +134,11 @@ class Control4Climate(Control4Entity, ClimateEntity):
         if hvac_mode not in self.hvac_modes:
             raise HomeAssistantError("HVAC mode is not advertised by this thermostat")
         await self.runtime.commands.hvac_mode(self.device_id, hvac_mode.value)
+
+    async def async_set_preset_mode(self, preset_mode: str) -> None:
+        if preset_mode not in self._preset_options:
+            raise HomeAssistantError("Preset is not advertised by this thermostat")
+        await self.runtime.commands.preset(self.device_id, preset_mode)
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         temperature = kwargs.get(ATTR_TEMPERATURE)
