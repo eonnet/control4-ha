@@ -43,6 +43,8 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
             features |= MediaPlayerEntityFeature.VOLUME_MUTE
         if self._sources():
             features |= MediaPlayerEntityFeature.SELECT_SOURCE
+        if self.state == MediaPlayerState.ON and self.runtime.commands.supports_room_off(self.device_id):
+            features |= MediaPlayerEntityFeature.TURN_OFF
         return features
 
     def _sources(self) -> tuple[RoomSource, ...]:
@@ -104,6 +106,18 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
                 await asyncio.sleep(delay)
             await self.runtime.transport.sync_device(self.device_id)
             if self.state_data.get("selected_source_id") == selected.device_id:
+                break
+
+    async def async_turn_off(self) -> None:
+        if self.state != MediaPlayerState.ON or not self.runtime.commands.supports_room_off(self.device_id):
+            raise UnsupportedCommand("room off is unavailable for this room state")
+        await self.runtime.commands.room_off(self.device_id)
+        # The command response is not state feedback; confirm from Director.
+        for delay in (0, 0.25, 0.5, 1.0, 1.0):
+            if delay:
+                await asyncio.sleep(delay)
+            await self.runtime.transport.sync_device(self.device_id)
+            if self.state == MediaPlayerState.OFF:
                 break
 
     @property

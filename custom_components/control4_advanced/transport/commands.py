@@ -111,6 +111,10 @@ class DeviceCommandClient:
             room_id, "MUTE_OFF"
         )
 
+    def supports_room_off(self, room_id: int) -> bool:
+        """Require Director's parameterless room-off command."""
+        return self.supports_parameterless(room_id, "ROOM_OFF")
+
     def supports_room_source(self, room_id: int, experience: str) -> bool:
         """Require the source command shape observed on this Core3 room."""
         command = {
@@ -208,6 +212,11 @@ class DeviceCommandClient:
         if type(muted) is not bool:
             raise UnsupportedCommand("room mute must be a boolean")
         return await self.send(room_id, "MUTE_ON" if muted else "MUTE_OFF")
+
+    async def room_off(self, room_id: int) -> Any:
+        if not self.supports_room_off(room_id):
+            raise UnsupportedCommand("Director did not advertise a parameterless room-off command")
+        return await self.send(room_id, "ROOM_OFF")
 
     async def room_source(self, room_id: int, source: RoomSource) -> Any:
         """Select a validated UI source using pyControl4's documented argument.
