@@ -40,7 +40,8 @@ not identify every option tested or whether Kid AC hold was included. Version
 0.1.6 adds climate fan-mode choices from live Director metadata (`Auto`, `Low`,
 `Medium`, `High`) on both Living AC and Kid AC. Kid AC fan changes produced
 direct WebSocket feedback; Living AC fan labels were observed during preset
-changes. HA-originated fan commands are not yet field-tested. All newly
+changes. The user reports fan mode working in both directions in HA; the
+specific ACs and choices tested were not identified separately. All newly
 discovered relay switches are disabled by default:
 these proxies include heating, fans, and other loads. Enable only the intended
 entity under **Settings → Devices & services → Entities**, then verify feedback
