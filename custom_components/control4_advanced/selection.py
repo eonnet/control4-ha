@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
-from .transport.proxies import SUPPORTED_RELAY_PROXIES
+from .transport.proxies import CONTACT_SENSOR_PROXIES, SUPPORTED_RELAY_PROXIES
 
 
 def is_candidate_item(item: dict[str, Any]) -> bool:
@@ -13,6 +13,8 @@ def is_candidate_item(item: dict[str, Any]) -> bool:
         return False
     proxy = item.get("proxy")
     if isinstance(proxy, str) and proxy in SUPPORTED_RELAY_PROXIES:
+        return True
+    if isinstance(proxy, str) and proxy in CONTACT_SENSOR_PROXIES:
         return True
     capabilities = item.get("capabilities")
     if not isinstance(capabilities, dict):
@@ -59,4 +61,27 @@ def supported_relay_ids(
         and supports_command(device_id, "OPEN")
         and supports_command(device_id, "CLOSE")
         and has_initial_state(device_id)
+    ]
+
+
+def supported_binary_sensor_ids(
+    items: Mapping[int, dict[str, Any]], tracked_ids: Iterable[int]
+) -> list[int]:
+    """Expose only the two contact proxies with observed REST and push state."""
+    return [
+        device_id
+        for device_id in sorted(tracked_ids)
+        if is_candidate_item(items[device_id])
+        and items[device_id].get("proxy") in CONTACT_SENSOR_PROXIES
+    ]
+
+
+def command_metadata_ids(
+    items: Mapping[int, dict[str, Any]], tracked_ids: Iterable[int]
+) -> list[int]:
+    """Do not fetch command metadata for read-only contact sensors."""
+    return [
+        device_id
+        for device_id in sorted(tracked_ids)
+        if items[device_id].get("proxy") not in CONTACT_SENSOR_PROXIES
     ]

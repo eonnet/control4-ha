@@ -14,7 +14,7 @@ import aiohttp
 
 from .const import DEFAULT_RECONCILIATION_SECONDS, PLATFORMS
 from .registry_cleanup import remove_stale_registry_entries
-from .selection import is_candidate_item
+from .selection import command_metadata_ids, is_candidate_item
 from .transport import AccountTokenProvider, Control4Transport, DeviceCommandClient, DirectorRestClient
 from .transport.auth import AuthenticationError, AuthenticationTransportError
 from .transport.rest import DirectorRestError
@@ -63,7 +63,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
         await transport.start(ready_timeout=90)
         commands = DeviceCommandClient(rest)
-        await commands.refresh(tracked_ids)
+        await commands.refresh(command_metadata_ids(transport.inventory.items, tracked_ids))
         entry.runtime_data = Control4Runtime(session, transport, commands)
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
         try:

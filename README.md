@@ -6,8 +6,9 @@ REST for authentication, inventory, initial state, and commands, and the
 require C4SOAP or the separate Control4 MCP project.
 
 This is an early preview. In Home Assistant 2026.9.4, a user confirmed
-bidirectional light, climate, and radiant-floor relay operation, plus removal
-of a deleted Director device after reload. A manual Control4 dimmer change
+bidirectional light, climate, radiant-floor relay, and Sony Plug regular-relay
+operation; Vent and Boiler were also reported working. Removal of a deleted
+Director device after reload was confirmed. A manual Control4 dimmer change
 appeared in HA about 3–4 seconds later; that interval was not instrumented
 end-to-end. These are field reports, not automated HA integration tests. Test
 each device before using it in automations.
@@ -25,12 +26,15 @@ The integration selects dimmable and on/off-only `light_v2` devices with
 advertised `ON`/`OFF` commands, Celsius `thermostatV2` devices with heat/cool
 capability, and `relaysingle_radiantfloor_c4` or `relaysingle_relay_c4`
 switches with advertised parameterless `OPEN`/`CLOSE` commands and a readable
-initial state. All newly discovered relay switches are disabled by default:
+initial state. Version 0.1.4 also adds read-only `window` and `motion` binary
+sensors for the observed `contactsingle_windowcontactsensor_c4` and
+`contactsingle_motionsensor_c4` proxies. Their REST initial-state and settled
+WebSocket mappings were traced on a Core3, but the new HA entities have not
+yet been field-tested. All newly discovered relay switches are disabled by
+default:
 these proxies include heating, fans, and other loads. Enable only the intended
 entity under **Settings → Devices & services → Entities**, then verify feedback
-from a manual Control4 change before testing HA control. Push and physical
-on/off mapping for one regular relay were observed on a Core3, but the new HA
-regular-relay path has not yet been verified. Other relay proxies, `uibutton`,
+from a manual Control4 change before testing HA control. Other relay proxies, `uibutton`,
 and color/fan/hold controls remain excluded.
 
 State is initialized through REST, then updated from WebSocket events;

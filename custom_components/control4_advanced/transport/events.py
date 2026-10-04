@@ -7,7 +7,10 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from .proxies import SUPPORTED_RELAY_PROXIES
+from .proxies import (
+    CONTACT_SENSOR_PROXIES,
+    SUPPORTED_RELAY_PROXIES,
+)
 
 
 Source = Literal["websocket", "rest"]
@@ -83,7 +86,7 @@ def _relay_changes(data: Mapping[str, Any]) -> tuple[dict[str, Any], bool]:
     return {}, False
 
 
-def _rest_relay_state(value: Any) -> bool | None:
+def _rest_binary_state(value: Any) -> bool | None:
     if isinstance(value, bool):
         return value
     if isinstance(value, int) and value in (0, 1):
@@ -91,6 +94,19 @@ def _rest_relay_state(value: Any) -> bool | None:
     if isinstance(value, str) and value.strip() in {"0", "1"}:
         return value.strip() == "1"
     return None
+
+
+def _contact_changes(data: Mapping[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Use the verified, user-mapped contact state rather than early hints."""
+    contact = data.get("contact_state")
+    if not isinstance(contact, Mapping):
+        return {}, False
+    if contact.get("feedback_bound") is not True or contact.get("is_verified") is not True:
+        return {}, False
+    current = contact.get("current_state")
+    if current in ("OPENED", "CLOSED"):
+        return {"director_contact_state": current, "is_on": current == "OPENED"}, True
+    return {}, False
 
 
 def _thermostat_changes(data: Mapping[str, Any]) -> dict[str, Any]:
@@ -147,6 +163,8 @@ def normalize_websocket_event(raw: Any, proxy: str | None) -> NormalizedEvent | 
             changes, authoritative = _light_changes(data)
         elif proxy in SUPPORTED_RELAY_PROXIES:
             changes, authoritative = _relay_changes(data)
+        elif proxy in CONTACT_SENSOR_PROXIES:
+            changes, authoritative = _contact_changes(data)
         elif proxy == "thermostatV2":
             changes = _thermostat_changes(data)
             authoritative = bool(changes)
@@ -179,9 +197,13 @@ def normalize_rest_variables(
             if state is not None and str(state).strip().upper() in {"0", "1", "FALSE", "TRUE"}:
                 changes = {"is_on": str(state).strip().upper() in {"1", "TRUE"}}
     elif proxy in SUPPORTED_RELAY_PROXIES:
-        state = _rest_relay_state(_first(by_name, "RELAYSTATE"))
+        state = _rest_binary_state(_first(by_name, "RELAYSTATE"))
         if state is not None:
             changes = {"is_on": state}
+    elif proxy in CONTACT_SENSOR_PROXIES:
+        state = _rest_binary_state(_first(by_name, "CONTACTSTATE"))
+        if state is not None:
+            changes = {"director_contact_state": "CLOSED" if state else "OPENED", "is_on": not state}
     elif proxy == "thermostatV2":
         scale = _mode(_first(by_name, "SCALE", "V1 SCALE"))
         if scale:
