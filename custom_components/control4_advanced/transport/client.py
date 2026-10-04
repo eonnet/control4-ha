@@ -235,11 +235,10 @@ class Control4Transport:
         await self.events.publish(replace(event, changes=accepted, authoritative=bool(accepted)))
 
     async def sync_room_source(self, room_id: int) -> None:
-        """Reconcile only a room's selected source when no source push is known.
+        """Reconcile selected source and power from the existing room read.
 
         A read of room variables also contains volume and mute. Those fields
-        remain on their push-triggered path and are deliberately not applied
-        by this source-only fallback.
+        remain on their push-triggered path and are deliberately not applied.
         """
         if room_id not in self.tracked_ids or self.inventory.proxy(room_id) != "roomdevice":
             raise ValueError("room is not tracked")
@@ -250,12 +249,15 @@ class Control4Transport:
             _LOGGER.warning("REST source sync failed for %s: %s", room_id, type(exc).__name__)
             return
         snapshot = normalize_rest_variables(room_id, "roomdevice", variables)
-        selected_id = snapshot.changes.get("selected_source_id")
-        if type(selected_id) is not int:
+        current = self.state.snapshot(room_id)
+        changes = {}
+        for key in ("selected_source_id", "is_on"):
+            value = snapshot.changes.get(key)
+            if value is not None and value != current.get(key):
+                changes[key] = value
+        if not changes:
             return
-        if self.state.snapshot(room_id).get("selected_source_id") == selected_id:
-            return
-        event = replace(snapshot, changes={"selected_source_id": selected_id})
+        event = replace(snapshot, changes=changes)
         accepted = self.state.apply(event, only_if_unchanged_since=baseline)
         if accepted:
             await self.events.publish(replace(event, changes=accepted))

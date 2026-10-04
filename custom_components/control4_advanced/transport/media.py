@@ -1,4 +1,4 @@
-"""Room volume push handling and a narrow source-state REST fallback."""
+"""Room volume push handling and narrow source/power REST reconciliation."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class RoomVolumeCoordinator:
-    """Use bound-device push for room volume and optional REST source repair.
+    """Use bound-device push for volume and optional REST room-state repair.
 
     Start after the transport is connected. It registers the room and the
     current REST-advertised volume device, then follows future binding changes.
@@ -62,7 +62,7 @@ class RoomVolumeCoordinator:
         self._source_task = None
 
     def enable_source_fallback(self, *, interval: float = 15.0) -> None:
-        """Periodically read only source state until a push route is proven."""
+        """Reconcile source and power from one read; leave volume push-driven."""
         if self._remove_event is None:
             raise RuntimeError("room coordinator is not started")
         if interval <= 0:
