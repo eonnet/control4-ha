@@ -115,6 +115,12 @@ class DeviceCommandClient:
         """Require Director's parameterless room-off command."""
         return self.supports_parameterless(room_id, "ROOM_OFF")
 
+    def supports_room_transport(self, room_id: int, command: str) -> bool:
+        """Expose only the observed parameterless room playback commands."""
+        return command in {"PLAY", "PAUSE", "STOP"} and self.supports_parameterless(
+            room_id, command
+        )
+
     def supports_room_source(self, room_id: int, experience: str) -> bool:
         """Require the source command shape observed on this Core3 room."""
         command = {
@@ -217,6 +223,12 @@ class DeviceCommandClient:
         if not self.supports_room_off(room_id):
             raise UnsupportedCommand("Director did not advertise a parameterless room-off command")
         return await self.send(room_id, "ROOM_OFF")
+
+    async def room_transport(self, room_id: int, command: str) -> Any:
+        """Send a metadata-validated transport command; response is not state feedback."""
+        if not self.supports_room_transport(room_id, command):
+            raise UnsupportedCommand("Director did not advertise this room transport command")
+        return await self.send(room_id, command)
 
     async def room_source(self, room_id: int, source: RoomSource) -> Any:
         """Select a validated UI source using pyControl4's documented argument.

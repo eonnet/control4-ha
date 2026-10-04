@@ -98,6 +98,16 @@ and turned back on through source selection with the previous volume and
 mute values. Both volume and mute feedback worked after that power cycle.
 These reports validate the current Living/Wiim binding, not other rooms.
 
+Version 0.1.14 adds separate Play, Pause, and Stop button entities under an
+eligible Control4 room device. A button is created only if that room advertises
+the corresponding parameterless command. It is unavailable while the room is
+off or disconnected, and each press checks live room power over REST before
+sending its command. The buttons are stateless: the media player continues to
+show verified room On/Off without claiming Playing/Paused feedback. This
+version passed offline tests but its playback buttons still need an HA field
+test. Test each button with a noncritical source before using it in an
+automation.
+
 State is initialized through REST, then updated from WebSocket events;
 entities do not poll when a usable push path has been proven. REST re-syncs
 after reconnect and on a slow reconciliation interval. Home Assistant device metadata includes the
