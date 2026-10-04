@@ -235,10 +235,11 @@ class Control4Transport:
         await self.events.publish(replace(event, changes=accepted, authoritative=bool(accepted)))
 
     async def sync_room_source(self, room_id: int) -> None:
-        """Reconcile selected source and power from the existing room read.
+        """Reconcile source, power, and volume binding from one room read.
 
-        A read of room variables also contains volume and mute. Those fields
-        remain on their push-triggered path and are deliberately not applied.
+        Volume and mute remain push-triggered while the binding is stable.
+        When it changes, the same REST snapshot re-syncs those values so an
+        off/on cycle cannot leave them stale after the binding is restored.
         """
         if room_id not in self.tracked_ids or self.inventory.proxy(room_id) != "roomdevice":
             raise ValueError("room is not tracked")
@@ -246,7 +247,7 @@ class Control4Transport:
         try:
             variables = await self.rest.get_variables(room_id)
         except Exception as exc:
-            _LOGGER.warning("REST source sync failed for %s: %s", room_id, type(exc).__name__)
+            _LOGGER.warning("REST room status sync failed for %s: %s", room_id, type(exc).__name__)
             return
         snapshot = normalize_rest_variables(room_id, "roomdevice", variables)
         current = self.state.snapshot(room_id)
@@ -255,6 +256,12 @@ class Control4Transport:
             value = snapshot.changes.get(key)
             if value is not None and value != current.get(key):
                 changes[key] = value
+        binding = snapshot.changes.get("volume_device_id")
+        if type(binding) is int and binding != current.get("volume_device_id"):
+            changes["volume_device_id"] = binding
+            for key in ("volume_percent", "is_muted"):
+                if key in snapshot.changes:
+                    changes[key] = snapshot.changes[key]
         if not changes:
             return
         event = replace(snapshot, changes=changes)

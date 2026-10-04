@@ -1,4 +1,4 @@
-"""Room volume push handling and narrow source/power REST reconciliation."""
+"""Room volume push and narrow source/power/binding REST reconciliation."""
 
 from __future__ import annotations
 
@@ -62,7 +62,7 @@ class RoomVolumeCoordinator:
         self._source_task = None
 
     def enable_source_fallback(self, *, interval: float = 15.0) -> None:
-        """Reconcile source and power from one read; leave volume push-driven."""
+        """Reconcile source and power, repairing volume after binding changes."""
         if self._remove_event is None:
             raise RuntimeError("room coordinator is not started")
         if interval <= 0:
