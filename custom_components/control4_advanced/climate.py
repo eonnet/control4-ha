@@ -61,10 +61,8 @@ class Control4Climate(Control4Entity, ClimateEntity):
                 choices = runtime.commands.choices(self.device_id, "SET_PRESET", "NAME")
             except UnsupportedCommand:
                 choices = []
-            current = self.state_data.get("preset_mode")
-            if isinstance(current, str) and any(
-                choice.casefold() == current.casefold() for choice in choices
-            ):
+            # GREE advertises commands while omitting the active value at startup.
+            if choices:
                 self._preset_options = choices
                 self._attr_supported_features |= ClimateEntityFeature.PRESET_MODE
         self._fan_options: list[str] = []
@@ -73,10 +71,8 @@ class Control4Climate(Control4Entity, ClimateEntity):
                 choices = runtime.commands.choices(self.device_id, "SET_MODE_FAN", "MODE")
             except UnsupportedCommand:
                 choices = []
-            current = self.state_data.get("fan_mode")
-            if isinstance(current, str) and any(
-                choice.casefold() == current.casefold() for choice in choices
-            ):
+            # Keep the selector available; push can supply its value later.
+            if choices:
                 self._fan_options = choices
                 self._attr_supported_features |= ClimateEntityFeature.FAN_MODE
 

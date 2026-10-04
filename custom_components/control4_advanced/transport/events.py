@@ -132,9 +132,14 @@ def _thermostat_changes(data: Mapping[str, Any]) -> dict[str, Any]:
     hold_mode = _label(data.get("hold_mode"))
     if hold_mode:
         changes["hold_mode"] = hold_mode
-    preset_mode = _label(data.get("preset"))
-    if preset_mode:
-        changes["preset_mode"] = preset_mode
+    if "preset" in data:
+        preset_mode = _label(data["preset"])
+        if preset_mode:
+            changes["preset_mode"] = preset_mode
+        elif isinstance(data["preset"], str) and not data["preset"].strip():
+            # GREE sends an empty preset after a manual change. Clear the
+            # displayed choice rather than retaining an unconfirmed one.
+            changes["preset_mode"] = None
     # Core3 emitted the display label as `fan_mode`. The parallel legacy
     # `fanmode` and `settings.fanmode` fields can lag during a preset change.
     fan_mode = _label(data.get("fan_mode"))

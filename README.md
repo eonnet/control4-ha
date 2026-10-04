@@ -31,8 +31,8 @@ sensors for the observed `contactsingle_windowcontactsensor_c4` and
 `contactsingle_motionsensor_c4` proxies. Their REST initial-state and settled
 WebSocket mappings were traced on a Core3, and the user reports both Kid
 Window and Kid PIR working correctly in HA. Version 0.1.5 adds the
-Director-advertised named presets to the climate selector for thermostats
-with a readable active preset, plus a companion hold-mode select for
+Director-advertised named presets to the climate selector for eligible
+thermostats, plus a companion hold-mode select for
 thermostats with a readable hold state. Living AC supplied the preset and
 hold push evidence; Kid AC advertised hold but no `SET_PRESET` command.
 The user reports that these new HA controls work in both directions, but did
@@ -41,7 +41,12 @@ not identify every option tested or whether Kid AC hold was included. Version
 `Medium`, `High`) on both Living AC and Kid AC. Kid AC fan changes produced
 direct WebSocket feedback; Living AC fan labels were observed during preset
 changes. The user reports fan mode working in both directions in HA; the
-specific ACs and choices tested were not identified separately. All newly
+specific ACs and choices tested were not identified separately. Version
+0.1.7 exposes GREE's advertised fan and preset controls even though its
+initial active values are unavailable. The values remain unknown until
+Director feedback arrives, and an empty preset update clears the old value.
+GREE does not advertise a hold command, so it has no writable hold selector.
+This change has offline tests but still needs a GREE HA field test. All newly
 discovered relay switches are disabled by default:
 these proxies include heating, fans, and other loads. Enable only the intended
 entity under **Settings → Devices & services → Entities**, then verify feedback
