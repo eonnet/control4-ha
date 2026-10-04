@@ -135,6 +135,11 @@ def _thermostat_changes(data: Mapping[str, Any]) -> dict[str, Any]:
     preset_mode = _label(data.get("preset"))
     if preset_mode:
         changes["preset_mode"] = preset_mode
+    # Core3 emitted the display label as `fan_mode`. The parallel legacy
+    # `fanmode` and `settings.fanmode` fields can lag during a preset change.
+    fan_mode = _label(data.get("fan_mode"))
+    if fan_mode:
+        changes["fan_mode"] = fan_mode
 
     mode = _mode(_first(data, "hvac_mode", "hvacmode") or _first(settings, "hvacmode"))
     if mode:
@@ -232,6 +237,9 @@ def normalize_rest_variables(
         preset_mode = _label(_first(by_name, "PRESET"))
         if preset_mode:
             changes["preset_mode"] = preset_mode
+        fan_mode = _label(_first(by_name, "FAN_MODE"))
+        if fan_mode:
+            changes["fan_mode"] = fan_mode
         mode = _mode(_first(by_name, "HVAC_MODE", "V1 HVACMODE", "ANA_HVACMODE"))
         if mode:
             changes["hvac_mode"] = mode

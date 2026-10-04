@@ -47,7 +47,7 @@ async def async_setup_entry(
 
 
 class Control4Climate(Control4Entity, ClimateEntity):
-    """Expose advertised Celsius controls, observed presets, and hold status."""
+    """Expose advertised Celsius, preset, and fan controls with hold status."""
 
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_target_temperature_step = 1.0
@@ -67,6 +67,18 @@ class Control4Climate(Control4Entity, ClimateEntity):
             ):
                 self._preset_options = choices
                 self._attr_supported_features |= ClimateEntityFeature.PRESET_MODE
+        self._fan_options: list[str] = []
+        if runtime.commands.supports(self.device_id, "SET_MODE_FAN"):
+            try:
+                choices = runtime.commands.choices(self.device_id, "SET_MODE_FAN", "MODE")
+            except UnsupportedCommand:
+                choices = []
+            current = self.state_data.get("fan_mode")
+            if isinstance(current, str) and any(
+                choice.casefold() == current.casefold() for choice in choices
+            ):
+                self._fan_options = choices
+                self._attr_supported_features |= ClimateEntityFeature.FAN_MODE
 
     @property
     def preset_modes(self) -> list[str]:
@@ -79,6 +91,20 @@ class Control4Climate(Control4Entity, ClimateEntity):
             return None
         return next(
             (choice for choice in self._preset_options if choice.casefold() == current.casefold()),
+            None,
+        )
+
+    @property
+    def fan_modes(self) -> list[str]:
+        return self._fan_options
+
+    @property
+    def fan_mode(self) -> str | None:
+        current = self.state_data.get("fan_mode")
+        if not isinstance(current, str):
+            return None
+        return next(
+            (choice for choice in self._fan_options if choice.casefold() == current.casefold()),
             None,
         )
 
@@ -139,6 +165,11 @@ class Control4Climate(Control4Entity, ClimateEntity):
         if preset_mode not in self._preset_options:
             raise HomeAssistantError("Preset is not advertised by this thermostat")
         await self.runtime.commands.preset(self.device_id, preset_mode)
+
+    async def async_set_fan_mode(self, fan_mode: str) -> None:
+        if fan_mode not in self._fan_options:
+            raise HomeAssistantError("Fan mode is not advertised by this thermostat")
+        await self.runtime.commands.fan_mode(self.device_id, fan_mode)
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         temperature = kwargs.get(ATTR_TEMPERATURE)

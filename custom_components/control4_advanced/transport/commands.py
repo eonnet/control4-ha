@@ -152,6 +152,12 @@ class DeviceCommandClient:
             raise UnsupportedCommand("Director did not advertise hold-mode choices")
         return await self.send(device_id, "SET_MODE_HOLD", {"MODE": mode})
 
+    async def fan_mode(self, device_id: int, mode: str) -> Any:
+        """Set only a fan mode explicitly listed in this device's metadata."""
+        if not self.choices(device_id, "SET_MODE_FAN", "MODE"):
+            raise UnsupportedCommand("Director did not advertise fan-mode choices")
+        return await self.send(device_id, "SET_MODE_FAN", {"MODE": mode})
+
     async def preset(self, device_id: int, name: str) -> Any:
         """Apply only a named preset explicitly listed in this device's metadata."""
         if not self.choices(device_id, "SET_PRESET", "NAME"):

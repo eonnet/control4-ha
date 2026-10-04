@@ -36,12 +36,16 @@ with a readable active preset, plus a companion hold-mode select for
 thermostats with a readable hold state. Living AC supplied the preset and
 hold push evidence; Kid AC advertised hold but no `SET_PRESET` command.
 The user reports that these new HA controls work in both directions, but did
-not identify every option tested or whether Kid AC hold was included. All newly
+not identify every option tested or whether Kid AC hold was included. Version
+0.1.6 adds climate fan-mode choices from live Director metadata (`Auto`, `Low`,
+`Medium`, `High`) on both Living AC and Kid AC. Kid AC fan changes produced
+direct WebSocket feedback; Living AC fan labels were observed during preset
+changes. HA-originated fan commands are not yet field-tested. All newly
 discovered relay switches are disabled by default:
 these proxies include heating, fans, and other loads. Enable only the intended
 entity under **Settings → Devices & services → Entities**, then verify feedback
-from a manual Control4 change before testing HA control. Other relay proxies, `uibutton`,
-and color/fan controls remain excluded.
+from a manual Control4 change before testing HA control. Other relay proxies,
+`uibutton`, color, and dedicated fan entities remain excluded.
 
 State is initialized through REST, then updated from WebSocket events;
 entities do not poll for normal state. REST re-syncs after reconnect and on
