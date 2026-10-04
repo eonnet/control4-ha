@@ -83,7 +83,17 @@ user confirmed HA-to-Control4 source selection but reported missing feedback
 for changes made in Control4. Version 0.1.12 adds a source-only REST fallback
 every 15 seconds for rooms with an advertised selector. It updates HA only
 when the selected source changes; volume and mute remain push-triggered. The
-media player still requires a supported volume binding at startup.
+media player at that version still required a supported volume binding at startup.
+
+Version 0.1.13 also reconciles room power and volume-device binding in that
+15-second fallback. It restores volume/mute from Director only when the
+binding changes, and keeps an already registered media room available after
+a reload while its off-state binding is zero. A guarded Off control is shown
+when the room is on and Director advertises `ROOM_OFF`; HA confirms the result
+with a settled REST read. The user confirmed that selecting a source turns
+Living on. There is no generic On control because no source can be chosen
+without a user-defined rule. The new Off control and off-state reload still
+need an HA field test.
 
 State is initialized through REST, then updated from WebSocket events;
 entities do not poll when a usable push path has been proven. REST re-syncs
