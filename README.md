@@ -101,3 +101,10 @@ Director's self-signed TLS certificate is not verified; cloud authentication
 still uses normal TLS verification.
 
 Issues and test reports: [GitHub Issues](https://github.com/eonnet/control4-ha/issues).
+
+## License
+
+This repository is licensed under the [Apache License 2.0](LICENSE).
+Control4 Advanced is an independent project and is not affiliated with or
+endorsed by Control4. The license does not grant rights to Control4's
+software, trademarks, or other third-party material.
