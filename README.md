@@ -78,16 +78,16 @@ Version 0.1.11 adds a Living room source selector from Director's
 `/api/v1/agents/ui_configuration` Watch/Listen catalog. Only entries mapped
 to supported inventory devices and a room-advertised source command appear;
 synthetic entries and UI buttons are excluded. The selector reads Director
-state after a command and does not optimistically claim a new source. Source
-selection has offline tests and a read-only Core3 catalog check, but the
-write path and external source-change latency still need a Home Assistant
-field test. The media player still requires a supported volume binding at
-startup, and external source changes may appear only after slow REST
-reconciliation if no usable push event arrives.
+state after a command and does not optimistically claim a new source. The
+user confirmed HA-to-Control4 source selection but reported missing feedback
+for changes made in Control4. Version 0.1.12 adds a source-only REST fallback
+every 15 seconds for rooms with an advertised selector. It updates HA only
+when the selected source changes; volume and mute remain push-triggered. The
+media player still requires a supported volume binding at startup.
 
 State is initialized through REST, then updated from WebSocket events;
-entities do not poll for normal state. REST re-syncs after reconnect and on
-a slow reconciliation interval. Home Assistant device metadata includes the
+entities do not poll when a usable push path has been proven. REST re-syncs
+after reconnect and on a slow reconciliation interval. Home Assistant device metadata includes the
 Control4 room as a suggested area. Diagnostics omit credentials, raw events,
 locations, and device names.
 On reload, registry entries for Director items deleted from inventory are

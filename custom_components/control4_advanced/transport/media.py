@@ -1,4 +1,4 @@
-"""Room-centric volume reconciliation triggered by the bound device's push."""
+"""Room volume push handling and a narrow source-state REST fallback."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class RoomVolumeCoordinator:
-    """Keep room REST volume authoritative; use device push only as a trigger.
+    """Use bound-device push for room volume and optional REST source repair.
 
     Start after the transport is connected. It registers the room and the
     current REST-advertised volume device, then follows future binding changes.
@@ -27,6 +27,7 @@ class RoomVolumeCoordinator:
         self._binding_task: asyncio.Task[None] | None = None
         self._refresh_task: asyncio.Task[None] | None = None
         self._refresh_requested = False
+        self._source_task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
         if self._remove_event is not None:
@@ -49,15 +50,34 @@ class RoomVolumeCoordinator:
             self._remove_event()
             self._remove_event = None
         self._refresh_requested = False
-        for task in (self._binding_task, self._refresh_task):
+        for task in (self._binding_task, self._refresh_task, self._source_task):
             if task is not None:
                 task.cancel()
         await asyncio.gather(
-            *(task for task in (self._binding_task, self._refresh_task) if task is not None),
+            *(task for task in (self._binding_task, self._refresh_task, self._source_task) if task is not None),
             return_exceptions=True,
         )
         self._binding_task = None
         self._refresh_task = None
+        self._source_task = None
+
+    def enable_source_fallback(self, *, interval: float = 15.0) -> None:
+        """Periodically read only source state until a push route is proven."""
+        if self._remove_event is None:
+            raise RuntimeError("room coordinator is not started")
+        if interval <= 0:
+            raise ValueError("source fallback interval must be positive")
+        if self._source_task is None:
+            self._source_task = asyncio.create_task(self._reconcile_source(interval))
+
+    async def _reconcile_source(self, interval: float) -> None:
+        while True:
+            await asyncio.sleep(interval)
+            if self.transport.connected:
+                try:
+                    await self.transport.sync_room_source(self.room_id)
+                except Exception as exc:
+                    _LOGGER.warning("Room source fallback failed: %s", type(exc).__name__)
 
     def _bound_device_id(self) -> int | None:
         value = self.transport.state.snapshot(self.room_id).get("volume_device_id")

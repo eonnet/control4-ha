@@ -134,6 +134,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 }
                 for room_id, sources in media_sources.items():
                     commands.register_room_sources(room_id, sources)
+                    if any(
+                        commands.supports_room_source(room_id, source.experience)
+                        for source in sources
+                    ):
+                        media_coordinators[room_id].enable_source_fallback()
         entry.runtime_data = Control4Runtime(
             session, transport, commands, media_coordinators, media_sources
         )
