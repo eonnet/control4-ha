@@ -35,7 +35,8 @@ Director-advertised named presets to the climate selector for thermostats
 with a readable active preset, plus a companion hold-mode select for
 thermostats with a readable hold state. Living AC supplied the preset and
 hold push evidence; Kid AC advertised hold but no `SET_PRESET` command.
-These new HA controls are offline-tested but not yet field-tested. All newly
+The user reports that these new HA controls work in both directions, but did
+not identify every option tested or whether Kid AC hold was included. All newly
 discovered relay switches are disabled by default:
 these proxies include heating, fans, and other loads. Enable only the intended
 entity under **Settings → Devices & services → Entities**, then verify feedback
