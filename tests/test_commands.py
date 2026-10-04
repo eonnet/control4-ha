@@ -10,6 +10,16 @@ class FakeRest:
         self.sent = []
 
     async def get_commands(self, device_id: int):
+        if device_id == 579:
+            return [
+                {"command": "OPEN", "deviceId": 579},
+                {"command": "CLOSE", "deviceId": 579, "params": []},
+                {"command": "TOGGLE", "deviceId": 579},
+                # Synthetic negative case; not a Director command for ID 579.
+                {"command": "PARAMETERIZED_TEST", "deviceId": 579, "params": [
+                    {"name": "MODE", "valueType": "STRING"},
+                ]},
+            ]
         if device_id == 2726:
             return [
                 {"command": "ON", "deviceId": 2726},
@@ -37,12 +47,24 @@ class CommandTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.rest = FakeRest()
         self.commands = DeviceCommandClient(self.rest)
-        await self.commands.refresh([2726, 2646])
+        await self.commands.refresh([2726, 2646, 579])
 
     async def test_light_body_uses_live_parameter_name(self) -> None:
         await self.commands.light_level(2726, 41)
         self.assertEqual(self.rest.sent, [
             ("/api/v1/items/2726/commands", {"command": "SET_LEVEL", "params": {"LEVEL": 41}})
+        ])
+
+    async def test_radiant_floor_relay_uses_advertised_open_close_commands(self) -> None:
+        self.assertTrue(self.commands.supports_parameterless(579, "OPEN"))
+        self.assertTrue(self.commands.supports_parameterless(579, "CLOSE"))
+        self.assertFalse(self.commands.supports_parameterless(579, "PARAMETERIZED_TEST"))
+        self.assertFalse(self.commands.supports_parameterless(579, "MISSING"))
+        await self.commands.relay_open(579)
+        await self.commands.relay_close(579)
+        self.assertEqual(self.rest.sent, [
+            ("/api/v1/items/579/commands", {"command": "OPEN"}),
+            ("/api/v1/items/579/commands", {"command": "CLOSE"}),
         ])
 
     async def test_parent_driver_commands_are_not_exposed(self) -> None:

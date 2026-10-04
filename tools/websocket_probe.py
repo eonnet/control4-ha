@@ -13,7 +13,9 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 import json
 import logging
+import math
 from pathlib import Path
+import re
 import signal
 import subprocess
 import sys
@@ -27,6 +29,13 @@ DEFAULT_HOST = "192.168.0.24"
 DEFAULT_TOKEN_HELPER = "/opt/control4-mcp/get-token.py"
 DEFAULT_PYTHON = "/opt/control4-mcp/.venv/bin/python"
 SENSITIVE_KEY_PARTS = ("authorization", "cookie", "credential", "jwt", "password", "secret", "token")
+REGULAR_RELAY_PROXIES = frozenset({"relaysingle_relay_c4", "cardaccess_wirelessrelay"})
+MAX_RELAY_CANDIDATES = 50
+MAX_NAME_MATCHES = 50
+MAX_METADATA_ITEMS = 100
+SAFE_STATE_VARIABLES = frozenset({"RELAYSTATE", "LIGHT_STATE", "LIGHT_LEVEL", "BRIGHTNESS PERCENT"})
+
+
 def utc_now() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")
 
@@ -84,6 +93,7 @@ def item_summary(item: Any) -> dict[str, Any]:
         "name",
         "displayName",
         "type",
+        "typeName",
         "category",
         "proxy",
         "model",
@@ -96,7 +106,13 @@ def item_summary(item: Any) -> dict[str, Any]:
     return {key: sanitize(item[key], key=key) for key in wanted if key in item}
 
 
-async def fetch_inventory(session: aiohttp.ClientSession, host: str, token: str) -> set[int]:
+async def fetch_inventory(
+    session: aiohttp.ClientSession,
+    host: str,
+    token: str,
+    watch_ids: set[int] | None = None,
+    name_terms: list[str] | None = None,
+) -> set[int]:
     url = f"https://{host}/api/v1/items"
     async with session.get(url, headers={"Authorization": f"Bearer {token}"}) as response:
         body = await response.text()
@@ -120,23 +136,158 @@ async def fetch_inventory(session: aiohttp.ClientSession, host: str, token: str)
         if str(item.get("id", item.get("iddevice", ""))) in {"2646", "2811"}
     ]
     sample_items = (known_items + [item for item in candidates if item not in known_items])[:24]
+    item_ids: set[int] = set()
+    watched_items: list[dict[str, Any]] = []
+    relay_candidates: list[dict[str, Any]] = []
+    name_matches: list[dict[str, Any]] = []
+    watch_ids = watch_ids or set()
+    search_terms = [term.strip().casefold() for term in (name_terms or []) if term.strip()]
+    for item in items:
+        if not isinstance(item, Mapping):
+            continue
+        current_ids: set[int] = set()
+        for key in ("id", "iddevice"):
+            value = item.get(key)
+            try:
+                current_ids.add(int(value))
+            except (TypeError, ValueError):
+                continue
+        item_ids.update(current_ids)
+        if item.get("typeName") == "device" and item.get("proxy") in REGULAR_RELAY_PROXIES:
+            relay_candidates.append({
+                key: sanitize(item[key], key=key)
+                for key in ("id", "iddevice", "name", "proxy", "typeName", "roomName")
+                if key in item
+            })
+        if search_terms and any(term in str(item.get("name", "")).casefold() for term in search_terms):
+            match = {
+                key: sanitize(item[key], key=key)
+                for key in ("id", "iddevice", "name", "proxy", "typeName", "roomName", "parentId")
+                if key in item
+            }
+            capabilities = item.get("capabilities")
+            if isinstance(capabilities, Mapping):
+                match["capabilities"] = {
+                    key: sanitize(capabilities[key], key=key)
+                    for key in ("on_off", "dimmer", "can_heat", "can_cool")
+                    if key in capabilities
+                }
+            name_matches.append(match)
+        if current_ids & watch_ids:
+            watched_items.append({
+                key: sanitize(item[key], key=key)
+                for key in ("id", "iddevice", "name", "proxy", "typeName")
+                if key in item
+            })
     emit(
         "inventory",
         item_count=len(summaries),
         relevant_item_count=len(candidates),
         relevant_items_sample=sample_items,
     )
-    item_ids: set[int] = set()
-    for item in items:
-        if not isinstance(item, Mapping):
-            continue
-        for key in ("id", "iddevice"):
-            value = item.get(key)
-            try:
-                item_ids.add(int(value))
-            except (TypeError, ValueError):
-                continue
+    if watch_ids:
+        emit(
+            "watched_inventory",
+            watched_items=watched_items,
+            missing_watch_ids=sorted(watch_ids - item_ids),
+        )
+    emit(
+        "relay_inventory",
+        candidate_count=len(relay_candidates),
+        items=relay_candidates[:MAX_RELAY_CANDIDATES],
+        truncated=len(relay_candidates) > MAX_RELAY_CANDIDATES,
+    )
+    if search_terms:
+        emit(
+            "matched_inventory",
+            match_count=len(name_matches),
+            items=name_matches[:MAX_NAME_MATCHES],
+            truncated=len(name_matches) > MAX_NAME_MATCHES,
+        )
     return item_ids
+
+
+def safe_state_value(value: Any) -> bool | int | float | str | None:
+    """Show only short, simple state values; never arbitrary variable contents."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and -1 <= value <= 100:
+        return value
+    if isinstance(value, float) and math.isfinite(value) and -1 <= value <= 100:
+        return value
+    if isinstance(value, str):
+        value = value.strip()
+        if value.upper() in {"OPENED", "CLOSED", "OPEN", "CLOSE", "ON", "OFF", "TRUE", "FALSE"}:
+            return value
+        if len(value) <= 8 and re.fullmatch(r"-?[0-9]+(?:\.[0-9]+)?", value):
+            number = float(value)
+            if -1 <= number <= 100:
+                return value
+    return None
+
+
+async def fetch_device_metadata(
+    session: aiohttp.ClientSession,
+    host: str,
+    token: str,
+    device_ids: set[int],
+    inventory_ids: set[int],
+) -> None:
+    """Read bounded variable/command metadata for confirmed inventory IDs."""
+    missing = sorted(device_ids - inventory_ids)
+    if missing:
+        emit("missing_metadata_ids", ids=missing)
+    for device_id in sorted(device_ids & inventory_ids):
+        payloads: dict[str, Any] = {}
+        for kind in ("variables", "commands"):
+            url = f"https://{host}/api/v1/items/{device_id}/{kind}"
+            async with session.get(url, headers={"Authorization": f"Bearer {token}"}) as response:
+                if response.status >= 400:
+                    raise RuntimeError(f"{kind} GET returned HTTP {response.status}")
+                try:
+                    payloads[kind] = json.loads(await response.text())
+                except json.JSONDecodeError as exc:
+                    raise RuntimeError(f"{kind} GET returned non-JSON data") from exc
+        variables = payloads["variables"]
+        variables = variables if isinstance(variables, list) else variables.get("variables", []) if isinstance(variables, Mapping) else []
+        commands = payloads["commands"]
+        commands = commands if isinstance(commands, list) else []
+        variable_names = sorted({
+            record["varName"] for record in variables
+            if isinstance(record, Mapping) and isinstance(record.get("varName"), str)
+        })
+        state_values = {
+            record["varName"]: safe_state_value(record.get("value"))
+            for record in variables
+            if isinstance(record, Mapping)
+            and isinstance(record.get("varName"), str)
+            and record["varName"].strip().upper() in SAFE_STATE_VARIABLES
+            and safe_state_value(record.get("value")) is not None
+        }
+        command_summaries = [
+            {
+                "command": record["command"],
+                "parameter_names": [
+                    spec["name"] for spec in (record.get("params") or [])
+                    if isinstance(spec, Mapping) and isinstance(spec.get("name"), str)
+                ],
+            }
+            for record in commands
+            if isinstance(record, Mapping)
+            and record.get("deviceId") == device_id
+            and isinstance(record.get("command"), str)
+        ]
+        emit(
+            "device_metadata",
+            iddevice=device_id,
+            variable_count=len(variable_names),
+            variable_names=variable_names[:MAX_METADATA_ITEMS],
+            variable_names_truncated=len(variable_names) > MAX_METADATA_ITEMS,
+            state_values=state_values,
+            command_count=len(command_summaries),
+            commands=command_summaries[:MAX_METADATA_ITEMS],
+            commands_truncated=len(command_summaries) > MAX_METADATA_ITEMS,
+        )
 
 
 async def verify_tcp_reachable(host: str, port: int = 443) -> None:
@@ -157,6 +308,7 @@ class Probe:
         self.connection_number = 0
         self.event_count = 0
         self.watch_ids = set(args.watch_ids)
+        self.inspect_ids = set(args.inspect_ids)
 
     async def on_connect(self) -> None:
         self.connection_number += 1
@@ -202,8 +354,17 @@ class Probe:
                     get_director_token, self.args.token_python, self.args.token_helper
                 )
                 milestone("DIRECTOR_TOKEN_OK")
-                inventory_ids = await fetch_inventory(self.session, self.args.host, token)
+                inventory_ids = await fetch_inventory(
+                    self.session, self.args.host, token, self.watch_ids, self.args.find_name
+                )
                 milestone("REST_AUTH_OK", inventory_item_count=len(inventory_ids))
+                if self.inspect_ids:
+                    await fetch_device_metadata(
+                        self.session, self.args.host, token, self.inspect_ids, inventory_ids
+                    )
+                if self.args.inventory_only:
+                    self.stop.set()
+                    return
                 self.websocket = C4Websocket(
                     self.args.host,
                     self.session,
@@ -224,6 +385,8 @@ class Probe:
             except (asyncio.TimeoutError, aiohttp.ClientError, OSError, RuntimeError, subprocess.SubprocessError) as exc:
                 # Exception text from HTTP/Socket.IO can include an auth URL.
                 emit("connection_error", error_type=type(exc).__name__)
+                if self.args.inventory_only:
+                    raise RuntimeError("inventory-only probe failed") from None
             finally:
                 token = None
                 if self.websocket is not None:
@@ -273,6 +436,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--force-reconnect-after", type=float, default=0, help="locally disconnect after N seconds")
     parser.add_argument("--max-events", type=int, default=0, help="stop after N events; 0 listens without a limit")
     parser.add_argument("--watch-ids", type=parse_watch_ids, default=set(), help="comma-separated REST inventory IDs to listen to")
+    parser.add_argument("--inventory-only", action="store_true", help="read inventory and relay candidates, then exit without opening WebSocket")
+    parser.add_argument("--find-name", action="append", default=[], help="show bounded inventory matches for this name fragment; repeatable")
+    parser.add_argument("--inspect-ids", type=parse_watch_ids, default=set(), help="comma-separated inventory IDs for read-only variable/command metadata")
     parser.add_argument("--token-helper", default=DEFAULT_TOKEN_HELPER)
     parser.add_argument("--token-python", default=DEFAULT_PYTHON)
     parser.add_argument("--verbose", action="store_true")
@@ -282,6 +448,8 @@ def parse_args() -> argparse.Namespace:
 async def async_main(args: argparse.Namespace) -> int:
     if args.duration < 0 or args.force_reconnect_after < 0 or args.max_events < 0:
         raise ValueError("durations must be non-negative")
+    if len(args.inspect_ids) > 10:
+        raise ValueError("inspect at most ten IDs per run")
     if not Path(args.token_helper).is_file():
         raise FileNotFoundError("token helper path does not exist")
     if not Path(args.token_python).is_file():

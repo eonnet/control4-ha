@@ -83,11 +83,77 @@ class EventNormalizationTests(unittest.TestCase):
         )
         self.assertNotIn("current_temperature_c", fahrenheit.changes)
 
-    def test_rest_on_off_only_light_state_is_readable_but_not_push_proven(self) -> None:
+    def test_rest_on_off_only_light_state_is_readable(self) -> None:
         off = normalize_rest_variables(978, "light_v2", [{"varName": "LIGHT_STATE", "value": 0}])
         on = normalize_rest_variables(719, "light_v2", [{"varName": "LIGHT_STATE", "value": 1}])
         self.assertEqual(off.changes, {"is_on": False})
         self.assertEqual(on.changes, {"is_on": True})
+
+    def test_on_off_only_ceiling_light_has_settled_push_feedback(self) -> None:
+        for level, expected in ((100, True), (0, False)):
+            with self.subTest(level=level):
+                event = normalize_websocket_event(
+                    {"evtName": "OnDataToUI", "iddevice": 1150, "data": {"LIGHT_LEVEL": level}},
+                    "light_v2",
+                )
+                self.assertEqual(event.changes, {"brightness_percent": float(level), "is_on": expected})
+                self.assertTrue(event.authoritative)
+
+    def test_radiant_floor_relay_uses_verified_settled_feedback(self) -> None:
+        proxy = "relaysingle_radiantfloor_c4"
+        early = normalize_websocket_event(
+            {"evtName": "OnDataToUI", "iddevice": 579, "data": {"state": False}}, proxy
+        )
+        self.assertEqual(early.changes, {})
+        self.assertFalse(early.authoritative)
+        for current, expected in (("OPENED", False), ("CLOSED", True)):
+            with self.subTest(current=current):
+                event = normalize_websocket_event(
+                    {"evtName": "OnDataToUI", "iddevice": 579, "data": {
+                        "relay_state": {
+                            "current_state": current, "feedback_bound": True,
+                            "is_verified": True,
+                        }
+                    }}, proxy,
+                )
+                self.assertEqual(event.changes, {"is_on": expected})
+                self.assertTrue(event.authoritative)
+        unverified = normalize_websocket_event(
+            {"evtName": "OnDataToUI", "iddevice": 579, "data": {
+                "relay_state": {"current_state": "CLOSED", "feedback_bound": True, "is_verified": False}
+            }}, proxy,
+        )
+        self.assertEqual(unverified.changes, {})
+        self.assertFalse(unverified.authoritative)
+
+        on = normalize_rest_variables(579, proxy, [{"varName": "RelayState", "value": 1}])
+        off = normalize_rest_variables(579, proxy, [{"varName": "RelayState", "value": "0"}])
+        unknown = normalize_rest_variables(579, proxy, [{"varName": "RelayState", "value": 2}])
+        self.assertEqual(on.changes, {"is_on": True})
+        self.assertEqual(off.changes, {"is_on": False})
+        self.assertEqual(unknown.changes, {})
+
+    def test_uibutton_driver_information_is_not_switch_state(self) -> None:
+        event = normalize_websocket_event(
+            {
+                "evtName": "OnDataToUI",
+                "iddevice": 319,
+                "data": {
+                    "devicecommand": {
+                        "command": "UPDATE_PROPERTY",
+                        "params": {"param": [
+                            {"name": "Name", "value": {"static": "Driver Information"}},
+                            {"name": "Value", "value": {"static": "Device switched on externally"}},
+                        ]},
+                    }
+                },
+            },
+            "uibutton",
+        )
+        self.assertIsNotNone(event)
+        self.assertEqual(event.device_id, 319)
+        self.assertEqual(event.changes, {})
+        self.assertFalse(event.authoritative)
 
     def test_stale_rest_field_does_not_replace_newer_push_field(self) -> None:
         cache = DeviceStateCache()

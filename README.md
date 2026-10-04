@@ -2,10 +2,13 @@
 
 Phase 1 established usable Director WebSocket push events on this Core3.
 Phase 2 provides a small Home Assistant-independent transport layer. Phase 3
-now contains a first `light_v2` and Celsius `thermostatV2` custom-component
-slice. A user has installed it in Home Assistant 2026.9.4 and reports that a
-light command works and state feedback follows about 3–4 seconds later. That
-interval has not been instrumented, and climate control remains unverified.
+now contains a custom-component slice for `light_v2`, Celsius
+`thermostatV2`, and opt-in radiant-floor relay switches. A user has installed
+the earlier light/climate version in Home Assistant 2026.9.4 and reports that
+light control works. Separately, a manual Control4 Hallway dimmer change
+appears in Home Assistant about 3–4 seconds later. That interval has not been
+instrumented end-to-end. The user also reports that thermostat state changes
+and HA setpoint/HVAC-mode commands work in both directions.
 
 ## WebSocket probe
 
@@ -45,7 +48,50 @@ For a focused, three-minute manual test of the currently identified entities:
 
 The IDs are Living AC, Lamp Table, and Hallway respectively. Record the UTC
 time of each manual change; the Director's `time` field has only whole-second
-precision, while `received_at` is the probe's millisecond timestamp.
+precision, while `received_at` is the probe's millisecond timestamp. With
+`--watch-ids`, the probe also emits a separate `watched_inventory` record so
+the live REST ID, name, and proxy can be checked without sharing the full
+inventory sample.
+
+To list possible regular relay switches without opening a WebSocket or sending
+any device command:
+
+```bash
+/opt/control4-mcp/.venv/bin/python -u tools/websocket_probe.py --inventory-only
+```
+
+Look for the `relay_inventory` record. It lists up to 50 basic or wireless
+relay candidates, not automatically enabled HA switches. Gate relays and
+`uibutton` devices such as ID `319` Extract Fan are excluded. A separate Vent
+relay exists at ID `1846`. The radiant-floor proxy used by Kid Heating Panel
+is outside this basic-relay listing; its state and push behavior were tested
+separately.
+
+To identify a named switch or on/off-only light before a focused push trace:
+
+```bash
+/opt/control4-mcp/.venv/bin/python -u tools/websocket_probe.py --inventory-only \
+  --find-name 'Kid Heating Panel' --find-name 'Ceiling'
+```
+
+The bounded `matched_inventory` record contains IDs, proxies, and selected
+capability flags. It does not include credentials or tokens. Share that record,
+then use the confirmed IDs with `--watch-ids` while changing the devices
+manually in Control4; do not guess an ID from its display name.
+
+For confirmed IDs, `--inspect-ids` reads only the REST variable and command
+metadata. It emits variable/command names plus a small allowlist of simple
+state values; it never executes a command or prints arbitrary variable values:
+
+```bash
+/opt/control4-mcp/.venv/bin/python -u tools/websocket_probe.py \
+  --inventory-only --inspect-ids 1150,579
+```
+
+These IDs are Bathroom Ceiling and Kid Heating Panel. The latter has a
+specialized `relaysingle_radiantfloor_c4` proxy. Its live state and advertised
+commands have been observed. Once this local update is published and installed,
+the HA switch will be disabled by default until the user enables it.
 
 See `docs/websocket-protocol.md` for the observed/upstream-derived protocol
 model and an evidence checklist.
@@ -97,6 +143,7 @@ See [transport design](docs/transport.md) for field mappings and recovery rules.
 
 See [component scope and verification status](docs/home-assistant-slice.md).
 The component is self-contained under `custom_components/control4_advanced/`
-and can be installed through HACS. One light's command and feedback have been
-reported working in Home Assistant; verify other device types separately
-before using them in automations.
+and can be installed through HACS after these local changes are published.
+Light control and Control4-originated feedback have been reported working in
+Home Assistant; verify newly added device types separately before using them
+in automations.

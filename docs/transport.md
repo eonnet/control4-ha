@@ -31,6 +31,10 @@ dependencies are `aiohttp` and the tested `pyControl4` 2.0.2 Socket.IO client.
 | `light_v2` | `LIGHT_LEVEL` or settled `light_brightness_changed.light_brightness_current` | `brightness_percent`, `is_on` |
 | `light_v2` | `light_brightness_changing.light_brightness_target` | `brightness_target_percent` (non-authoritative transition) |
 | `light_v2` REST | `Brightness Percent` | `brightness_percent`, `is_on` |
+| on/off `light_v2` REST | `LIGHT_STATE` 0/1 | `is_on` |
+| on/off `light_v2` push | `LIGHT_LEVEL` 0/100 | `brightness_percent`, `is_on` |
+| `relaysingle_radiantfloor_c4` | verified `relay_state.current_state` `OPENED`/`CLOSED` | `is_on` false/true |
+| `relaysingle_radiantfloor_c4` REST | `RelayState` 0/1 | `is_on` false/true (0=off inferred; 1=on observed) |
 | `thermostatV2` | `hvac_mode` / `hvacmode` | `hvac_mode` |
 | `thermostatV2` | `hvac_state` / `hvacstate` | `hvac_state` |
 | `thermostatV2` | `setpoint_single_c`, `setpoint_heat_c`, `setpoint_cool_c` | target, heat, cool setpoint in °C |
