@@ -7,11 +7,13 @@ runnable without installing Home Assistant.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from typing import TYPE_CHECKING
 
 import aiohttp
 
 from .const import DEFAULT_RECONCILIATION_SECONDS, PLATFORMS
+from .registry_cleanup import remove_stale_registry_entries
 from .selection import is_candidate_item
 from .transport import AccountTokenProvider, Control4Transport, DeviceCommandClient, DirectorRestClient
 from .transport.auth import AuthenticationError, AuthenticationTransportError
@@ -20,6 +22,9 @@ from .transport.rest import DirectorRestError
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -48,7 +53,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if is_candidate_item(item)
         ]
         if not tracked_ids:
-            raise ConfigEntryNotReady("Director has no supported light or thermostat items")
+            raise ConfigEntryNotReady("Director has no supported items")
         transport = Control4Transport(
             rest,
             tracked_ids,
@@ -61,6 +66,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await commands.refresh(tracked_ids)
         entry.runtime_data = Control4Runtime(session, transport, commands)
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        try:
+            remove_stale_registry_entries(
+                hass,
+                config_entry_id=entry.entry_id,
+                host=host,
+                first_inventory_ids={
+                    item["id"] for item in items if isinstance(item.get("id"), int)
+                },
+                second_inventory_ids=set(transport.inventory.items),
+            )
+        except Exception as exc:
+            # Registry cleanup is nonessential; never break otherwise healthy entities.
+            _LOGGER.warning("Control4 stale registry cleanup failed: %s", type(exc).__name__)
         setup_complete = True
         return True
     except AuthenticationTransportError:

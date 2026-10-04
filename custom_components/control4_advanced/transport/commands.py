@@ -2,7 +2,7 @@
 
 This module never sends a command unless one of its explicit methods is called.
 The REST body shape follows the existing MCP client. A user has reported live
-light control through this integration; climate commands remain unverified.
+light and thermostat control through this integration.
 """
 
 from __future__ import annotations
@@ -41,6 +41,10 @@ class DeviceCommandClient:
 
     def supports(self, device_id: int, command: str) -> bool:
         return command in self._metadata.get(device_id, {})
+
+    def supports_parameterless(self, device_id: int, command: str) -> bool:
+        record = self._metadata.get(device_id, {}).get(command)
+        return record is not None and record.get("params") in (None, [], {})
 
     def choices(self, device_id: int, command: str, parameter: str) -> list[str]:
         spec = self._parameter(device_id, command, parameter)
@@ -113,6 +117,14 @@ class DeviceCommandClient:
 
     async def light_level(self, device_id: int, level_percent: int) -> Any:
         return await self.send(device_id, "SET_LEVEL", {"LEVEL": level_percent})
+
+    async def relay_close(self, device_id: int) -> Any:
+        """Close an advertised relay; physical on/off mapping was observed for the radiant-floor proxy."""
+        return await self.send(device_id, "CLOSE")
+
+    async def relay_open(self, device_id: int) -> Any:
+        """Open an advertised relay; physical on/off mapping was observed for the radiant-floor proxy."""
+        return await self.send(device_id, "OPEN")
 
     async def hvac_mode(self, device_id: int, mode: str) -> Any:
         return await self.send(device_id, "SET_MODE_HVAC", {"MODE": mode})

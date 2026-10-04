@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Literal
 
+from .proxies import RADIANT_FLOOR_RELAY_PROXY
+
 
 Source = Literal["websocket", "rest"]
 
@@ -66,6 +68,31 @@ def _light_changes(data: Mapping[str, Any]) -> tuple[dict[str, Any], bool]:
     return {}, False
 
 
+def _relay_changes(data: Mapping[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Use the verified relay feedback, not the earlier generic state hint."""
+    relay = data.get("relay_state")
+    if not isinstance(relay, Mapping):
+        return {}, False
+    if relay.get("feedback_bound") is not True or relay.get("is_verified") is not True:
+        return {}, False
+    current = relay.get("current_state")
+    if current == "CLOSED":
+        return {"is_on": True}, True
+    if current == "OPENED":
+        return {"is_on": False}, True
+    return {}, False
+
+
+def _rest_relay_state(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str) and value.strip() in {"0", "1"}:
+        return value.strip() == "1"
+    return None
+
+
 def _thermostat_changes(data: Mapping[str, Any]) -> dict[str, Any]:
     settings = data.get("settings")
     settings = settings if isinstance(settings, Mapping) else {}
@@ -118,6 +145,8 @@ def normalize_websocket_event(raw: Any, proxy: str | None) -> NormalizedEvent | 
     if event_type == "OnDataToUI":
         if proxy == "light_v2":
             changes, authoritative = _light_changes(data)
+        elif proxy == RADIANT_FLOOR_RELAY_PROXY:
+            changes, authoritative = _relay_changes(data)
         elif proxy == "thermostatV2":
             changes = _thermostat_changes(data)
             authoritative = bool(changes)
@@ -149,6 +178,10 @@ def normalize_rest_variables(
             state = _first(by_name, "LIGHT_STATE")
             if state is not None and str(state).strip().upper() in {"0", "1", "FALSE", "TRUE"}:
                 changes = {"is_on": str(state).strip().upper() in {"1", "TRUE"}}
+    elif proxy == RADIANT_FLOOR_RELAY_PROXY:
+        state = _rest_relay_state(_first(by_name, "RELAYSTATE"))
+        if state is not None:
+            changes = {"is_on": state}
     elif proxy == "thermostatV2":
         scale = _mode(_first(by_name, "SCALE", "V1 SCALE"))
         if scale:
