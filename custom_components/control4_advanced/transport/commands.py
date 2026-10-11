@@ -137,9 +137,9 @@ class DeviceCommandClient:
 
     def supports_room_transport(self, room_id: int, command: str) -> bool:
         """Expose only the observed parameterless room playback commands."""
-        return command in {"PLAY", "PAUSE", "STOP"} and self.supports_parameterless(
-            room_id, command
-        )
+        return command in {
+            "PLAY", "PAUSE", "STOP", "SKIP_REV", "SKIP_FWD",
+        } and self.supports_parameterless(room_id, command)
 
     def supports_room_source(self, room_id: int, experience: str) -> bool:
         """Require the source command shape observed on this Core3 room."""

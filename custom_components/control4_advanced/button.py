@@ -16,9 +16,11 @@ from .transport.events import normalize_rest_variables
 
 
 ROOM_PLAYBACK_BUTTONS = (
+    ("SKIP_REV", "Previous", "mdi:skip-previous"),
     ("PLAY", "Play", "mdi:play"),
     ("PAUSE", "Pause", "mdi:pause"),
     ("STOP", "Stop", "mdi:stop"),
+    ("SKIP_FWD", "Next", "mdi:skip-next"),
 )
 
 

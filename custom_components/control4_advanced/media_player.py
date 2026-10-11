@@ -48,9 +48,11 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
             features |= MediaPlayerEntityFeature.TURN_OFF
         if self.state == MediaPlayerState.ON:
             for command, feature in (
+                ("SKIP_REV", MediaPlayerEntityFeature.PREVIOUS_TRACK),
                 ("PLAY", MediaPlayerEntityFeature.PLAY),
                 ("PAUSE", MediaPlayerEntityFeature.PAUSE),
                 ("STOP", MediaPlayerEntityFeature.STOP),
+                ("SKIP_FWD", MediaPlayerEntityFeature.NEXT_TRACK),
             ):
                 if self.runtime.commands.supports_room_transport(self.device_id, command):
                     features |= feature
@@ -61,7 +63,7 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
         """Show each stateless playback action without inventing media state."""
         return self.state == MediaPlayerState.ON and any(
             self.runtime.commands.supports_room_transport(self.device_id, command)
-            for command in ("PLAY", "PAUSE", "STOP")
+            for command in ("SKIP_REV", "PLAY", "PAUSE", "STOP", "SKIP_FWD")
         )
 
     def _sources(self) -> tuple[RoomSource, ...]:
@@ -105,6 +107,12 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
 
     async def async_media_stop(self) -> None:
         await self._async_room_transport("STOP")
+
+    async def async_media_previous_track(self) -> None:
+        await self._async_room_transport("SKIP_REV")
+
+    async def async_media_next_track(self) -> None:
+        await self._async_room_transport("SKIP_FWD")
 
     async def _async_room_transport(self, command: str) -> None:
         if (

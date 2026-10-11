@@ -152,6 +152,12 @@ asynchronous `tParams` envelope used by `pyControl4`'s room implementation.
 The earlier generic command envelope was accepted by Director but did not
 operate room playback on this installation.
 
+Version 0.1.21 adds native Previous Track and Next Track media-player controls
+plus matching room buttons. They use the parameterless `SKIP_REV` and
+`SKIP_FWD` commands advertised by every discovered media room, with the same
+live room-power guard and asynchronous request envelope as the other playback
+actions.
+
 State is initialized through REST, then updated from WebSocket events;
 entities do not poll when a usable push path has been proven. REST re-syncs
 after reconnect and on a slow reconciliation interval. Home Assistant device metadata includes the
