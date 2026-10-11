@@ -820,7 +820,7 @@ async def request_tidal_tabs(
             "NAVID": nav_id,
             "SEQ": TIDAL_PROBE_SEQUENCE,
             "LOCALE": "en-US",
-            "ARGS": "",
+            "ARGS": "<args></args>",
         },
     }
     url = f"https://{host}/api/v1/items/{device_id}/commands"
@@ -880,7 +880,7 @@ def build_tidal_tabs_soap(device_id: int, room_id: int, nav_id: str) -> bytes:
         ("NAVID", nav_id, "STRING"),
         ("SEQ", str(TIDAL_PROBE_SEQUENCE), "INT"),
         ("LOCALE", "en-US", "STRING"),
-        ("ARGS", "", "STRING"),
+        ("ARGS", "<args></args>", "STRING"),
     ):
         param = ElementTree.SubElement(params, "param")
         ElementTree.SubElement(param, "name").text = name

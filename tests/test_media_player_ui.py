@@ -12,6 +12,10 @@ from unittest.mock import AsyncMock, patch
 from custom_components.control4_advanced.transport.commands import UnsupportedCommand
 
 from custom_components.control4_advanced.transport.events import NormalizedEvent
+from custom_components.control4_advanced.transport.favorites import (
+    RoomTuneInCatalog,
+    TuneInFavorite,
+)
 from custom_components.control4_advanced.transport.playlists import (
     RoomTidalCatalog,
     TidalPlaylist,
@@ -53,6 +57,7 @@ class FakeBrowseMedia:
 
 class FakeMediaClass(StrEnum):
     APP = "app"
+    CHANNEL = "channel"
     DIRECTORY = "directory"
     PLAYLIST = "playlist"
 
@@ -60,6 +65,7 @@ class FakeMediaClass(StrEnum):
 class FakeMediaType(StrEnum):
     APP = "app"
     APPS = "apps"
+    CHANNEL = "channel"
     PLAYLIST = "playlist"
 
 
@@ -96,6 +102,7 @@ class FakeCommands:
         self.room_transport = AsyncMock()
         self.add_rooms_to_session = AsyncMock()
         self.tidal_playlist = AsyncMock()
+        self.tunein_favorite = AsyncMock()
         self.source_supported = True
         self.off_supported = True
         self.transport_supported = {
@@ -215,7 +222,8 @@ class MediaPlayerUITests(unittest.IsolatedAsyncioTestCase):
         self.commands = FakeCommands()
         self.runtime = SimpleNamespace(transport=transport, commands=self.commands,
                                        media_coordinators={22: object()}, media_sources={},
-                                       tidal_catalogs={}, media_session_coordinator=None,
+                                       tidal_catalogs={}, tunein_catalogs={},
+                                       media_session_coordinator=None,
                                        media_entity_ids={})
         self.entry = SimpleNamespace(runtime_data=self.runtime)
 
@@ -354,6 +362,54 @@ class MediaPlayerUITests(unittest.IsolatedAsyncioTestCase):
                 "control4_advanced:tidal:22:playlist:1417:not-configured",
             )
         self.commands.tidal_playlist.assert_not_awaited()
+
+    async def test_browse_and_play_configured_tunein_favorites(self):
+        klassik = TuneInFavorite(
+            "TuneIn", "Klassik Radio", "Station/s25028"
+        )
+        rock = TuneInFavorite(
+            "TuneIn", "Rock Classics", "Station/s258089"
+        )
+        self.runtime.tunein_catalogs[22] = (
+            RoomTuneInCatalog(
+                22, 92, 91, "TuneIn Premium", (klassik, rock)
+            ),
+        )
+        entity = self.media_player.Control4RoomMediaPlayer(
+            self.runtime, self.items[22]
+        )
+
+        root = await entity.async_browse_media()
+        self.assertEqual([child.title for child in root.children], ["TuneIn"])
+        tunein = await entity.async_browse_media(
+            self.media_player.TUNEIN_ROOT_TYPE,
+            root.children[0].media_content_id,
+        )
+        self.assertEqual([child.title for child in tunein.children], ["TuneIn Premium"])
+        source = await entity.async_browse_media(
+            self.media_player.TUNEIN_SOURCE_TYPE,
+            tunein.children[0].media_content_id,
+        )
+        self.assertEqual(
+            [child.title for child in source.children],
+            ["Klassik Radio", "Rock Classics"],
+        )
+        favorite_item = source.children[0]
+        self.assertEqual(favorite_item.media_class, FakeMediaClass.CHANNEL)
+        self.assertEqual(favorite_item.media_content_type, FakeMediaType.CHANNEL)
+        self.assertTrue(favorite_item.can_play)
+
+        await entity.async_play_media(
+            favorite_item.media_content_type, favorite_item.media_content_id
+        )
+        self.commands.tunein_favorite.assert_awaited_once_with(91, 22, klassik)
+
+        with self.assertRaises(UnsupportedCommand):
+            await entity.async_play_media(
+                FakeMediaType.CHANNEL,
+                "control4_advanced:tunein:22:station:92:Station/s99999",
+            )
+        self.commands.tunein_favorite.assert_awaited_once()
 
     async def test_volume_and_mute_calls_do_not_optimistically_change_state(self):
         entity = self.media_player.Control4RoomMediaPlayer(self.runtime, self.items[22])

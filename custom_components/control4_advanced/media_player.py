@@ -23,6 +23,7 @@ from . import Control4Runtime
 from .entity import Control4Entity
 from .transport.commands import UnsupportedCommand
 from .transport.events import normalize_rest_variables
+from .transport.favorites import RoomTuneInCatalog, TuneInFavorite
 from .transport.playlists import RoomTidalCatalog, TidalPlaylist
 from .transport.sources import RoomSource
 
@@ -32,6 +33,8 @@ SOURCE_GROUP_TYPE = MediaType.APPS
 SOURCE_TYPE = MediaType.APP
 TIDAL_ROOT_TYPE = "control4_tidal"
 TIDAL_ACCOUNT_TYPE = "control4_tidal_account"
+TUNEIN_ROOT_TYPE = "control4_tunein"
+TUNEIN_SOURCE_TYPE = "control4_tunein_source"
 
 
 async def async_setup_entry(
@@ -91,7 +94,7 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
                     features |= feature
         if self._grouping_ready():
             features |= MediaPlayerEntityFeature.GROUPING
-        if self._sources() or self._tidal_catalogs():
+        if self._sources() or self._tidal_catalogs() or self._tunein_catalogs():
             features |= (
                 MediaPlayerEntityFeature.BROWSE_MEDIA
                 | MediaPlayerEntityFeature.PLAY_MEDIA
@@ -151,6 +154,44 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
                     return catalog, playlist
         return None
 
+    def _tunein_catalogs(self) -> tuple[RoomTuneInCatalog, ...]:
+        return self.runtime.tunein_catalogs.get(self.device_id, ())
+
+    def _tunein_root_id(self) -> str:
+        return f"control4_advanced:tunein:{self.device_id}"
+
+    def _tunein_source_id(self, catalog: RoomTuneInCatalog) -> str:
+        return f"{self._tunein_root_id()}:source:{catalog.source_id}"
+
+    def _tunein_favorite_id(
+        self, catalog: RoomTuneInCatalog, favorite: TuneInFavorite
+    ) -> str:
+        return (
+            f"{self._tunein_root_id()}:station:"
+            f"{catalog.source_id}:{favorite.item_id}"
+        )
+
+    def _tunein_catalog_for_media_id(
+        self, media_id: str
+    ) -> RoomTuneInCatalog | None:
+        return next(
+            (
+                catalog
+                for catalog in self._tunein_catalogs()
+                if self._tunein_source_id(catalog) == media_id
+            ),
+            None,
+        )
+
+    def _tunein_favorite_for_media_id(
+        self, media_id: str
+    ) -> tuple[RoomTuneInCatalog, TuneInFavorite] | None:
+        for catalog in self._tunein_catalogs():
+            for favorite in catalog.favorites:
+                if self._tunein_favorite_id(catalog, favorite) == media_id:
+                    return catalog, favorite
+        return None
+
     def _source_group_for_media_id(self, media_id: str) -> str | None:
         return next(
             (
@@ -179,10 +220,11 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
         media_content_type: MediaType | str | None = None,
         media_content_id: str | None = None,
     ) -> BrowseMedia:
-        """Show validated room sources and configured TIDAL playlists."""
+        """Show validated room sources and configured media favorites."""
         sources = self._sources()
         catalogs = self._tidal_catalogs()
-        if not sources and not catalogs:
+        tunein_catalogs = self._tunein_catalogs()
+        if not sources and not catalogs and not tunein_catalogs:
             raise BrowseError("No Control4 media is available in this room")
 
         if media_content_id in (None, self._browser_root_id()):
@@ -206,6 +248,18 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
                         media_class=MediaClass.DIRECTORY,
                         media_content_id=self._tidal_root_id(),
                         media_content_type=TIDAL_ROOT_TYPE,
+                        can_play=False,
+                        can_expand=True,
+                        children_media_class=MediaClass.DIRECTORY,
+                    )
+                )
+            if tunein_catalogs:
+                children.append(
+                    BrowseMedia(
+                        title="TuneIn",
+                        media_class=MediaClass.DIRECTORY,
+                        media_content_id=self._tunein_root_id(),
+                        media_content_type=TUNEIN_ROOT_TYPE,
                         can_play=False,
                         can_expand=True,
                         children_media_class=MediaClass.DIRECTORY,
@@ -269,6 +323,54 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
                 children_media_class=MediaClass.DIRECTORY,
             )
 
+        if media_content_id == self._tunein_root_id() and tunein_catalogs:
+            return BrowseMedia(
+                title="TuneIn",
+                media_class=MediaClass.DIRECTORY,
+                media_content_id=self._tunein_root_id(),
+                media_content_type=TUNEIN_ROOT_TYPE,
+                can_play=False,
+                can_expand=True,
+                children=[
+                    BrowseMedia(
+                        title=catalog.source_name,
+                        media_class=MediaClass.DIRECTORY,
+                        media_content_id=self._tunein_source_id(catalog),
+                        media_content_type=TUNEIN_SOURCE_TYPE,
+                        can_play=False,
+                        can_expand=True,
+                        children_media_class=MediaClass.CHANNEL,
+                    )
+                    for catalog in tunein_catalogs
+                ],
+                children_media_class=MediaClass.DIRECTORY,
+            )
+
+        tunein_catalog = self._tunein_catalog_for_media_id(media_content_id)
+        if tunein_catalog is not None:
+            return BrowseMedia(
+                title=tunein_catalog.source_name,
+                media_class=MediaClass.DIRECTORY,
+                media_content_id=self._tunein_source_id(tunein_catalog),
+                media_content_type=TUNEIN_SOURCE_TYPE,
+                can_play=False,
+                can_expand=True,
+                children=[
+                    BrowseMedia(
+                        title=favorite.name,
+                        media_class=MediaClass.CHANNEL,
+                        media_content_id=self._tunein_favorite_id(
+                            tunein_catalog, favorite
+                        ),
+                        media_content_type=MediaType.CHANNEL,
+                        can_play=True,
+                        can_expand=False,
+                    )
+                    for favorite in tunein_catalog.favorites
+                ],
+                children_media_class=MediaClass.CHANNEL,
+            )
+
         catalog = self._catalog_for_media_id(media_content_id)
         if catalog is None:
             raise BrowseError("Control4 media is not configured for this room")
@@ -304,6 +406,17 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
             if source is None:
                 raise UnsupportedCommand("source is not advertised for this room")
             await self._async_select_source(source)
+            return
+        if media_type == MediaType.CHANNEL:
+            resolved_favorite = self._tunein_favorite_for_media_id(media_id)
+            if resolved_favorite is None:
+                raise UnsupportedCommand(
+                    "TuneIn favorite is not configured for this room"
+                )
+            catalog, favorite = resolved_favorite
+            await self.runtime.commands.tunein_favorite(
+                catalog.protocol_id, self.device_id, favorite
+            )
             return
         if media_type != MediaType.PLAYLIST:
             raise UnsupportedCommand("Control4 media type is not supported")

@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from control4_transport import DeviceCommandClient, DirectorRestError, UnsupportedCommand
+from custom_components.control4_advanced.transport.favorites import TuneInFavorite
 from custom_components.control4_advanced.transport.sources import RoomSource
 from custom_components.control4_advanced.transport.playlists import TidalPlaylist
 
@@ -12,6 +13,14 @@ class FakeRest:
         self.sent = []
 
     async def get_commands(self, device_id: int):
+        if device_id == 91:
+            return [{
+                "command": "Play Item", "deviceId": 91, "params": [
+                    {"name": "Item", "type": "CUSTOM_SELECT:GetItemList"},
+                    {"name": "Room", "type": "DEVICE_SELECTOR",
+                     "items": ["roomdevice.c4i"], "multiselect": True},
+                ],
+            }]
         if device_id == 93:
             return [{
                 "command": "SelectPlaylist", "deviceId": 93, "params": [
@@ -121,7 +130,7 @@ class CommandTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.rest = FakeRest()
         self.commands = DeviceCommandClient(self.rest)
-        await self.commands.refresh([22, 93, 2726, 2646, 2811, 579, 431, 404])
+        await self.commands.refresh([22, 91, 93, 2726, 2646, 2811, 579, 431, 404])
 
     async def test_room_volume_and_mute_use_advertised_commands(self) -> None:
         self.assertTrue(self.commands.supports_room_volume(22))
@@ -258,6 +267,29 @@ class CommandTests(unittest.IsolatedAsyncioTestCase):
                 TidalPlaylist(
                     "TIDAL", "Invented", "11111111-2222-4333-8444-555555555555"
                 ),
+            )
+        self.assertFalse(self.rest.sent)
+
+    async def test_tunein_favorite_is_allowlisted_for_room(self) -> None:
+        favorite = TuneInFavorite(
+            "TuneIn", "Klassik Radio", "Station/s25028"
+        )
+        self.assertTrue(self.commands.supports_tunein_favorite(91))
+        self.commands.register_tunein_favorites(91, 22, (favorite,))
+        await self.commands.tunein_favorite(91, 22, favorite)
+        self.assertEqual(self.rest.sent, [
+            ("/api/v1/items/91/commands", {
+                "command": "Play Item",
+                "params": {"Item": "Station/s25028", "Room": "22"},
+            }),
+        ])
+
+        self.rest.sent.clear()
+        with self.assertRaises(UnsupportedCommand):
+            await self.commands.tunein_favorite(
+                91,
+                22,
+                TuneInFavorite("TuneIn", "Invented", "Station/s99999"),
             )
         self.assertFalse(self.rest.sent)
 

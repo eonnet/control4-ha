@@ -214,6 +214,13 @@ advertised metadata and refresh REST state after a selection, without
 optimistic feedback. Version 0.1.29 replaces the earlier source dropdown with
 these playable Watch and Listen app tiles. The command effect and external
 source-change latency still require user testing.
+Version 0.1.30 additionally joins configured `Station/s...` identifiers to
+visible TuneIn `media_service` sources. This Director advertises `Play Item`
+with `Item` type `CUSTOM_SELECT:GetItemList` and a `Room` device selector, but
+REST does not return the dynamic item choices. The integration therefore
+stores only user-configured favorite labels and station IDs, validates the
+exact command schema at startup, and sends an allowlisted station only to its
+registered room.
 At version 0.1.12, media-player discovery still required a supported volume
 binding at integration startup. Version 0.1.13 retains an already registered
 room while its off-state binding is zero; new source-only or unproven rooms

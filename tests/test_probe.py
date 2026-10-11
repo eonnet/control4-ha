@@ -554,7 +554,7 @@ class ProbeInventoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(kwargs["json"]["tParams"]["ROOMID"], 22)
         self.assertEqual(kwargs["json"]["tParams"]["NAVID"], "assigned-navigator-id")
         self.assertEqual(kwargs["json"]["tParams"]["SEQ"], TIDAL_PROBE_SEQUENCE)
-        self.assertEqual(kwargs["json"]["tParams"]["ARGS"], "")
+        self.assertEqual(kwargs["json"]["tParams"]["ARGS"], "<args></args>")
         self.assertNotIn("private-token", output.getvalue())
         self.assertNotIn("private-response-body", output.getvalue())
         self.assertIn('"http_status": 202', output.getvalue())

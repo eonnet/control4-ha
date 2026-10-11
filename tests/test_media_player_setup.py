@@ -28,6 +28,11 @@ class FakeRest:
              "filename": "tidal.c4z", "protocolId": 93},
             {"id": 94, "name": "TIDAL", "typeName": "device", "proxy": "media_service",
              "protocolId": 93, "protocolFilename": "tidal.c4z"},
+            {"id": 91, "name": "TuneIn", "typeName": "device", "proxy": "media_service",
+             "filename": "tunein-premium.c4z"},
+            {"id": 92, "name": "TuneIn Premium", "typeName": "device",
+             "proxy": "media_service", "protocolId": 91,
+             "protocolFilename": "tunein-premium.c4z"},
             {"id": 623, "name": "Wiim", "typeName": "device", "proxy": "aswitch"},
             {"id": 346, "name": "Plex", "typeName": "device", "proxy": "media_player"},
             {"id": 100002, "name": "Digital Media", "typeName": "device",
@@ -62,10 +67,12 @@ class FakeRest:
                            {"id": 4294966299, "type": "SPECIAL_AUDIO"}],
             }},
             {"room_id": 22, "type": "listen", "sources": {
-                "source": [{"id": 94, "type": "DIGITAL_AUDIO_SERVER"}],
+                "source": [{"id": 94, "type": "DIGITAL_AUDIO_SERVER"},
+                           {"id": 92, "type": "DIGITAL_AUDIO_SERVER"}],
             }},
             {"room_id": 23, "type": "listen", "sources": {
-                "source": [{"id": 94, "type": "DIGITAL_AUDIO_SERVER"}],
+                "source": [{"id": 94, "type": "DIGITAL_AUDIO_SERVER"},
+                           {"id": 92, "type": "DIGITAL_AUDIO_SERVER"}],
             }},
         ]}
 
@@ -93,6 +100,7 @@ class FakeCommands:
         self.metadata_ids = []
         self.room_sources = {}
         self.tidal_playlists = {}
+        self.tunein_favorites = {}
         self.media_grouping = None
 
     async def refresh(self, device_ids):
@@ -109,6 +117,12 @@ class FakeCommands:
 
     def register_tidal_playlists(self, protocol_id, room_id, playlists):
         self.tidal_playlists[protocol_id, room_id] = tuple(playlists)
+
+    def supports_tunein_favorite(self, protocol_id):
+        return protocol_id == 91
+
+    def register_tunein_favorites(self, protocol_id, room_id, favorites):
+        self.tunein_favorites[protocol_id, room_id] = tuple(favorites)
 
     def register_media_grouping(self, digital_media_id, room_ids):
         self.media_grouping = (digital_media_id, tuple(room_ids))
@@ -184,8 +198,12 @@ class MediaPlayerSetupTests(unittest.IsolatedAsyncioTestCase):
         ))
         entry = SimpleNamespace(
             data={"host": "127.0.0.1", "username": "test", "password": "test"},
-            options={"tidal_playlists":
-                     "TIDAL | Evening Mix | 01234567-89ab-cdef-0123-456789abcdef"},
+            options={
+                "tidal_playlists":
+                    "TIDAL | Evening Mix | 01234567-89ab-cdef-0123-456789abcdef",
+                "tunein_favorites":
+                    "TuneIn | Klassik Radio | Station/s25028",
+            },
             entry_id="test-entry", runtime_data=None,
         )
         with (
@@ -208,11 +226,15 @@ class MediaPlayerSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("media_player", forwarded)
             self.assertIn("button", forwarded)
             self.assertEqual(FakeTransport.instances[0].tracked_ids, {2726})
-            self.assertEqual(entry.runtime_data.commands.metadata_ids, [[2726], [22, 23], [93]])
+            self.assertEqual(
+                entry.runtime_data.commands.metadata_ids,
+                [[2726], [22, 23], [93], [91]],
+            )
             self.assertEqual(list(entry.runtime_data.media_coordinators), [22, 23])
             self.assertEqual(
                 [(source.device_id, source.label) for source in entry.runtime_data.media_sources[22]],
-                [(346, "Watch: Plex"), (94, "Listen: TIDAL")],
+                [(346, "Watch: Plex"), (94, "Listen: TIDAL"),
+                 (92, "Listen: TuneIn Premium")],
             )
             self.assertEqual(
                 entry.runtime_data.commands.room_sources[22],
@@ -221,7 +243,7 @@ class MediaPlayerSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(
                 [(source.device_id, source.label)
                  for source in entry.runtime_data.media_sources[23]],
-                [(94, "Listen: TIDAL")],
+                [(94, "Listen: TIDAL"), (92, "Listen: TuneIn Premium")],
             )
             self.assertEqual(
                 set(entry.runtime_data.commands.room_sources), {22, 23}
@@ -239,6 +261,13 @@ class MediaPlayerSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual([item.name for item in catalog.playlists], ["Evening Mix"])
             self.assertEqual(
                 list(entry.runtime_data.commands.tidal_playlists), [(93, 22), (93, 23)]
+            )
+            tunein = entry.runtime_data.tunein_catalogs[22][0]
+            self.assertEqual((tunein.source_id, tunein.protocol_id), (92, 91))
+            self.assertEqual([item.name for item in tunein.favorites], ["Klassik Radio"])
+            self.assertEqual(
+                list(entry.runtime_data.commands.tunein_favorites),
+                [(91, 22), (91, 23)],
             )
             self.assertTrue(await integration.async_unload_entry(hass, entry))
         self.assertTrue(all(item.stopped for item in FakeCoordinator.instances))

@@ -39,6 +39,12 @@ Version 0.1.29 also exposes the validated Watch and Listen sources as playable
 app tiles under the native browse tree and removes the media player's source
 dropdown. Browser source selection retains the inventory allowlist, exact
 room-command metadata gate, and settled REST readback used by the earlier UI.
+Version 0.1.30 adds configured TuneIn station favorites under
+**TuneIn > source > station** in the same browser. The options parser accepts
+only `source | name | Station/s...` records. Catalog construction joins each
+record to a visible inventory-backed TuneIn source, and playback requires the
+live `Play Item(Item, Room)` metadata plus the registered room/station
+allowlist.
 
 The config flow accepts a local Director hostname/IP and Control4 account
 credentials. The account service issues a Director JWT; a separate local

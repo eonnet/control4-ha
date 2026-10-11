@@ -177,7 +177,8 @@ class ClimateHoldUITests(unittest.IsolatedAsyncioTestCase):
             connected=True,
         )
         self.runtime = SimpleNamespace(
-            transport=transport, commands=self.commands, tidal_catalogs={}
+            transport=transport, commands=self.commands, tidal_catalogs={},
+            tunein_catalogs={},
         )
         self.entry = SimpleNamespace(runtime_data=self.runtime)
 
