@@ -158,6 +158,12 @@ plus matching room buttons. They use the parameterless `SKIP_REV` and
 live room-power guard and asynchronous request envelope as the other playback
 actions.
 
+Version 0.1.22 displays the current title, artist, and album from Director's
+structured `CURRENT MEDIA INFO` room variable. These labels refresh with the
+existing room reconciliation and immediately after Previous or Next; stale
+labels are cleared when the room turns off. Artwork URLs and unrelated media
+payload fields are deliberately not exposed.
+
 State is initialized through REST, then updated from WebSocket events;
 entities do not poll when a usable push path has been proven. REST re-syncs
 after reconnect and on a slow reconciliation interval. Home Assistant device metadata includes the

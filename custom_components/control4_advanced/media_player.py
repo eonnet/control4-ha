@@ -133,6 +133,26 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
                 "room playback command requires a live powered-on room"
             )
         await self.runtime.commands.room_transport(self.device_id, command)
+        if command in {"SKIP_REV", "SKIP_FWD"}:
+            # Give Director a brief moment to advance its CURRENT MEDIA INFO,
+            # then update the visible title without waiting for the fallback.
+            await asyncio.sleep(0.5)
+            await self.runtime.transport.sync_room_source(self.device_id)
+
+    @property
+    def media_title(self) -> str | None:
+        value = self.state_data.get("media_title")
+        return value if isinstance(value, str) else None
+
+    @property
+    def media_artist(self) -> str | None:
+        value = self.state_data.get("media_artist")
+        return value if isinstance(value, str) else None
+
+    @property
+    def media_album_name(self) -> str | None:
+        value = self.state_data.get("media_album_name")
+        return value if isinstance(value, str) else None
 
     @property
     def source_list(self) -> list[str]:

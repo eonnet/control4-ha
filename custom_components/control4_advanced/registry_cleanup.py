@@ -38,6 +38,7 @@ def _director_id(unique_id: str, host: str) -> int | None:
     suffix = unique_id[len(prefix):]
     for entity_suffix in (
         "_hold_mode", "_media_play", "_media_pause", "_media_stop",
+        "_media_skip_rev", "_media_skip_fwd",
         "_tidal_account", "_tidal_playlist",
     ):
         if suffix.endswith(entity_suffix):

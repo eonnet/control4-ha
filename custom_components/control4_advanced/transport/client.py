@@ -252,10 +252,12 @@ class Control4Transport:
         snapshot = normalize_rest_variables(room_id, "roomdevice", variables)
         current = self.state.snapshot(room_id)
         changes = {}
-        for key in ("selected_source_id", "is_on"):
-            value = snapshot.changes.get(key)
-            if value is not None and value != current.get(key):
-                changes[key] = value
+        for key in (
+            "selected_source_id", "is_on", "media_title", "media_artist",
+            "media_album_name",
+        ):
+            if key in snapshot.changes and snapshot.changes[key] != current.get(key):
+                changes[key] = snapshot.changes[key]
         binding = snapshot.changes.get("volume_device_id")
         if type(binding) is int and binding != current.get("volume_device_id"):
             changes["volume_device_id"] = binding

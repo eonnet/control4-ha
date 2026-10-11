@@ -56,6 +56,30 @@ def _label(value: Any) -> str | None:
     return result if result and result != "-" else None
 
 
+def _media_text(value: Any) -> str | None:
+    """Return one bounded Director media label suitable for HA state."""
+    if not isinstance(value, str):
+        return None
+    result = value.strip()
+    if not result or len(result) > 512 or any(ord(char) < 32 for char in result):
+        return None
+    return result
+
+
+def _room_media_changes(value: Any) -> dict[str, str | None]:
+    """Decode only the observed title fields from CURRENT MEDIA INFO."""
+    if not isinstance(value, Mapping):
+        return {}
+    media_info = value.get("mediainfo")
+    if not isinstance(media_info, Mapping):
+        media_info = {}
+    return {
+        "media_title": _media_text(media_info.get("title")),
+        "media_artist": _media_text(media_info.get("artist")),
+        "media_album_name": _media_text(media_info.get("album")),
+    }
+
+
 def _first(mapping: Mapping[str, Any], *keys: str) -> Any:
     for key in keys:
         value = mapping.get(key)
@@ -259,6 +283,10 @@ def normalize_rest_variables(
         power = _rest_binary_state(by_name.get("POWER_STATE"))
         if power is not None:
             changes["is_on"] = power
+        media_keys = ("media_title", "media_artist", "media_album_name")
+        changes.update(_room_media_changes(by_name.get("CURRENT MEDIA INFO")))
+        if power is False:
+            changes.update({key: None for key in media_keys})
         selected = by_name.get("CURRENT_SELECTED_DEVICE")
         if type(selected) is int and 0 <= selected <= 2147483647:
             changes["selected_source_id"] = selected
