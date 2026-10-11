@@ -29,8 +29,10 @@ class Control4Entity(Entity):
     @property
     def device_info(self) -> DeviceInfo:
         info: DeviceInfo = {
-            "identifiers": {(DOMAIN, self.unique_id)},
-            "name": self.name,
+            # Multiple entities (climate + hold select) belong to one Director
+            # item. Keep the existing device-registry identifier stable.
+            "identifiers": {(DOMAIN, f"{self.runtime.transport.rest.host}_{self.device_id}")},
+            "name": self.item.get("name") or f"Control4 {self.device_id}",
         }
         if manufacturer := self.item.get("manufacturer"):
             info["manufacturer"] = manufacturer

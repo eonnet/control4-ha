@@ -5,10 +5,36 @@ The custom component lives at
 Home Assistant-independent; `control4_transport` at the repository root is a
 compatibility import for standalone scripts and tests. Copy the component
 directory into Home Assistant's `custom_components/` and restart Home
-Assistant. The manifest installs pinned `pyControl4` 2.0.2. A user reports
-running the earlier light/climate component in Home Assistant 2026.9.4. The
-on/off-only light and radiant-floor switch additions are local changes, not
-yet published to HACS or verified in HA.
+Assistant. The manifest installs pinned `pyControl4` 2.0.2. Version 0.1.2 was
+published through HACS and field-tested in Home Assistant 2026.9.4. Version
+0.1.3 was also published through HACS, after which the user confirmed Sony
+Plug works in both directions in HA. The exact installed version was not
+reported separately. The user reports both Kid Window and Kid PIR working
+correctly in HA with the binary-sensor slice. The exact installed version
+and public-branch status were not independently verified.
+The user reports that version 0.1.5's thermostat hold/preset controls work in
+both directions in HA. The exact installed version and public-branch status
+were not independently verified from this workspace.
+Version 0.1.9 initially added a read-only media-player entity for rooms with
+complete REST volume/mute state and a bound `aswitch` volume device. Later
+releases added volume, mute, source, and off control; the user has field-tested
+those paths on Living/Wiim, not on every room or volume binding.
+
+The unpublished 0.1.14 candidate adds separate, stateless room Play/Pause/Stop
+buttons. Each requires the exact parameterless command in that room's live
+Director metadata, shares the room's HA device, and is unavailable while the
+room is off or disconnected. Each press verifies live room power over REST
+before sending a command. The media player does not infer playback state.
+Version 0.1.15 additionally exposes the live-verified door-contact proxy as a
+read-only HA door binary sensor.
+Version 0.1.16 adds configured, account-aware TIDAL playlist select entities
+to eligible room devices. Each playlist command is allowlisted against a
+visible room source and the live `SelectPlaylist` metadata, and sends Shuffle
+as `Off`. Playlist mappings are stored in the HA config-entry options because
+Director REST omits the dynamic custom-select values that Composer displays.
+Version 0.1.28 exposes the same allowlisted accounts and playlists through each
+eligible room media player's native Home Assistant browse tree. Browse playback
+reuses `SelectPlaylist`; it does not claim unsupported live TIDAL search.
 
 The config flow accepts a local Director hostname/IP and Control4 account
 credentials. The account service issues a Director JWT; a separate local
@@ -16,8 +42,10 @@ REST/WebSocket connection uses that token. Only the local self-signed Director
 certificate is exempt from TLS verification. Credentials are stored in the
 Home Assistant config entry, never in this repository, and never logged.
 
-On setup, inventory discovers supported `light_v2`, `thermostatV2`, and
-`relaysingle_radiantfloor_c4` devices. The transport subscribes to their
+On setup, inventory discovers supported `light_v2`, `thermostatV2`,
+`relaysingle_radiantfloor_c4`, `relaysingle_relay_c4`,
+`contactsingle_windowcontactsensor_c4`, and
+`contactsingle_motionsensor_c4` devices. The transport subscribes to their
 `OnDataToUI` events, waits for a real Director
 subscription ID, then reads REST variables once. It repeats REST sync after
 reconnect and every 15 minutes by default. Normal state changes use push;
@@ -29,8 +57,9 @@ After a successful reload, registry entries owned by this integration are
 removed only if their Director IDs are absent from both full REST inventory
 reads made during setup. Entries for other config entries, other hosts, or
 non-Control4 identifiers are preserved. If either inventory read is empty,
-cleanup is skipped. This has offline safety tests but still needs live HA
-verification against a deleted Control4 item. Removing a registry entry also
+cleanup is skipped. This has offline safety tests and the user confirmed that
+a previously deleted Control4 device disappeared after an HA reload. Removing
+a registry entry also
 removes its HA-side name/area customization; if the Director item later returns,
 automations referring to the old entity or device may need attention.
 
@@ -46,21 +75,60 @@ platform currently exposes only Celsius `thermostatV2` devices and advertised
 Off/Heat/Cool/Auto modes.
 Heat/Cool/Auto setpoint routing uses Director's advertised
 `SET_SETPOINT_HEAT`, `SET_SETPOINT_COOL`, and `SET_SETPOINT_SINGLE` metadata.
+Living AC also exposed a named `PRESET` REST state, `preset` push updates,
+and seven `SET_PRESET.NAME` choices. Version 0.1.5 therefore adds its native
+climate preset selector. Kid AC did not advertise `SET_PRESET`, so no preset
+control is exposed there. Both devices advertised `SET_MODE_HOLD` and a
+current `HOLD_MODE`; hold is shown as the climate attribute
+`control4_hold_mode` and as a companion select entity on the same HA device.
+The select and preset commands are validated against each device's live
+metadata and wait for Director feedback rather than optimistically changing
+the displayed state. The Living AC push fields were captured. The user later
+reported bidirectional HA operation of the new thermostat controls, without
+identifying individual choices or whether Kid AC hold was included. A Kid AC
+hold transition has not been captured in the read-only probe.
 Device registry metadata comes from inventory (`roomName`, manufacturer,
 model, proxy). The switch platform selects only `relaysingle_radiantfloor_c4`
-items with a valid initial `RelayState` and advertised `OPEN`/`CLOSE` commands.
-They are disabled by default in the HA entity registry because they control
-heating loads; the user must deliberately enable the desired switch. This
+and `relaysingle_relay_c4` items with a valid initial `RelayState` and
+advertised parameterless `OPEN`/`CLOSE` commands. All newly discovered relay
+switches are disabled by default in the HA entity registry because these
+proxies include heating, fans, and other loads; the user must deliberately
+enable each desired switch. This
 default applies only when an entity is first added to the registry; it does
 not change an existing entity's enabled state. Kid
-Heating Panel ID `579` supplied the observed on/off push and physical mapping.
-After installing version 0.1.2, find the disabled Kid Heating
-Panel switch under Settings → Devices & services → Entities and enable only
-that entity. First verify its state by changing the panel in Control4; then
-test an HA command while observing the physical panel and settled feedback.
-Other same-proxy heating relays have not been individually verified. Basic
-relays, `uibutton`, sensors, and binary sensors remain out of scope. Color,
-fan, hold, and humidity controls are also out of scope.
+Heating Panel ID `579` supplied the radiant-floor push and physical mapping,
+and the user confirmed HA feedback and control. Sony Plug ID `431` supplied
+the regular-relay read-only REST and push evidence, and the user subsequently
+confirmed HA control and feedback in both directions after 0.1.3 was published.
+The user subsequently reported that Vent ID `1846` and Boiler ID `1845`,
+also regular relays, work in HA. The exact direction and sequence of each of
+those two tests were not described separately. Other same-proxy relays have
+not been individually verified.
+The binary-sensor platform exposes the three observed contact proxy types as
+`window`, `motion`, and `door`, respectively. It reads `ContactState` once for
+initial state and after reconnect, then uses only verified `contact_state`
+push updates for normal state changes. Director `OPENED`/REST `0` means on
+(window or door open, or PIR motion); `CLOSED`/REST `1` means off. The user
+confirmed the PIR trigger/clear timestamps separately after an earlier
+ambiguous answer, and confirmed both the window mapping and the Main Door
+mapping through live physical tests. All three sensor types are read-only and
+enabled by default; they do not require Director command metadata. If the
+initial REST read fails, their HA state remains unavailable until a verified
+push update or later reconciliation.
+Window and motion devices have user-reported HA field validation; door entity
+registration in HA is still pending. Other sensor proxies,
+`cardaccess_wirelessrelay`, and `uibutton` remain out of scope. Color and
+humidity controls are still out of scope. Fan mode has a metadata-gated 0.1.6
+implementation. Both known ACs' choices/current state and
+Kid AC fan-change push have live Director evidence. The user reports fan
+control working in both directions in HA, without identifying individual
+devices or choices;
+see [fan-mode investigation](thermostat-fan-mode.md).
+Version 0.1.7 also exposes GREE ID `404` fan and preset selectors from its
+advertised command choices despite missing initial active values. Direct
+WebSocket updates for both were captured; an empty `preset` update clears
+the active preset. GREE does not advertise `SET_MODE_HOLD`, so no writable
+hold selector is created. This revision needs a separate HA field test.
 
 Command requests are checked against a live read of `/items/{id}/commands`
 before sending. The JSON POST body follows the production MCP REST client:
@@ -76,8 +144,11 @@ seconds later. The integration waits for the settled event before writing the
 new on/off state; that ramp interval is a plausible explanation for most of
 the reported delay, but has not been proven for the latest change. Climate
 setpoint and HVAC-mode commands and Control4-to-HA state feedback were also
-reported working in both directions on Home Assistant 2026.9.4. This is
-user-reported runtime evidence, not an automated HA integration test.
+reported working in both directions on Home Assistant 2026.9.4. In version
+0.1.2 the user additionally confirmed on/off-only light and Kid Heating Panel
+commands and feedback in both directions. After 0.1.3 was published, the user
+confirmed the same for Sony Plug and reported Vent and Boiler working too.
+These are user-reported runtime results, not automated HA integration tests.
 
 A read-only Core3 smoke run on 2026-10-03 found 107 items with one of the
 target proxy names, but only 25 dimmable lights and 7 heating/cooling

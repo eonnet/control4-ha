@@ -113,7 +113,7 @@ class Control4Transport:
         websocket_factory: Callable[..., C4Websocket] = C4Websocket,
     ) -> None:
         self.rest = rest
-        self.tracked_ids = frozenset(int(item_id) for item_id in tracked_ids)
+        self.tracked_ids = set(int(item_id) for item_id in tracked_ids)
         if not self.tracked_ids:
             raise ValueError("at least one tracked Control4 item ID is required")
         if reconciliation_seconds is not None and reconciliation_seconds <= 0:
@@ -216,19 +216,75 @@ class Control4Transport:
                 if self._stop_event.is_set():
                     return
                 async with limit:
-                    baseline = self.state.revision
-                    try:
-                        variables = await self.rest.get_variables(device_id)
-                    except Exception as exc:
-                        _LOGGER.warning("REST state sync failed for %s: %s", device_id, type(exc).__name__)
-                        return
-                    event = normalize_rest_variables(device_id, self.inventory.proxy(device_id), variables)
-                    accepted = self.state.apply(event, only_if_unchanged_since=baseline)
-                    await self.events.publish(
-                        replace(event, changes=accepted, authoritative=bool(accepted))
-                    )
+                    await self.sync_device(device_id)
 
             await asyncio.gather(*(sync_one(device_id) for device_id in sorted(self.tracked_ids)))
+
+    async def sync_device(self, device_id: int) -> None:
+        """Refresh one tracked item after a push trigger, preserving newer fields."""
+        if device_id not in self.tracked_ids:
+            raise ValueError("item is not tracked")
+        baseline = self.state.revision
+        try:
+            variables = await self.rest.get_variables(device_id)
+        except Exception as exc:
+            _LOGGER.warning("REST state sync failed for %s: %s", device_id, type(exc).__name__)
+            return
+        event = normalize_rest_variables(device_id, self.inventory.proxy(device_id), variables)
+        accepted = self.state.apply(event, only_if_unchanged_since=baseline)
+        await self.events.publish(replace(event, changes=accepted, authoritative=bool(accepted)))
+
+    async def sync_room_source(self, room_id: int) -> None:
+        """Reconcile source, power, and volume binding from one room read.
+
+        Volume and mute remain push-triggered while the binding is stable.
+        When it changes, the same REST snapshot re-syncs those values so an
+        off/on cycle cannot leave them stale after the binding is restored.
+        """
+        if room_id not in self.tracked_ids or self.inventory.proxy(room_id) != "roomdevice":
+            raise ValueError("room is not tracked")
+        baseline = self.state.revision
+        try:
+            variables = await self.rest.get_variables(room_id)
+        except Exception as exc:
+            _LOGGER.warning("REST room status sync failed for %s: %s", room_id, type(exc).__name__)
+            return
+        snapshot = normalize_rest_variables(room_id, "roomdevice", variables)
+        current = self.state.snapshot(room_id)
+        changes = {}
+        for key in (
+            "selected_source_id", "is_on", "media_title", "media_artist",
+            "media_album_name",
+        ):
+            if key in snapshot.changes and snapshot.changes[key] != current.get(key):
+                changes[key] = snapshot.changes[key]
+        binding = snapshot.changes.get("volume_device_id")
+        if type(binding) is int and binding != current.get("volume_device_id"):
+            changes["volume_device_id"] = binding
+            for key in ("volume_percent", "is_muted"):
+                if key in snapshot.changes:
+                    changes[key] = snapshot.changes[key]
+        if not changes:
+            return
+        event = replace(snapshot, changes=changes)
+        accepted = self.state.apply(event, only_if_unchanged_since=baseline)
+        if accepted:
+            await self.events.publish(replace(event, changes=accepted))
+
+    async def track_device(self, device_id: int) -> None:
+        """Start routing a newly bound inventory item without reconnecting.
+
+        pyControl4 callback registration is local: Director sends the global
+        datatoui stream, and this callback selects messages by iddevice.
+        """
+        if type(device_id) is not int or device_id not in self.inventory.items:
+            raise ValueError("item is absent from REST inventory")
+        if device_id in self.tracked_ids:
+            return
+        self.tracked_ids.add(device_id)
+        if self._websocket is not None:
+            self._websocket.add_item_callback(device_id, self._on_websocket_event)
+        await self.sync_device(device_id)
 
     async def _on_connect(self) -> None:
         self._connected = True
@@ -267,7 +323,7 @@ class Control4Transport:
                         self._on_connect,
                         self._on_disconnect,
                     )
-                    for device_id in self.tracked_ids:
+                    for device_id in tuple(self.tracked_ids):
                         self._websocket.add_item_callback(device_id, self._on_websocket_event)
                     await self._websocket.sio_connect(token.value)
                     if not self._connected:

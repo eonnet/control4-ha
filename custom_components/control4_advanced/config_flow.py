@@ -7,13 +7,16 @@ from typing import Any
 import aiohttp
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow
+from homeassistant.config_entries import ConfigEntry, ConfigFlow, OptionsFlowWithReload
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
+from homeassistant.core import callback
+from homeassistant.helpers.selector import TextSelector, TextSelectorConfig
 
-from .const import DOMAIN
+from .const import CONF_TIDAL_PLAYLISTS, DOMAIN
 from .selection import is_candidate_item
 from .transport import AccountTokenProvider, DirectorRestClient
 from .transport.auth import AuthenticationError, AuthenticationTransportError
+from .transport.playlists import parse_tidal_playlists
 from .transport.rest import DirectorRestError
 
 
@@ -28,6 +31,11 @@ class Control4ConfigFlow(ConfigFlow, domain=DOMAIN):
     """Check credentials and the Director inventory before creating an entry."""
 
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry):
+        return Control4OptionsFlow()
 
     async def _validate(self, host: str, username: str, password: str) -> str | None:
         provider = AccountTokenProvider(username, password)
@@ -92,5 +100,33 @@ class Control4ConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="reauth_confirm",
             data_schema=vol.Schema({vol.Required(CONF_PASSWORD): vol.All(str, vol.Length(min=1))}),
+            errors=errors,
+        )
+
+
+class Control4OptionsFlow(OptionsFlowWithReload):
+    """Configure optional TIDAL playlist names without storing them in code."""
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None):
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            value = user_input.get(CONF_TIDAL_PLAYLISTS, "")
+            try:
+                parse_tidal_playlists(value)
+            except ValueError:
+                errors[CONF_TIDAL_PLAYLISTS] = "invalid_tidal_playlists"
+            else:
+                return self.async_create_entry(data=user_input)
+        current = self.config_entry.options.get(CONF_TIDAL_PLAYLISTS, "")
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_TIDAL_PLAYLISTS,
+                        default=current,
+                    ): TextSelector(TextSelectorConfig(multiline=True))
+                }
+            ),
             errors=errors,
         )

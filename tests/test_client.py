@@ -20,23 +20,26 @@ class FakeRest:
         self.session = object()
         self.token_provider = FakeTokenProvider()
         self.variables = [{"varName": "Brightness Percent", "value": 0}]
+        self.variables_by_id: dict[int, list[dict]] = {}
         self.items = [{"id": 2726, "name": "Lamp Table", "proxy": "light_v2"}]
         self.read_started = asyncio.Event()
         self.read_release: asyncio.Event | None = None
         self.read_error: Exception | None = None
         self.read_count = 0
+        self.read_ids: list[int] = []
 
     async def get_items(self):
         return list(self.items)
 
     async def get_variables(self, device_id: int):
         self.read_count += 1
+        self.read_ids.append(device_id)
         self.read_started.set()
         if self.read_release is not None:
             await self.read_release.wait()
         if self.read_error is not None:
             raise self.read_error
-        return list(self.variables)
+        return list(self.variables_by_id.get(device_id, self.variables))
 
 
 class FakeWebsocket:
@@ -122,6 +125,17 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.rest.read_started.clear()
         self.rest.read_release = asyncio.Event()
         sync = asyncio.create_task(self.transport.sync_all())
+        await self.rest.read_started.wait()
+        await FakeWebsocket.instances[-1].push(2726, {"LIGHT_LEVEL": 41})
+        self.rest.read_release.set()
+        await sync
+        self.assertEqual(self.transport.state.snapshot(2726)["brightness_percent"], 41.0)
+
+    async def test_targeted_read_cannot_overwrite_newer_push(self) -> None:
+        await self.transport.start()
+        self.rest.read_started.clear()
+        self.rest.read_release = asyncio.Event()
+        sync = asyncio.create_task(self.transport.sync_device(2726))
         await self.rest.read_started.wait()
         await FakeWebsocket.instances[-1].push(2726, {"LIGHT_LEVEL": 41})
         self.rest.read_release.set()

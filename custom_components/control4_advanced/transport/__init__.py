@@ -4,6 +4,14 @@ from .auth import AccountTokenProvider, DirectorToken, TokenProvider
 from .client import Control4Transport, DeviceStateCache, EventDispatcher, InventoryCache
 from .commands import DeviceCommandClient, UnsupportedCommand
 from .events import NormalizedEvent, normalize_rest_variables, normalize_websocket_event
+from .media import RoomVolumeCoordinator
+from .sessions import MediaSession, MediaSessionCoordinator, parse_media_sessions
+from .playlists import (
+    RoomTidalCatalog,
+    TidalPlaylist,
+    parse_tidal_playlists,
+    room_tidal_catalogs,
+)
 from .rest import DirectorRestClient, DirectorRestError
 
 __all__ = [
@@ -17,8 +25,16 @@ __all__ = [
     "EventDispatcher",
     "InventoryCache",
     "NormalizedEvent",
+    "RoomVolumeCoordinator",
+    "MediaSession",
+    "MediaSessionCoordinator",
+    "RoomTidalCatalog",
+    "TidalPlaylist",
     "TokenProvider",
     "UnsupportedCommand",
     "normalize_rest_variables",
     "normalize_websocket_event",
+    "parse_tidal_playlists",
+    "parse_media_sessions",
+    "room_tidal_catalogs",
 ]

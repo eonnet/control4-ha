@@ -14,6 +14,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import Control4Runtime
 from .entity import Control4Entity
+from .transport.commands import UnsupportedCommand
 
 
 WIRE_MODES = {
@@ -46,11 +47,67 @@ async def async_setup_entry(
 
 
 class Control4Climate(Control4Entity, ClimateEntity):
-    """Expose only advertised modes and Celsius setpoint commands."""
+    """Expose advertised Celsius, preset, and fan controls with hold status."""
 
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_target_temperature_step = 1.0
     _attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE
+
+    def __init__(self, runtime: Control4Runtime, item: dict[str, Any]) -> None:
+        super().__init__(runtime, item)
+        self._preset_options: list[str] = []
+        if runtime.commands.supports(self.device_id, "SET_PRESET"):
+            try:
+                choices = runtime.commands.choices(self.device_id, "SET_PRESET", "NAME")
+            except UnsupportedCommand:
+                choices = []
+            # GREE advertises commands while omitting the active value at startup.
+            if choices:
+                self._preset_options = choices
+                self._attr_supported_features |= ClimateEntityFeature.PRESET_MODE
+        self._fan_options: list[str] = []
+        if runtime.commands.supports(self.device_id, "SET_MODE_FAN"):
+            try:
+                choices = runtime.commands.choices(self.device_id, "SET_MODE_FAN", "MODE")
+            except UnsupportedCommand:
+                choices = []
+            # Keep the selector available; push can supply its value later.
+            if choices:
+                self._fan_options = choices
+                self._attr_supported_features |= ClimateEntityFeature.FAN_MODE
+
+    @property
+    def preset_modes(self) -> list[str]:
+        return self._preset_options
+
+    @property
+    def preset_mode(self) -> str | None:
+        current = self.state_data.get("preset_mode")
+        if not isinstance(current, str):
+            return None
+        return next(
+            (choice for choice in self._preset_options if choice.casefold() == current.casefold()),
+            None,
+        )
+
+    @property
+    def fan_modes(self) -> list[str]:
+        return self._fan_options
+
+    @property
+    def fan_mode(self) -> str | None:
+        current = self.state_data.get("fan_mode")
+        if not isinstance(current, str):
+            return None
+        return next(
+            (choice for choice in self._fan_options if choice.casefold() == current.casefold()),
+            None,
+        )
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str]:
+        hold = self.state_data.get("hold_mode")
+        return {"control4_hold_mode": hold} if isinstance(hold, str) else {}
 
     @property
     def hvac_modes(self) -> list[HVACMode]:
@@ -69,6 +126,8 @@ class Control4Climate(Control4Entity, ClimateEntity):
     @property
     def target_temperature(self) -> float | None:
         state = self.state_data
+        if state.get("setpoint_profile") == "SINGLE" and self.hvac_mode in MODE_COMMAND_KIND:
+            return state.get("target_temperature_c")
         if self.hvac_mode == HVACMode.HEAT:
             return state.get("heat_setpoint_c")
         if self.hvac_mode == HVACMode.COOL:
@@ -86,7 +145,7 @@ class Control4Climate(Control4Entity, ClimateEntity):
         return self._setpoint_bounds()[1]
 
     def _setpoint_bounds(self) -> tuple[float, float]:
-        kind = MODE_COMMAND_KIND.get(self.hvac_mode, "SINGLE")
+        kind = self._setpoint_kind(self.hvac_mode)
         if self.runtime.commands.supports(self.device_id, f"SET_SETPOINT_{kind}"):
             bounds = self.runtime.commands.range(
                 self.device_id, f"SET_SETPOINT_{kind}", "CELSIUS"
@@ -95,10 +154,25 @@ class Control4Climate(Control4Entity, ClimateEntity):
                 return bounds
         return (6.0, 32.0)
 
+    def _setpoint_kind(self, mode: HVACMode | None) -> str:
+        if self.state_data.get("setpoint_profile") == "SINGLE":
+            return "SINGLE"
+        return MODE_COMMAND_KIND.get(mode, "SINGLE")
+
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         if hvac_mode not in self.hvac_modes:
             raise HomeAssistantError("HVAC mode is not advertised by this thermostat")
         await self.runtime.commands.hvac_mode(self.device_id, hvac_mode.value)
+
+    async def async_set_preset_mode(self, preset_mode: str) -> None:
+        if preset_mode not in self._preset_options:
+            raise HomeAssistantError("Preset is not advertised by this thermostat")
+        await self.runtime.commands.preset(self.device_id, preset_mode)
+
+    async def async_set_fan_mode(self, fan_mode: str) -> None:
+        if fan_mode not in self._fan_options:
+            raise HomeAssistantError("Fan mode is not advertised by this thermostat")
+        await self.runtime.commands.fan_mode(self.device_id, fan_mode)
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         temperature = kwargs.get(ATTR_TEMPERATURE)
@@ -107,7 +181,7 @@ class Control4Climate(Control4Entity, ClimateEntity):
         mode = kwargs.get(ATTR_HVAC_MODE, self.hvac_mode)
         if mode not in MODE_COMMAND_KIND:
             raise HomeAssistantError("Choose Heat, Cool, or Auto before setting a temperature")
-        kind = MODE_COMMAND_KIND[mode]
+        kind = self._setpoint_kind(mode)
         if not self.runtime.commands.supports(self.device_id, f"SET_SETPOINT_{kind}"):
             raise HomeAssistantError("This thermostat does not advertise that setpoint command")
         if ATTR_HVAC_MODE in kwargs and mode != self.hvac_mode:

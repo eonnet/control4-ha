@@ -66,7 +66,30 @@ push pair, not separately measured with an off-state REST read. The generic
 The user also changed Bathroom Ceiling from off to on to off. Director
 emitted `LIGHT_LEVEL:100` at 22:50:50.499Z and `LIGHT_LEVEL:0` at
 22:50:52.074Z, each with matching `light_brightness_changed` feedback. This
-proves useful push for the on/off-only `light_v2` variant. The new HA switch
-and on/off-only light paths have offline parser/selection tests but still need
-Home Assistant runtime verification. No agent-issued Control4 write was
+proves useful push for the on/off-only `light_v2` variant. The user later
+confirmed that the on/off-only light and Kid Heating Panel work in both
+directions in Home Assistant 2026.9.4. No agent-issued Control4 write was
 performed.
+
+On 2026-10-04, a focused read-only probe watched Sony Plug ID `431`, proxy
+`relaysingle_relay_c4`. REST metadata reported `RelayState:1` and parameterless
+`OPEN`, `CLOSE`, and `TOGGLE`. The user confirmed the plug was physically on at
+that snapshot, then turned it off and back on in Control4. Director emitted
+`state:false` at 02:35:06.204Z followed by verified, feedback-bound `OPENED`
+at 02:35:06.404Z; it then emitted `state:true` at 02:35:08.734Z followed by
+verified, feedback-bound `CLOSED` at 02:35:08.933Z. Every event carried
+`iddevice:431`. Thus `CLOSED` means on and `OPENED` means off for this observed
+regular relay. As with the radiant-floor proxy, the early generic `state`
+message is not used as settled feedback, and REST `0=off` is inferred rather
+than separately read while off. Physical-change-to-event latency was not
+measured. No REST command was executed by the probe. After the 0.1.3 HACS
+release, the user confirmed Sony Plug works in both directions between HA and
+Control4. The user then reported that Vent and Boiler work too. The earlier
+REST inventory identified these as Vent ID `1846` and Boiler ID `1845`, both
+`relaysingle_relay_c4`; this is a name-to-ID association from that inventory,
+not a fresh per-device REST or WebSocket trace. The report followed Sony's
+bidirectional test, but the exact direction and sequence of the Vent and
+Boiler tests were not separately described. These are user-reported HA
+runtime results, not automated integration tests or proof about the other
+regular relays. Vent relay ID `1846` remains distinct from Extract Fan
+`uibutton` ID `319`. No Control4 command was issued by the agent.

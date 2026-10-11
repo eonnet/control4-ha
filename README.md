@@ -2,13 +2,39 @@
 
 Phase 1 established usable Director WebSocket push events on this Core3.
 Phase 2 provides a small Home Assistant-independent transport layer. Phase 3
-now contains a custom-component slice for `light_v2`, Celsius
-`thermostatV2`, and opt-in radiant-floor relay switches. A user has installed
-the earlier light/climate version in Home Assistant 2026.9.4 and reports that
-light control works. Separately, a manual Control4 Hallway dimmer change
-appears in Home Assistant about 3–4 seconds later. That interval has not been
-instrumented end-to-end. The user also reports that thermostat state changes
-and HA setpoint/HVAC-mode commands work in both directions.
+contains a custom-component slice for `light_v2`, Celsius `thermostatV2`, and
+opt-in relay switches. Version 0.1.4 adds read-only window and motion binary
+sensors from the two observed contact proxies. The user reports both Kid
+Window and Kid PIR working correctly in HA; the exact installed version and
+public-branch status were not independently verified. Version 0.1.2 has been
+field-tested in Home Assistant 2026.9.4: on/off lighting, climate, and one
+radiant-floor relay work in both directions, and stale device cleanup works
+after reload. A manual Control4
+Hallway dimmer change appears in HA about 3–4 seconds later; that interval has
+not been instrumented end-to-end. Version 0.1.3 adds the observed regular
+relay proxy; the user confirmed Sony Plug works in both directions in HA and
+subsequently reported that Vent and Boiler work too. Other regular relays have
+not been individually verified.
+Version 0.1.5 adds Living AC named presets to the climate selector and a
+companion hold-mode select for eligible thermostats. The user reports that
+the new thermostat controls work in both directions in HA. Individual choices
+and Kid AC hold were not identified separately in that report.
+Version 0.1.6 adds fan mode: both ACs advertise `Auto`,
+`Low`, `Medium`, and `High`, and Kid AC has direct fan-change push feedback.
+The user reports fan mode working in both directions in HA; the specific ACs
+and choices tested were not identified separately.
+Version 0.1.7 makes GREE's advertised fan and preset controls visible even
+when Director omits their active values from the initial REST snapshot. Their
+displayed values remain unknown until push feedback arrives; an empty GREE
+preset update clears the displayed preset. GREE does not advertise a hold
+command, so it has no writable hold selector. This change is offline-tested
+but has not yet been field-tested in HA.
+Version 0.1.8 detects GREE's single-setpoint REST signature and uses its
+`setpoint_single_c` push updates for the climate target in Heat and Cool.
+It sends the advertised `SET_SETPOINT_SINGLE` command for GREE while retaining
+the existing heat/cool command route for separate-setpoint thermostats.
+This is offline-tested, and the user subsequently confirmed GREE setpoint
+control and feedback working in both directions in HA.
 
 ## WebSocket probe
 
@@ -147,3 +173,145 @@ and can be installed through HACS after these local changes are published.
 Light control and Control4-originated feedback have been reported working in
 Home Assistant; verify newly added device types separately before using them
 in automations.
+
+The [development backlog](docs/backlog.md) defers numeric sensors. The
+[thermostat hold/preset evidence](docs/thermostat-hold-presets.md) describes
+the read-only Director trace and the user-reported HA field test.
+Read-only [media-player discovery](docs/media-player-discovery.md) found
+Wiim output-volume push while Wiim was the Living room's bound volume device.
+Sony's matching volume events are a Control4 Programming mirror, not an
+independent room-volume source. The media-player platform uses
+bound-device push to trigger immediate room REST reads and displays the
+room's power, volume, and mute state. The user has confirmed volume and mute
+feedback in HA. Version 0.1.10 adds volume and mute controls only when the
+room advertises the exact validated command metadata. The user confirmed
+those controls work in both directions. Version 0.1.11 adds a source selector
+from the Director UI configuration, limited to inventory-backed media sources
+and advertised room commands. The user confirmed HA-to-Control4 source
+selection but reported that external Control4 source changes were not shown
+in HA. Version 0.1.12 reconciles only the selected room source from REST
+every 15 seconds when no source push route is known; volume and mute remain
+push-triggered. Version 0.1.13 adds room power and volume-binding feedback to
+that fallback and retains an already registered room after a reload while it
+is off. It adds a guarded Off control with Director readback. The user
+confirmed that selecting a source turns Living on; a generic On control is
+not offered because no source-selection rule has been established. The user
+subsequently confirmed that Living turned off from HA, remained visible as
+Off after an integration reload, and turned back on through source selection
+with the previous volume and mute values. Both volume and mute feedback
+worked after that power cycle. These reports validate the current
+Living/Wiim binding, not other rooms.
+
+The unpublished 0.1.14 candidate adds separate Play, Pause, and Stop button
+entities under each eligible Control4 room device, only for commands advertised
+without parameters by that room. They are unavailable while the room is off or
+disconnected, and each press checks live room power over REST before sending
+its command. These are stateless command buttons: the media player still
+reports verified room power as On/Off and does not claim Playing/Paused without
+feedback. Their live behavior has not yet been field-tested.
+
+Version 0.1.15 adds read-only door binary sensors for the observed
+`contactsingle_doorcontactsensor_c4` proxy. A live Main Door trace confirmed
+verified `OPENED`/REST `0` as open and `CLOSED`/REST `1` as closed, matching
+the existing contact transport contract. The user subsequently confirmed the
+door entity in Home Assistant.
+
+Version 0.1.17 adds two linked selectors to each eligible Control4 room:
+**TIDAL account** and **TIDAL playlist**. Choosing an account selects that
+actual Control4 Listen source in the room, and the playlist dropdown then
+shows only playlists configured for that account. Director's REST metadata
+advertises the playlist command
+but omits the dynamic playlist-name/UUID choices shown by Composer, so those
+choices are entered once under **Settings > Devices & services > Control4
+Advanced > Configure**. Use one line per playlist:
+
+```text
+TIDAL source name | Playlist name | Playlist UUID
+```
+
+For example:
+
+```text
+TIDAL | Evening Mix | 01234567-89ab-cdef-0123-456789abcdef
+```
+
+The source name must match the Listen source shown by Control4 (for example
+`TIDAL`, `Juliane`, `Miki`, or `Jakob`). The integration joins that source to
+its TIDAL protocol driver and adds the selectors only to rooms where the source
+is exposed. Selecting a playlist sends Control4's advertised `SelectPlaylist`
+command to that same room with `Shuffle` fixed to `Off`. The selector remains
+stateless because Director does not report which playlist created the current
+queue.
+
+Version 0.1.18 also exposes each room's advertised Play, Pause, and Stop
+commands as native controls on the Home Assistant media-player dialog. Because
+Director does not report playback state, these controls are explicitly marked
+as assumed and never change the room's verified On/Off state. Every press
+re-reads live room power before sending the command. The separate button
+entities remain available for existing dashboards and automations.
+
+Version 0.1.19 exposes every Control4 room that has at least one validated
+Watch or Listen source as a Home Assistant media player. A proven volume
+binding is no longer required for the room entity to exist; volume and mute
+controls remain conditional on their existing validation, while source and
+playback controls use each room's own advertised commands.
+
+Version 0.1.20 corrects the Play, Pause, and Stop request body to the
+asynchronous `tParams` envelope used by `pyControl4`'s room implementation.
+The earlier generic command envelope was accepted by Director but did not
+operate room playback on this installation.
+
+Version 0.1.21 adds native Previous Track and Next Track media-player controls
+plus matching room buttons. They use the parameterless `SKIP_REV` and
+`SKIP_FWD` commands advertised by every discovered media room, with the same
+live room-power guard and asynchronous request envelope as the other playback
+actions.
+
+Version 0.1.22 displays the current title, artist, and album from Director's
+structured `CURRENT MEDIA INFO` room variable. These labels refresh with the
+existing room reconciliation and immediately after Previous or Next; stale
+labels are cleared when the room turns off. Artwork URLs and unrelated media
+payload fields are deliberately not exposed.
+
+Version 0.1.23 maps the room's verified power and selected-source fields to
+Home Assistant media states: Off when room power is off, Playing when the room
+is on with a positive selected-source ID, and Idle when the room is on without
+a selected source. This is a source-selection state, not play/pause feedback.
+
+Version 0.1.24 displays the selected Control4 source name as the media title
+when that source supplies no track or programme metadata. For example, a
+selected Apple TV now shows `Apple TV`; real media titles continue to take
+priority whenever Director provides them.
+
+Version 0.1.25 adds native multi-room support to the Control4 room media
+players. Home Assistant's standard `media_player.join` action uses the
+Director's Digital Media `ADD_ROOMS_TO_SESSION` command, and each entity's
+`group_members` attribute follows the authoritative `/api/v1/media_sessions`
+state. `media_player.unjoin` uses Control4's documented Room Off behavior to
+remove only that room from the session. Join and unjoin wait for Director to
+confirm the new membership instead of updating Home Assistant optimistically.
+
+Version 0.1.26 keeps native grouping advertised on powered-off room players so
+Home Assistant includes them in the active leader's available-player list.
+Selecting an off room adds it to the leader's Control4 session and powers it
+through the native session command.
+
+Version 0.1.27 accepts Home Assistant's empty preparatory join request when
+the last selected member is removed. This lets the dialog continue with its
+separate unjoin request, which removes and powers off the deselected room.
+
+Version 0.1.28 adds the configured TIDAL accounts and playlists to Home
+Assistant's native media browser on each eligible Control4 room player. The
+browse hierarchy is **TIDAL > account > playlist**. Selecting a playlist uses
+the same allowlisted `SelectPlaylist` command as the playlist selector and
+keeps shuffle off. This intentionally exposes only playlists entered in the
+integration options; full TIDAL catalog browsing and search require a
+Control4-authorized MSP command channel that Director does not expose through
+its authenticated REST/WebSocket API.
+
+## License
+
+This repository is licensed under the [Apache License 2.0](LICENSE).
+Control4 Advanced is an independent project and is not affiliated with or
+endorsed by Control4. The license does not grant rights to Control4's
+software, trademarks, or other third-party material.
