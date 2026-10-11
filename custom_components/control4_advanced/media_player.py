@@ -145,7 +145,10 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
     @property
     def media_title(self) -> str | None:
         value = self.state_data.get("media_title")
-        return value if isinstance(value, str) else None
+        if isinstance(value, str):
+            return value
+        selected = self._selected_source()
+        return selected.name if self._room_is_on() and selected is not None else None
 
     @property
     def media_artist(self) -> str | None:
@@ -163,11 +166,15 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
 
     @property
     def source(self) -> str | None:
+        selected = self._selected_source()
+        return selected.label if selected is not None else None
+
+    def _selected_source(self) -> RoomSource | None:
         selected_id = self.state_data.get("selected_source_id")
         if type(selected_id) is not int or selected_id <= 0:
             return None
         return next(
-            (source.label for source in self._sources() if source.device_id == selected_id),
+            (source for source in self._sources() if source.device_id == selected_id),
             None,
         )
 

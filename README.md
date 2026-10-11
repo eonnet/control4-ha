@@ -169,6 +169,11 @@ Home Assistant media states: Off when room power is off, Playing when the room
 is on with a positive selected-source ID, and Idle when the room is on without
 a selected source. This is a source-selection state, not play/pause feedback.
 
+Version 0.1.24 displays the selected Control4 source name as the media title
+when that source supplies no track or programme metadata. For example, a
+selected Apple TV now shows `Apple TV`; real media titles continue to take
+priority whenever Director provides them.
+
 State is initialized through REST, then updated from WebSocket events;
 entities do not poll when a usable push path has been proven. REST re-syncs
 after reconnect and on a slow reconciliation interval. Home Assistant device metadata includes the
