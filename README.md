@@ -200,6 +200,14 @@ exposed; full TIDAL catalog browsing and search require a Control4-authorized
 MSP command channel that Director does not expose through its authenticated
 REST/WebSocket API.
 
+Version 0.1.29 moves the room's validated Watch and Listen sources into the
+same native media browser. The top-level hierarchy is now
+**Control4 > Watch / Listen / TIDAL**, and each source is a playable app tile.
+The media player no longer advertises Home Assistant's source-select feature
+or a source list, so the old source dropdown is removed. Source commands keep
+the existing inventory allowlist, live Director command-metadata gate, and
+REST confirmation before Home Assistant displays the changed source.
+
 State is initialized through REST, then updated from WebSocket events;
 entities do not poll when a usable push path has been proven. REST re-syncs
 after reconnect and on a slow reconciliation interval. Home Assistant device metadata includes the
