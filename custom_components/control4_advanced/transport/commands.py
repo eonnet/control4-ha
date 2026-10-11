@@ -274,7 +274,13 @@ class DeviceCommandClient:
         """Send a metadata-validated transport command; response is not state feedback."""
         if not self.supports_room_transport(room_id, command):
             raise UnsupportedCommand("Director did not advertise this room transport command")
-        return await self.send(room_id, command)
+        # Match pyControl4's C4Room playback wire format. These commands are
+        # accepted but ignored on this Director when sent through the generic
+        # ``params`` envelope used successfully by the other command groups.
+        return await self.rest.post_json(
+            f"/api/v1/items/{room_id}/commands",
+            {"async": True, "command": command, "tParams": {}},
+        )
 
     async def room_source(self, room_id: int, source: RoomSource) -> Any:
         """Select a validated UI source using pyControl4's documented argument.

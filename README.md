@@ -147,6 +147,11 @@ binding is no longer required for the room entity to exist; volume and mute
 controls remain conditional on their existing validation, while source and
 playback controls use each room's own advertised commands.
 
+Version 0.1.20 corrects the Play, Pause, and Stop request body to the
+asynchronous `tParams` envelope used by `pyControl4`'s room implementation.
+The earlier generic command envelope was accepted by Director but did not
+operate room playback on this installation.
+
 State is initialized through REST, then updated from WebSocket events;
 entities do not poll when a usable push path has been proven. REST re-syncs
 after reconnect and on a slow reconciliation interval. Home Assistant device metadata includes the
