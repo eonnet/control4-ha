@@ -239,15 +239,18 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
         coordinator = self.runtime.media_session_coordinator
         if coordinator is None or not self._grouping_ready():
             raise UnsupportedCommand("Control4 media grouping is unavailable")
+        # Home Assistant's group dialog always submits the remaining members
+        # through media_player.join before issuing media_player.unjoin for each
+        # deselected room. An empty list is therefore a valid preparatory no-op.
+        if not group_members:
+            return
         if not self._room_is_on() or self._selected_source() is None:
             raise UnsupportedCommand("room must have an active source before grouping")
         entity_rooms = {
             entity_id: room_id
             for room_id, entity_id in self.runtime.media_entity_ids.items()
         }
-        if not group_members or any(
-            entity_id not in entity_rooms for entity_id in group_members
-        ):
+        if any(entity_id not in entity_rooms for entity_id in group_members):
             raise UnsupportedCommand("group members must be Control4 room media players")
         requested = tuple(dict.fromkeys(
             entity_rooms[entity_id]

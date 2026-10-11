@@ -187,6 +187,10 @@ Home Assistant includes them in the active leader's available-player list.
 Selecting an off room adds it to the leader's Control4 session and powers it
 through the native session command.
 
+Version 0.1.27 accepts Home Assistant's empty preparatory join request when
+the last selected member is removed. This lets the dialog continue with its
+separate unjoin request, which removes and powers off the deselected room.
+
 State is initialized through REST, then updated from WebSocket events;
 entities do not poll when a usable push path has been proven. REST re-syncs
 after reconnect and on a slow reconciliation interval. Home Assistant device metadata includes the
