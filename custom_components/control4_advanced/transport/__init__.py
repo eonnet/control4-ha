@@ -5,6 +5,7 @@ from .client import Control4Transport, DeviceStateCache, EventDispatcher, Invent
 from .commands import DeviceCommandClient, UnsupportedCommand
 from .events import NormalizedEvent, normalize_rest_variables, normalize_websocket_event
 from .media import RoomVolumeCoordinator
+from .sessions import MediaSession, MediaSessionCoordinator, parse_media_sessions
 from .playlists import (
     RoomTidalCatalog,
     TidalPlaylist,
@@ -25,6 +26,8 @@ __all__ = [
     "InventoryCache",
     "NormalizedEvent",
     "RoomVolumeCoordinator",
+    "MediaSession",
+    "MediaSessionCoordinator",
     "RoomTidalCatalog",
     "TidalPlaylist",
     "TokenProvider",
@@ -32,5 +35,6 @@ __all__ = [
     "normalize_rest_variables",
     "normalize_websocket_event",
     "parse_tidal_playlists",
+    "parse_media_sessions",
     "room_tidal_catalogs",
 ]

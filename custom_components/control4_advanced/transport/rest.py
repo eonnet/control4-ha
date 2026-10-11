@@ -79,6 +79,15 @@ class DirectorRestClient:
             raise DirectorRestError("Director UI configuration has an unexpected shape")
         return payload
 
+    async def get_media_sessions(self) -> list[dict[str, Any]]:
+        """Read Director's authoritative active media-session membership."""
+        payload = await self.request_json("GET", "/api/v1/media_sessions")
+        if not isinstance(payload, list) or not all(
+            isinstance(item, dict) for item in payload
+        ):
+            raise DirectorRestError("Director media sessions have an unexpected shape")
+        return payload
+
     async def post_json(self, path: str, body: dict[str, Any]) -> Any:
         """Send caller-supplied REST JSON; no command schema is assumed here."""
         return await self.request_json("POST", path, body=body)

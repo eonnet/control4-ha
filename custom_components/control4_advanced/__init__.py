@@ -27,6 +27,7 @@ from .transport import (
     Control4Transport,
     DeviceCommandClient,
     DirectorRestClient,
+    MediaSessionCoordinator,
     RoomTidalCatalog,
     RoomVolumeCoordinator,
     normalize_rest_variables,
@@ -53,6 +54,8 @@ class Control4Runtime:
     media_coordinators: dict[int, RoomVolumeCoordinator]
     media_sources: dict[int, tuple[RoomSource, ...]] = field(default_factory=dict)
     tidal_catalogs: dict[int, tuple[RoomTidalCatalog, ...]] = field(default_factory=dict)
+    media_session_coordinator: MediaSessionCoordinator | None = None
+    media_entity_ids: dict[int, str] = field(default_factory=dict)
 
 
 async def _discover_media_room_ids(
@@ -95,6 +98,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False))
     transport = None
     media_coordinators: dict[int, RoomVolumeCoordinator] = {}
+    media_session_coordinator: MediaSessionCoordinator | None = None
     setup_complete = False
     try:
         rest = DirectorRestClient(host, provider, session)
@@ -181,6 +185,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 for source in sources
             ):
                 media_coordinators[room_id].enable_source_fallback()
+        digital_media_ids = [
+            item_id
+            for item_id, item in transport.inventory.items.items()
+            if item.get("proxy") == "control4_digitalaudio"
+            and item.get("filename") == "control4_digitalaudio.c4i"
+        ]
+        if len(media_coordinators) >= 2 and len(digital_media_ids) == 1:
+            candidate = MediaSessionCoordinator(rest, media_coordinators)
+            try:
+                await asyncio.wait_for(candidate.start(), timeout=10)
+            except Exception as exc:
+                _LOGGER.warning(
+                    "Control4 media-session setup failed: %s", type(exc).__name__
+                )
+            else:
+                media_session_coordinator = candidate
+                commands.register_media_grouping(
+                    digital_media_ids[0], media_coordinators
+                )
         tidal_catalogs: dict[int, tuple[RoomTidalCatalog, ...]] = {}
         raw_playlists = entry.options.get(CONF_TIDAL_PLAYLISTS, "")
         if raw_playlists:
@@ -224,12 +247,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                     catalog.protocol_id, room_id, catalog.playlists
                                 )
         entry.runtime_data = Control4Runtime(
-            session,
-            transport,
-            commands,
-            media_coordinators,
-            media_sources,
-            tidal_catalogs,
+            session=session,
+            transport=transport,
+            commands=commands,
+            media_coordinators=media_coordinators,
+            media_sources=media_sources,
+            tidal_catalogs=tidal_catalogs,
+            media_session_coordinator=media_session_coordinator,
         )
         try:
             migrate_tidal_playlist_registry_entries(
@@ -275,6 +299,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         raise ConfigEntryNotReady(f"Control4 connection failed ({type(exc).__name__})") from None
     finally:
         if not setup_complete:
+            if media_session_coordinator is not None:
+                await media_session_coordinator.stop()
             for coordinator in media_coordinators.values():
                 await coordinator.stop()
             if transport is not None:
@@ -287,6 +313,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
         runtime: Control4Runtime = entry.runtime_data
+        if runtime.media_session_coordinator is not None:
+            await runtime.media_session_coordinator.stop()
         for coordinator in runtime.media_coordinators.values():
             await coordinator.stop()
         await runtime.transport.stop()

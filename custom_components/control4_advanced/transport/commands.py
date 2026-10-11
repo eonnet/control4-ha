@@ -31,6 +31,22 @@ class DeviceCommandClient:
         self._metadata: dict[int, dict[str, dict[str, Any]]] = {}
         self._room_sources: dict[int, frozenset[RoomSource]] = {}
         self._tidal_playlists: dict[int, dict[int, frozenset[str]]] = {}
+        self._digital_media_id: int | None = None
+        self._grouping_room_ids: frozenset[int] = frozenset()
+
+    def register_media_grouping(
+        self, digital_media_id: int, room_ids: Iterable[int]
+    ) -> None:
+        """Register the standard Digital Media grouping target and visible rooms."""
+        rooms = frozenset(room_ids)
+        if type(digital_media_id) is not int or digital_media_id <= 0:
+            raise ValueError("Digital Media ID must be a positive integer")
+        if len(rooms) < 2 or not all(
+            type(room_id) is int and room_id > 0 for room_id in rooms
+        ):
+            raise ValueError("media grouping requires at least two positive room IDs")
+        self._digital_media_id = digital_media_id
+        self._grouping_room_ids = rooms
 
     def register_room_sources(self, room_id: int, sources: Iterable[RoomSource]) -> None:
         """Register sources returned by the inventory-validated UI parser."""
@@ -302,6 +318,32 @@ class DeviceCommandClient:
         return await self.rest.post_json(
             f"/api/v1/items/{room_id}/commands",
             {"command": command, "params": {"deviceid": source.device_id}},
+        )
+
+    async def add_rooms_to_session(
+        self, leader_room_id: int, member_room_ids: Iterable[int]
+    ) -> Any:
+        """Add exposed rooms to a leader using Control4's Digital Media command."""
+        members = tuple(dict.fromkeys(member_room_ids))
+        if self._digital_media_id is None:
+            raise UnsupportedCommand("Control4 Digital Media grouping is unavailable")
+        if leader_room_id not in self._grouping_room_ids:
+            raise UnsupportedCommand("session leader is not an exposed media room")
+        if (
+            not members
+            or leader_room_id in members
+            or any(room_id not in self._grouping_room_ids for room_id in members)
+        ):
+            raise UnsupportedCommand("session members must be other exposed media rooms")
+        return await self.rest.post_json(
+            f"/api/v1/items/{self._digital_media_id}/commands",
+            {
+                "command": "ADD_ROOMS_TO_SESSION",
+                "params": {
+                    "ROOM_ID": leader_room_id,
+                    "ROOM_ID_LIST": ",".join(str(room_id) for room_id in members),
+                },
+            },
         )
 
     async def tidal_playlist(

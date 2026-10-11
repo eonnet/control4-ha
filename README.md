@@ -174,6 +174,14 @@ when that source supplies no track or programme metadata. For example, a
 selected Apple TV now shows `Apple TV`; real media titles continue to take
 priority whenever Director provides them.
 
+Version 0.1.25 adds native multi-room support to the Control4 room media
+players. Home Assistant's standard `media_player.join` action uses the
+Director's Digital Media `ADD_ROOMS_TO_SESSION` command, and each entity's
+`group_members` attribute follows the authoritative `/api/v1/media_sessions`
+state. `media_player.unjoin` uses Control4's documented Room Off behavior to
+remove only that room from the session. Join and unjoin wait for Director to
+confirm the new membership instead of updating Home Assistant optimistically.
+
 State is initialized through REST, then updated from WebSocket events;
 entities do not poll when a usable push path has been proven. REST re-syncs
 after reconnect and on a slow reconciliation interval. Home Assistant device metadata includes the

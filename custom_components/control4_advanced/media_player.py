@@ -35,6 +35,28 @@ async def async_setup_entry(
 class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
     """Expose only commands supported by this room's Director metadata."""
 
+    def __init__(self, runtime: Control4Runtime, item: dict) -> None:
+        super().__init__(runtime, item)
+        self._remove_session = None
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.runtime.media_entity_ids[self.device_id] = self.entity_id
+        coordinator = self.runtime.media_session_coordinator
+        if coordinator is not None:
+            self._remove_session = coordinator.subscribe(self._on_session_update)
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._remove_session is not None:
+            self._remove_session()
+            self._remove_session = None
+        if self.runtime.media_entity_ids.get(self.device_id) == self.entity_id:
+            self.runtime.media_entity_ids.pop(self.device_id, None)
+        await super().async_will_remove_from_hass()
+
+    def _on_session_update(self) -> None:
+        self.async_write_ha_state()
+
     @property
     def supported_features(self) -> MediaPlayerEntityFeature:
         features = MediaPlayerEntityFeature(0)
@@ -56,7 +78,19 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
             ):
                 if self.runtime.commands.supports_room_transport(self.device_id, command):
                     features |= feature
+        if self._grouping_ready():
+            features |= MediaPlayerEntityFeature.GROUPING
         return features
+
+    def _grouping_ready(self) -> bool:
+        coordinator = self.runtime.media_session_coordinator
+        return (
+            coordinator is not None
+            and coordinator.ready
+            and self._room_is_on()
+            and self._selected_source() is not None
+            and len(coordinator.room_ids) >= 2
+        )
 
     @property
     def assumed_state(self) -> bool:
@@ -191,6 +225,79 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
             await self.runtime.transport.sync_device(self.device_id)
             if self.state_data.get("selected_source_id") == selected.device_id:
                 break
+
+    @property
+    def group_members(self) -> list[str] | None:
+        coordinator = self.runtime.media_session_coordinator
+        if coordinator is None or not coordinator.ready or not getattr(self, "entity_id", None):
+            return None
+        return [
+            entity_id
+            for room_id in coordinator.group_room_ids(self.device_id)
+            if (entity_id := self.runtime.media_entity_ids.get(room_id)) is not None
+        ]
+
+    async def async_join_players(self, group_members: list[str]) -> None:
+        coordinator = self.runtime.media_session_coordinator
+        if coordinator is None or not self._grouping_ready():
+            raise UnsupportedCommand("room must have an active source before grouping")
+        entity_rooms = {
+            entity_id: room_id
+            for room_id, entity_id in self.runtime.media_entity_ids.items()
+        }
+        if not group_members or any(
+            entity_id not in entity_rooms for entity_id in group_members
+        ):
+            raise UnsupportedCommand("group members must be Control4 room media players")
+        requested = tuple(dict.fromkeys(
+            entity_rooms[entity_id]
+            for entity_id in group_members
+            if entity_rooms[entity_id] != self.device_id
+        ))
+        if not requested:
+            return
+        await coordinator.refresh()
+        missing = tuple(
+            room_id
+            for room_id in requested
+            if not coordinator.same_group(self.device_id, (room_id,))
+        )
+        if not missing:
+            return
+        await self.runtime.commands.add_rooms_to_session(self.device_id, missing)
+        for delay in (0.25, 0.5, 1.0, 1.0, 1.0):
+            await asyncio.sleep(delay)
+            await coordinator.refresh()
+            if coordinator.same_group(self.device_id, missing):
+                await asyncio.gather(*(
+                    self.runtime.transport.sync_room_source(room_id)
+                    for room_id in missing
+                ))
+                return
+        raise UnsupportedCommand("Control4 did not confirm the requested media group")
+
+    async def async_unjoin_player(self) -> None:
+        coordinator = self.runtime.media_session_coordinator
+        if coordinator is None:
+            raise UnsupportedCommand("Control4 media grouping is unavailable")
+        await coordinator.refresh()
+        if len(coordinator.group_room_ids(self.device_id)) <= 1:
+            return
+        if not self.runtime.commands.supports_room_off(self.device_id):
+            raise UnsupportedCommand("room off is required to leave a Control4 session")
+        await self.runtime.commands.room_off(self.device_id)
+        for delay in (0.25, 0.5, 1.0, 1.0, 1.0):
+            await asyncio.sleep(delay)
+            await asyncio.gather(
+                self.runtime.transport.sync_device(self.device_id),
+                coordinator.refresh(),
+            )
+            if (
+                len(coordinator.group_room_ids(self.device_id)) <= 1
+                and self.state == MediaPlayerState.OFF
+            ):
+                return
+        raise UnsupportedCommand("Control4 did not confirm that the room left the session")
 
     async def async_turn_off(self) -> None:
         if not self._room_is_on() or not self.runtime.commands.supports_room_off(self.device_id):
