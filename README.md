@@ -108,6 +108,12 @@ version passed offline tests but its playback buttons still need an HA field
 test. Test each button with a noncritical source before using it in an
 automation.
 
+Version 0.1.15 adds read-only door binary sensors for the observed
+`contactsingle_doorcontactsensor_c4` proxy. A live Main Door trace confirmed
+verified `OPENED`/REST `0` as open and `CLOSED`/REST `1` as closed, matching
+the existing contact transport contract. Home Assistant field validation is
+still pending.
+
 State is initialized through REST, then updated from WebSocket events;
 entities do not poll when a usable push path has been proven. REST re-syncs
 after reconnect and on a slow reconciliation interval. Home Assistant device metadata includes the

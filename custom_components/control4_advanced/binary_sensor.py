@@ -1,4 +1,4 @@
-"""Push-driven window and motion sensors with verified Control4 feedback."""
+"""Push-driven contact sensors with verified Control4 feedback."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from . import Control4Runtime
 from .entity import Control4Entity
 from .selection import supported_binary_sensor_ids
-from .transport.proxies import WINDOW_CONTACT_PROXY
+from .transport.proxies import DOOR_CONTACT_PROXY, WINDOW_CONTACT_PROXY
 
 
 async def async_setup_entry(
@@ -29,8 +29,11 @@ class Control4ContactBinarySensor(Control4Entity, BinarySensorEntity):
 
     @property
     def device_class(self) -> BinarySensorDeviceClass:
-        if self.item.get("proxy") == WINDOW_CONTACT_PROXY:
+        proxy = self.item.get("proxy")
+        if proxy == WINDOW_CONTACT_PROXY:
             return BinarySensorDeviceClass.WINDOW
+        if proxy == DOOR_CONTACT_PROXY:
+            return BinarySensorDeviceClass.DOOR
         return BinarySensorDeviceClass.MOTION
 
     @property

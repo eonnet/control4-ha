@@ -68,7 +68,7 @@ def supported_relay_ids(
 def supported_binary_sensor_ids(
     items: Mapping[int, dict[str, Any]], tracked_ids: Iterable[int]
 ) -> list[int]:
-    """Expose only the two contact proxies with observed REST and push state."""
+    """Expose only contact proxies with observed REST and push state."""
     return [
         device_id
         for device_id in sorted(tracked_ids)
