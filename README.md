@@ -191,6 +191,15 @@ Version 0.1.27 accepts Home Assistant's empty preparatory join request when
 the last selected member is removed. This lets the dialog continue with its
 separate unjoin request, which removes and powers off the deselected room.
 
+Version 0.1.28 adds configured TIDAL accounts and playlists to Home
+Assistant's native media browser on each eligible Control4 room player. The
+browse hierarchy is **TIDAL > account > playlist**. Selecting a playlist uses
+the same allowlisted `SelectPlaylist` command as the playlist selector and
+keeps shuffle off. Only playlists entered in the integration options are
+exposed; full TIDAL catalog browsing and search require a Control4-authorized
+MSP command channel that Director does not expose through its authenticated
+REST/WebSocket API.
+
 State is initialized through REST, then updated from WebSocket events;
 entities do not poll when a usable push path has been proven. REST re-syncs
 after reconnect and on a slow reconciliation interval. Home Assistant device metadata includes the

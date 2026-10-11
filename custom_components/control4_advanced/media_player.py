@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import math
+from typing import Any
 
 from homeassistant.components.media_player import (
+    BrowseError,
+    BrowseMedia,
+    MediaClass,
     MediaPlayerEntity,
     MediaPlayerEntityFeature,
     MediaPlayerState,
+    MediaType,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -18,7 +23,12 @@ from . import Control4Runtime
 from .entity import Control4Entity
 from .transport.commands import UnsupportedCommand
 from .transport.events import normalize_rest_variables
+from .transport.playlists import RoomTidalCatalog, TidalPlaylist
 from .transport.sources import RoomSource
+
+
+TIDAL_ROOT_TYPE = "control4_tidal"
+TIDAL_ACCOUNT_TYPE = "control4_tidal_account"
 
 
 async def async_setup_entry(
@@ -80,7 +90,119 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
                     features |= feature
         if self._grouping_ready():
             features |= MediaPlayerEntityFeature.GROUPING
+        if self._tidal_catalogs():
+            features |= (
+                MediaPlayerEntityFeature.BROWSE_MEDIA
+                | MediaPlayerEntityFeature.PLAY_MEDIA
+            )
         return features
+
+    def _tidal_catalogs(self) -> tuple[RoomTidalCatalog, ...]:
+        return self.runtime.tidal_catalogs.get(self.device_id, ())
+
+    def _tidal_root_id(self) -> str:
+        return f"control4_advanced:tidal:{self.device_id}"
+
+    def _tidal_account_id(self, catalog: RoomTidalCatalog) -> str:
+        return f"{self._tidal_root_id()}:account:{catalog.source_id}"
+
+    def _tidal_playlist_id(
+        self, catalog: RoomTidalCatalog, playlist: TidalPlaylist
+    ) -> str:
+        return (
+            f"{self._tidal_root_id()}:playlist:"
+            f"{catalog.source_id}:{playlist.playlist_id}"
+        )
+
+    def _catalog_for_media_id(self, media_id: str) -> RoomTidalCatalog | None:
+        return next(
+            (
+                catalog
+                for catalog in self._tidal_catalogs()
+                if self._tidal_account_id(catalog) == media_id
+            ),
+            None,
+        )
+
+    def _playlist_for_media_id(
+        self, media_id: str
+    ) -> tuple[RoomTidalCatalog, TidalPlaylist] | None:
+        for catalog in self._tidal_catalogs():
+            for playlist in catalog.playlists:
+                if self._tidal_playlist_id(catalog, playlist) == media_id:
+                    return catalog, playlist
+        return None
+
+    async def async_browse_media(
+        self,
+        media_content_type: MediaType | str | None = None,
+        media_content_id: str | None = None,
+    ) -> BrowseMedia:
+        """Show configured Control4 TIDAL accounts and playlists."""
+        catalogs = self._tidal_catalogs()
+        if not catalogs:
+            raise BrowseError("No configured TIDAL playlists are available in this room")
+
+        if media_content_id in (None, self._tidal_root_id()):
+            return BrowseMedia(
+                title="TIDAL",
+                media_class=MediaClass.DIRECTORY,
+                media_content_id=self._tidal_root_id(),
+                media_content_type=TIDAL_ROOT_TYPE,
+                can_play=False,
+                can_expand=True,
+                children=[
+                    BrowseMedia(
+                        title=catalog.source_name,
+                        media_class=MediaClass.DIRECTORY,
+                        media_content_id=self._tidal_account_id(catalog),
+                        media_content_type=TIDAL_ACCOUNT_TYPE,
+                        can_play=False,
+                        can_expand=True,
+                        children_media_class=MediaClass.PLAYLIST,
+                    )
+                    for catalog in catalogs
+                ],
+                children_media_class=MediaClass.DIRECTORY,
+            )
+
+        catalog = self._catalog_for_media_id(media_content_id)
+        if catalog is None:
+            raise BrowseError("TIDAL account is not configured for this room")
+        return BrowseMedia(
+            title=catalog.source_name,
+            media_class=MediaClass.DIRECTORY,
+            media_content_id=self._tidal_account_id(catalog),
+            media_content_type=TIDAL_ACCOUNT_TYPE,
+            can_play=False,
+            can_expand=True,
+            children=[
+                BrowseMedia(
+                    title=playlist.name,
+                    media_class=MediaClass.PLAYLIST,
+                    media_content_id=self._tidal_playlist_id(catalog, playlist),
+                    media_content_type=MediaType.PLAYLIST,
+                    can_play=True,
+                    can_expand=False,
+                )
+                for playlist in catalog.playlists
+            ],
+            children_media_class=MediaClass.PLAYLIST,
+        )
+
+    async def async_play_media(
+        self, media_type: MediaType | str, media_id: str, **kwargs: Any
+    ) -> None:
+        """Start a configured Control4 TIDAL playlist with shuffle disabled."""
+        if media_type != MediaType.PLAYLIST or not isinstance(media_id, str):
+            raise UnsupportedCommand("only configured TIDAL playlists can be played")
+        resolved = self._playlist_for_media_id(media_id)
+        if resolved is None:
+            raise UnsupportedCommand("TIDAL playlist is not configured for this room")
+        catalog, playlist = resolved
+        await self.runtime.commands.tidal_playlist(
+            catalog.protocol_id, self.device_id, playlist
+        )
 
     def _grouping_ready(self) -> bool:
         coordinator = self.runtime.media_session_coordinator
@@ -250,7 +372,9 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
             entity_id: room_id
             for room_id, entity_id in self.runtime.media_entity_ids.items()
         }
-        if any(entity_id not in entity_rooms for entity_id in group_members):
+        if any(
+            entity_id not in entity_rooms for entity_id in group_members
+        ):
             raise UnsupportedCommand("group members must be Control4 room media players")
         requested = tuple(dict.fromkeys(
             entity_rooms[entity_id]
