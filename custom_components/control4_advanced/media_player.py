@@ -44,9 +44,9 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
             features |= MediaPlayerEntityFeature.VOLUME_MUTE
         if self._sources():
             features |= MediaPlayerEntityFeature.SELECT_SOURCE
-        if self.state == MediaPlayerState.ON and self.runtime.commands.supports_room_off(self.device_id):
+        if self._room_is_on() and self.runtime.commands.supports_room_off(self.device_id):
             features |= MediaPlayerEntityFeature.TURN_OFF
-        if self.state == MediaPlayerState.ON:
+        if self._room_is_on():
             for command, feature in (
                 ("SKIP_REV", MediaPlayerEntityFeature.PREVIOUS_TRACK),
                 ("PLAY", MediaPlayerEntityFeature.PLAY),
@@ -61,7 +61,7 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
     @property
     def assumed_state(self) -> bool:
         """Show each stateless playback action without inventing media state."""
-        return self.state == MediaPlayerState.ON and any(
+        return self._room_is_on() and any(
             self.runtime.commands.supports_room_transport(self.device_id, command)
             for command in ("SKIP_REV", "PLAY", "PAUSE", "STOP", "SKIP_FWD")
         )
@@ -72,6 +72,9 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
             source for source in discovered
             if self.runtime.commands.supports_room_source(self.device_id, source.experience)
         )
+
+    def _room_is_on(self) -> bool:
+        return self.state_data.get("is_on") is True
 
     def _volume_ready(self) -> bool:
         bound_id = self.state_data.get("volume_device_id")
@@ -116,7 +119,7 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
 
     async def _async_room_transport(self, command: str) -> None:
         if (
-            self.state != MediaPlayerState.ON
+            not self._room_is_on()
             or not self.runtime.commands.supports_room_transport(self.device_id, command)
         ):
             raise UnsupportedCommand(
@@ -183,7 +186,7 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
                 break
 
     async def async_turn_off(self) -> None:
-        if self.state != MediaPlayerState.ON or not self.runtime.commands.supports_room_off(self.device_id):
+        if not self._room_is_on() or not self.runtime.commands.supports_room_off(self.device_id):
             raise UnsupportedCommand("room off is unavailable for this room state")
         await self.runtime.commands.room_off(self.device_id)
         # The command response is not state feedback; confirm from Director.
@@ -197,9 +200,16 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
     @property
     def state(self) -> MediaPlayerState | None:
         powered = self.state_data.get("is_on")
-        if isinstance(powered, bool):
-            return MediaPlayerState.ON if powered else MediaPlayerState.OFF
-        return None
+        if powered is False:
+            return MediaPlayerState.OFF
+        if powered is not True:
+            return None
+        selected = self.state_data.get("selected_source_id")
+        return (
+            MediaPlayerState.PLAYING
+            if type(selected) is int and selected > 0
+            else MediaPlayerState.IDLE
+        )
 
     @property
     def volume_level(self) -> float | None:

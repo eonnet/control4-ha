@@ -164,6 +164,11 @@ existing room reconciliation and immediately after Previous or Next; stale
 labels are cleared when the room turns off. Artwork URLs and unrelated media
 payload fields are deliberately not exposed.
 
+Version 0.1.23 maps the room's verified power and selected-source fields to
+Home Assistant media states: Off when room power is off, Playing when the room
+is on with a positive selected-source ID, and Idle when the room is on without
+a selected source. This is a source-selection state, not play/pause feedback.
+
 State is initialized through REST, then updated from WebSocket events;
 entities do not poll when a usable push path has been proven. REST re-syncs
 after reconnect and on a slow reconciliation interval. Home Assistant device metadata includes the
