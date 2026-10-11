@@ -208,6 +208,29 @@ or a source list, so the old source dropdown is removed. Source commands keep
 the existing inventory allowlist, live Director command-metadata gate, and
 REST confirmation before Home Assistant displays the changed source.
 
+Version 0.1.30 adds configured TuneIn favorites to that browser under
+**Control4 > TuneIn > source > station**. Director advertises its `Play Item`
+command but omits the dynamic `GetItemList` choices shown by Composer, so enter
+one favorite per line under **Settings > Devices & services > Control4
+Advanced > Configure**:
+
+```text
+TuneIn source name | Favorite name | Station/id
+```
+
+For example:
+
+```text
+TuneIn | Example Radio | Station/s12345
+```
+
+The source name may match either the visible Listen source (such as
+`TuneIn Premium`) or its TuneIn protocol driver (often `TuneIn`). A favorite
+appears only in rooms where that inventory-backed source is exposed. Playback
+requires the exact live `Play Item(Item, Room)` metadata and accepts only the
+configured `Station/s...` IDs; arbitrary URLs and unconfigured IDs are
+rejected.
+
 State is initialized through REST, then updated from WebSocket events;
 entities do not poll when a usable push path has been proven. REST re-syncs
 after reconnect and on a slow reconciliation interval. Home Assistant device metadata includes the

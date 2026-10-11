@@ -12,10 +12,11 @@ from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import callback
 from homeassistant.helpers.selector import TextSelector, TextSelectorConfig
 
-from .const import CONF_TIDAL_PLAYLISTS, DOMAIN
+from .const import CONF_TIDAL_PLAYLISTS, CONF_TUNEIN_FAVORITES, DOMAIN
 from .selection import is_candidate_item
 from .transport import AccountTokenProvider, DirectorRestClient
 from .transport.auth import AuthenticationError, AuthenticationTransportError
+from .transport.favorites import parse_tunein_favorites
 from .transport.playlists import parse_tidal_playlists
 from .transport.rest import DirectorRestError
 
@@ -105,26 +106,34 @@ class Control4ConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class Control4OptionsFlow(OptionsFlowWithReload):
-    """Configure optional TIDAL playlist names without storing them in code."""
+    """Configure optional media favorites without storing them in code."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
         errors: dict[str, str] = {}
         if user_input is not None:
-            value = user_input.get(CONF_TIDAL_PLAYLISTS, "")
             try:
-                parse_tidal_playlists(value)
+                parse_tidal_playlists(user_input.get(CONF_TIDAL_PLAYLISTS, ""))
             except ValueError:
                 errors[CONF_TIDAL_PLAYLISTS] = "invalid_tidal_playlists"
-            else:
+            try:
+                parse_tunein_favorites(user_input.get(CONF_TUNEIN_FAVORITES, ""))
+            except ValueError:
+                errors[CONF_TUNEIN_FAVORITES] = "invalid_tunein_favorites"
+            if not errors:
                 return self.async_create_entry(data=user_input)
-        current = self.config_entry.options.get(CONF_TIDAL_PLAYLISTS, "")
+        current_tidal = self.config_entry.options.get(CONF_TIDAL_PLAYLISTS, "")
+        current_tunein = self.config_entry.options.get(CONF_TUNEIN_FAVORITES, "")
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(
                 {
                     vol.Optional(
                         CONF_TIDAL_PLAYLISTS,
-                        default=current,
+                        default=current_tidal,
+                    ): TextSelector(TextSelectorConfig(multiline=True)),
+                    vol.Optional(
+                        CONF_TUNEIN_FAVORITES,
+                        default=current_tunein,
                     ): TextSelector(TextSelectorConfig(multiline=True))
                 }
             ),

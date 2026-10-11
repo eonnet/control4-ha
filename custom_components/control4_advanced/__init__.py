@@ -13,7 +13,12 @@ from typing import TYPE_CHECKING
 
 import aiohttp
 
-from .const import CONF_TIDAL_PLAYLISTS, DEFAULT_RECONCILIATION_SECONDS, PLATFORMS
+from .const import (
+    CONF_TIDAL_PLAYLISTS,
+    CONF_TUNEIN_FAVORITES,
+    DEFAULT_RECONCILIATION_SECONDS,
+    PLATFORMS,
+)
 from .registry_cleanup import (
     migrate_tidal_playlist_registry_entries,
     remove_stale_registry_entries,
@@ -28,11 +33,14 @@ from .transport import (
     DeviceCommandClient,
     DirectorRestClient,
     MediaSessionCoordinator,
+    RoomTuneInCatalog,
     RoomTidalCatalog,
     RoomVolumeCoordinator,
     normalize_rest_variables,
     parse_tidal_playlists,
+    parse_tunein_favorites,
     room_tidal_catalogs,
+    room_tunein_catalogs,
 )
 from .transport.auth import AuthenticationError, AuthenticationTransportError
 from .transport.rest import DirectorRestError
@@ -54,6 +62,7 @@ class Control4Runtime:
     media_coordinators: dict[int, RoomVolumeCoordinator]
     media_sources: dict[int, tuple[RoomSource, ...]] = field(default_factory=dict)
     tidal_catalogs: dict[int, tuple[RoomTidalCatalog, ...]] = field(default_factory=dict)
+    tunein_catalogs: dict[int, tuple[RoomTuneInCatalog, ...]] = field(default_factory=dict)
     media_session_coordinator: MediaSessionCoordinator | None = None
     media_entity_ids: dict[int, str] = field(default_factory=dict)
 
@@ -246,6 +255,46 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                 commands.register_tidal_playlists(
                                     catalog.protocol_id, room_id, catalog.playlists
                                 )
+        tunein_catalogs: dict[int, tuple[RoomTuneInCatalog, ...]] = {}
+        raw_favorites = entry.options.get(CONF_TUNEIN_FAVORITES, "")
+        if raw_favorites:
+            try:
+                configured_favorites = parse_tunein_favorites(raw_favorites)
+            except ValueError:
+                _LOGGER.warning("Stored Control4 TuneIn favorite configuration is invalid")
+            else:
+                tunein_catalogs = room_tunein_catalogs(
+                    media_sources, transport.inventory.items, configured_favorites
+                )
+                protocol_ids = {
+                    catalog.protocol_id
+                    for catalogs in tunein_catalogs.values()
+                    for catalog in catalogs
+                }
+                if protocol_ids:
+                    try:
+                        await commands.refresh(protocol_ids)
+                    except DirectorRestError:
+                        tunein_catalogs = {}
+                    else:
+                        tunein_catalogs = {
+                            room_id: tuple(
+                                catalog
+                                for catalog in catalogs
+                                if commands.supports_tunein_favorite(catalog.protocol_id)
+                            )
+                            for room_id, catalogs in tunein_catalogs.items()
+                        }
+                        tunein_catalogs = {
+                            room_id: catalogs
+                            for room_id, catalogs in tunein_catalogs.items()
+                            if catalogs
+                        }
+                        for room_id, catalogs in tunein_catalogs.items():
+                            for catalog in catalogs:
+                                commands.register_tunein_favorites(
+                                    catalog.protocol_id, room_id, catalog.favorites
+                                )
         entry.runtime_data = Control4Runtime(
             session=session,
             transport=transport,
@@ -253,6 +302,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             media_coordinators=media_coordinators,
             media_sources=media_sources,
             tidal_catalogs=tidal_catalogs,
+            tunein_catalogs=tunein_catalogs,
             media_session_coordinator=media_session_coordinator,
         )
         try:

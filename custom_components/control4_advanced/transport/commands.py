@@ -13,6 +13,7 @@ import logging
 import math
 from typing import Any
 
+from .favorites import TuneInFavorite
 from .playlists import TidalPlaylist
 from .rest import DirectorRestClient, DirectorRestError
 from .sources import RoomSource
@@ -31,6 +32,7 @@ class DeviceCommandClient:
         self._metadata: dict[int, dict[str, dict[str, Any]]] = {}
         self._room_sources: dict[int, frozenset[RoomSource]] = {}
         self._tidal_playlists: dict[int, dict[int, frozenset[str]]] = {}
+        self._tunein_favorites: dict[int, dict[int, frozenset[str]]] = {}
         self._digital_media_id: int | None = None
         self._grouping_room_ids: frozenset[int] = frozenset()
 
@@ -73,6 +75,24 @@ class DeviceCommandClient:
             raise ValueError("TIDAL playlists must be parsed playlist records")
         self._tidal_playlists.setdefault(protocol_id, {})[room_id] = frozenset(
             item.playlist_id for item in values
+        )
+
+    def register_tunein_favorites(
+        self,
+        protocol_id: int,
+        room_id: int,
+        favorites: Iterable[TuneInFavorite],
+    ) -> None:
+        """Allow only station IDs joined to a visible TuneIn source and room."""
+        if type(protocol_id) is not int or protocol_id <= 0:
+            raise ValueError("TuneIn protocol ID must be a positive integer")
+        if type(room_id) is not int or room_id <= 0:
+            raise ValueError("room ID must be a positive integer")
+        values = tuple(favorites)
+        if not values or not all(isinstance(item, TuneInFavorite) for item in values):
+            raise ValueError("TuneIn favorites must be parsed favorite records")
+        self._tunein_favorites.setdefault(protocol_id, {})[room_id] = frozenset(
+            item.item_id for item in values
         )
 
     async def refresh(self, device_ids: Iterable[int]) -> None:
@@ -199,6 +219,27 @@ class DeviceCommandClient:
             and shuffle.get("type") == "LIST"
             and isinstance(shuffle_items, list)
             and any(str(item).casefold() == "off" for item in shuffle_items)
+        )
+
+    def supports_tunein_favorite(self, protocol_id: int) -> bool:
+        """Require the exact TuneIn programming command shape seen on Director."""
+        record = self._metadata.get(protocol_id, {}).get("Play Item")
+        if record is None or not isinstance(record.get("params"), list):
+            return False
+        specs = record["params"]
+        if len(specs) != 2 or not all(isinstance(spec, dict) for spec in specs):
+            return False
+        by_name = {spec.get("name"): spec for spec in specs}
+        item = by_name.get("Item", {})
+        room = by_name.get("Room", {})
+        room_items = room.get("items")
+        return (
+            set(by_name) == {"Item", "Room"}
+            and item.get("type") == "CUSTOM_SELECT:GetItemList"
+            and room.get("type") == "DEVICE_SELECTOR"
+            and isinstance(room_items, list)
+            and "roomdevice.c4i" in room_items
+            and room.get("multiselect") is True
         )
 
     def _parameter(self, device_id: int, command: str, name: str) -> dict[str, Any]:
@@ -365,6 +406,30 @@ class DeviceCommandClient:
                     "Playlist": playlist.playlist_id,
                     "Room": str(room_id),
                     "Shuffle": "Off",
+                },
+            },
+        )
+
+    async def tunein_favorite(
+        self, protocol_id: int, room_id: int, favorite: TuneInFavorite
+    ) -> Any:
+        """Play one configured TuneIn favorite in one validated room."""
+        if not isinstance(favorite, TuneInFavorite):
+            raise UnsupportedCommand("favorite must be a parsed TuneIn record")
+        if not self.supports_tunein_favorite(protocol_id):
+            raise UnsupportedCommand("Director did not advertise a compatible TuneIn command")
+        allowed = self._tunein_favorites.get(protocol_id, {}).get(
+            room_id, frozenset()
+        )
+        if favorite.item_id not in allowed:
+            raise UnsupportedCommand("favorite is not configured for this TuneIn room source")
+        return await self.rest.post_json(
+            f"/api/v1/items/{protocol_id}/commands",
+            {
+                "command": "Play Item",
+                "params": {
+                    "Item": favorite.item_id,
+                    "Room": str(room_id),
                 },
             },
         )
