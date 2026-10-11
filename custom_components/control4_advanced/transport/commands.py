@@ -13,6 +13,7 @@ import logging
 import math
 from typing import Any
 
+from .playlists import TidalPlaylist
 from .rest import DirectorRestClient, DirectorRestError
 from .sources import RoomSource
 
@@ -29,6 +30,7 @@ class DeviceCommandClient:
         self.rest = rest
         self._metadata: dict[int, dict[str, dict[str, Any]]] = {}
         self._room_sources: dict[int, frozenset[RoomSource]] = {}
+        self._tidal_playlists: dict[int, dict[int, frozenset[str]]] = {}
 
     def register_room_sources(self, room_id: int, sources: Iterable[RoomSource]) -> None:
         """Register sources returned by the inventory-validated UI parser."""
@@ -38,6 +40,24 @@ class DeviceCommandClient:
         if not all(isinstance(source, RoomSource) for source in values):
             raise ValueError("room sources must be parsed RoomSource records")
         self._room_sources[room_id] = frozenset(values)
+
+    def register_tidal_playlists(
+        self,
+        protocol_id: int,
+        room_id: int,
+        playlists: Iterable[TidalPlaylist],
+    ) -> None:
+        """Allow only playlist IDs joined to a visible TIDAL source and room."""
+        if type(protocol_id) is not int or protocol_id <= 0:
+            raise ValueError("TIDAL protocol ID must be a positive integer")
+        if type(room_id) is not int or room_id <= 0:
+            raise ValueError("room ID must be a positive integer")
+        values = tuple(playlists)
+        if not values or not all(isinstance(item, TidalPlaylist) for item in values):
+            raise ValueError("TIDAL playlists must be parsed playlist records")
+        self._tidal_playlists.setdefault(protocol_id, {})[room_id] = frozenset(
+            item.playlist_id for item in values
+        )
 
     async def refresh(self, device_ids: Iterable[int]) -> None:
         limit = asyncio.Semaphore(6)
@@ -137,6 +157,32 @@ class DeviceCommandClient:
             and all(isinstance(spec, dict) for spec in specs)
             and {spec.get("name"): spec.get("valueType") for spec in specs}
             == {"deviceid": "INTEGER", "deselect": "BOOL"}
+        )
+
+    def supports_tidal_playlist(self, protocol_id: int) -> bool:
+        """Require the exact TIDAL programming command shape seen on Director."""
+        record = self._metadata.get(protocol_id, {}).get("SelectPlaylist")
+        if record is None or not isinstance(record.get("params"), list):
+            return False
+        specs = record["params"]
+        if len(specs) != 3 or not all(isinstance(spec, dict) for spec in specs):
+            return False
+        by_name = {spec.get("name"): spec for spec in specs}
+        playlist = by_name.get("Playlist", {})
+        room = by_name.get("Room", {})
+        shuffle = by_name.get("Shuffle", {})
+        room_items = room.get("items")
+        shuffle_items = shuffle.get("items")
+        return (
+            set(by_name) == {"Playlist", "Room", "Shuffle"}
+            and playlist.get("type") == "CUSTOM_SELECT:SelectPlaylistName"
+            and room.get("type") == "DEVICE_SELECTOR"
+            and isinstance(room_items, list)
+            and "roomdevice.c4i" in room_items
+            and room.get("multiselect") is True
+            and shuffle.get("type") == "LIST"
+            and isinstance(shuffle_items, list)
+            and any(str(item).casefold() == "off" for item in shuffle_items)
         )
 
     def _parameter(self, device_id: int, command: str, name: str) -> dict[str, Any]:
@@ -250,6 +296,29 @@ class DeviceCommandClient:
         return await self.rest.post_json(
             f"/api/v1/items/{room_id}/commands",
             {"command": command, "params": {"deviceid": source.device_id}},
+        )
+
+    async def tidal_playlist(
+        self, protocol_id: int, room_id: int, playlist: TidalPlaylist
+    ) -> Any:
+        """Start one configured TIDAL playlist in one validated room, unshuffled."""
+        if not isinstance(playlist, TidalPlaylist):
+            raise UnsupportedCommand("playlist must be a parsed TIDAL playlist")
+        if not self.supports_tidal_playlist(protocol_id):
+            raise UnsupportedCommand("Director did not advertise a compatible TIDAL command")
+        allowed = self._tidal_playlists.get(protocol_id, {}).get(room_id, frozenset())
+        if playlist.playlist_id not in allowed:
+            raise UnsupportedCommand("playlist is not configured for this TIDAL room source")
+        return await self.rest.post_json(
+            f"/api/v1/items/{protocol_id}/commands",
+            {
+                "command": "SelectPlaylist",
+                "params": {
+                    "Playlist": playlist.playlist_id,
+                    "Room": str(room_id),
+                    "Shuffle": "Off",
+                },
+            },
         )
 
     async def hvac_mode(self, device_id: int, mode: str) -> Any:

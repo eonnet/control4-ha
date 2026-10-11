@@ -5,6 +5,12 @@ from .client import Control4Transport, DeviceStateCache, EventDispatcher, Invent
 from .commands import DeviceCommandClient, UnsupportedCommand
 from .events import NormalizedEvent, normalize_rest_variables, normalize_websocket_event
 from .media import RoomVolumeCoordinator
+from .playlists import (
+    RoomTidalCatalog,
+    TidalPlaylist,
+    parse_tidal_playlists,
+    room_tidal_catalogs,
+)
 from .rest import DirectorRestClient, DirectorRestError
 
 __all__ = [
@@ -19,8 +25,12 @@ __all__ = [
     "InventoryCache",
     "NormalizedEvent",
     "RoomVolumeCoordinator",
+    "RoomTidalCatalog",
+    "TidalPlaylist",
     "TokenProvider",
     "UnsupportedCommand",
     "normalize_rest_variables",
     "normalize_websocket_event",
+    "parse_tidal_playlists",
+    "room_tidal_catalogs",
 ]

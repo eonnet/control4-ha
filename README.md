@@ -111,8 +111,25 @@ automation.
 Version 0.1.15 adds read-only door binary sensors for the observed
 `contactsingle_doorcontactsensor_c4` proxy. A live Main Door trace confirmed
 verified `OPENED`/REST `0` as open and `CLOSED`/REST `1` as closed, matching
-the existing contact transport contract. Home Assistant field validation is
-still pending.
+the existing contact transport contract. The user subsequently confirmed the
+door entity in Home Assistant.
+
+Version 0.1.16 adds an account-aware TIDAL playlist select to each eligible
+Control4 room device. Director REST advertises the playlist command but omits
+the dynamic name/UUID choices shown by Composer, so enter them once under
+**Settings → Devices & services → Control4 Advanced → Configure**, one per
+line:
+
+```text
+TIDAL source name | Playlist name | Playlist UUID
+```
+
+The source name must match the Listen source shown by Control4 (for example
+`TIDAL`, `Juliane`, `Miki`, or `Jakob`). The integration adds the selector only
+to rooms where that source is exposed. Selecting a playlist sends the live-
+validated `SelectPlaylist` command to the same room with Shuffle fixed to
+`Off`. The selector is stateless because Director does not report which
+playlist created the current queue.
 
 State is initialized through REST, then updated from WebSocket events;
 entities do not poll when a usable push path has been proven. REST re-syncs

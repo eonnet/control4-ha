@@ -27,5 +27,19 @@
       "already_configured": "This Director is already configured",
       "reauth_successful": "Control4 authentication updated"
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Control4 options",
+        "description": "Optional TIDAL playlists. Enter one per line as: source name | playlist name | playlist UUID. A playlist selector is added to every Control4 room offering that TIDAL source. Playback always starts with shuffle off.",
+        "data": {
+          "tidal_playlists": "TIDAL playlists"
+        }
+      }
+    },
+    "error": {
+      "invalid_tidal_playlists": "Use: source name | playlist name | UUID, with a valid UUID and no duplicate names per source"
+    }
   }
 }

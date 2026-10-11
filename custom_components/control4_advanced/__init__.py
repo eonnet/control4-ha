@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 import aiohttp
 
-from .const import DEFAULT_RECONCILIATION_SECONDS, PLATFORMS
+from .const import CONF_TIDAL_PLAYLISTS, DEFAULT_RECONCILIATION_SECONDS, PLATFORMS
 from .registry_cleanup import remove_stale_registry_entries
 from .selection import (
     command_metadata_ids, is_candidate_item, registered_media_room_ids,
@@ -24,8 +24,11 @@ from .transport import (
     Control4Transport,
     DeviceCommandClient,
     DirectorRestClient,
+    RoomTidalCatalog,
     RoomVolumeCoordinator,
     normalize_rest_variables,
+    parse_tidal_playlists,
+    room_tidal_catalogs,
 )
 from .transport.auth import AuthenticationError, AuthenticationTransportError
 from .transport.rest import DirectorRestError
@@ -46,6 +49,7 @@ class Control4Runtime:
     commands: DeviceCommandClient
     media_coordinators: dict[int, RoomVolumeCoordinator]
     media_sources: dict[int, tuple[RoomSource, ...]] = field(default_factory=dict)
+    tidal_catalogs: dict[int, tuple[RoomTidalCatalog, ...]] = field(default_factory=dict)
 
 
 async def _discover_media_room_ids(
@@ -156,8 +160,55 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         for source in sources
                     ):
                         media_coordinators[room_id].enable_source_fallback()
+        tidal_catalogs: dict[int, tuple[RoomTidalCatalog, ...]] = {}
+        raw_playlists = entry.options.get(CONF_TIDAL_PLAYLISTS, "")
+        if raw_playlists:
+            try:
+                configured_playlists = parse_tidal_playlists(raw_playlists)
+            except ValueError:
+                # Invalid stored options must not prevent the rest of Control4
+                # from loading. The options form prevents new invalid values.
+                _LOGGER.warning("Stored Control4 TIDAL playlist configuration is invalid")
+            else:
+                tidal_catalogs = room_tidal_catalogs(
+                    media_sources, transport.inventory.items, configured_playlists
+                )
+                protocol_ids = {
+                    catalog.protocol_id
+                    for catalogs in tidal_catalogs.values()
+                    for catalog in catalogs
+                }
+                if protocol_ids:
+                    try:
+                        await commands.refresh(protocol_ids)
+                    except DirectorRestError:
+                        tidal_catalogs = {}
+                    else:
+                        tidal_catalogs = {
+                            room_id: tuple(
+                                catalog
+                                for catalog in catalogs
+                                if commands.supports_tidal_playlist(catalog.protocol_id)
+                            )
+                            for room_id, catalogs in tidal_catalogs.items()
+                        }
+                        tidal_catalogs = {
+                            room_id: catalogs
+                            for room_id, catalogs in tidal_catalogs.items()
+                            if catalogs
+                        }
+                        for room_id, catalogs in tidal_catalogs.items():
+                            for catalog in catalogs:
+                                commands.register_tidal_playlists(
+                                    catalog.protocol_id, room_id, catalog.playlists
+                                )
         entry.runtime_data = Control4Runtime(
-            session, transport, commands, media_coordinators, media_sources
+            session,
+            transport,
+            commands,
+            media_coordinators,
+            media_sources,
+            tidal_catalogs,
         )
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
         try:
