@@ -209,9 +209,11 @@ The inventory-backed allowlist currently selects six Watch and eight Listen
 entries; special synthetic IDs and `uibutton` entries are withheld because
 their selection semantics are unproven. REST state
 `CURRENT_SELECTED_DEVICE` supplies the initial/current source ID. The HA
-source selector gates its command on the room's exact advertised metadata and
-refreshes REST state after a selection, without optimistic feedback. The
-command effect and external source-change latency still require user testing.
+native media-browser source entries gate their commands on the room's exact
+advertised metadata and refresh REST state after a selection, without
+optimistic feedback. Version 0.1.29 replaces the earlier source dropdown with
+these playable Watch and Listen app tiles. The command effect and external
+source-change latency still require user testing.
 At version 0.1.12, media-player discovery still required a supported volume
 binding at integration startup. Version 0.1.13 retains an already registered
 room while its off-state binding is zero; new source-only or unproven rooms

@@ -1,4 +1,4 @@
-"""Room volume, mute, and validated source selection."""
+"""Control4 room media controls and validated native browsing."""
 
 from __future__ import annotations
 
@@ -27,6 +27,9 @@ from .transport.playlists import RoomTidalCatalog, TidalPlaylist
 from .transport.sources import RoomSource
 
 
+CONTROL4_ROOT_TYPE = "control4_root"
+SOURCE_GROUP_TYPE = MediaType.APPS
+SOURCE_TYPE = MediaType.APP
 TIDAL_ROOT_TYPE = "control4_tidal"
 TIDAL_ACCOUNT_TYPE = "control4_tidal_account"
 
@@ -74,8 +77,6 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
             features |= MediaPlayerEntityFeature.VOLUME_SET
         if self._volume_ready() and self.runtime.commands.supports_room_mute(self.device_id):
             features |= MediaPlayerEntityFeature.VOLUME_MUTE
-        if self._sources():
-            features |= MediaPlayerEntityFeature.SELECT_SOURCE
         if self._room_is_on() and self.runtime.commands.supports_room_off(self.device_id):
             features |= MediaPlayerEntityFeature.TURN_OFF
         if self._room_is_on():
@@ -90,12 +91,29 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
                     features |= feature
         if self._grouping_ready():
             features |= MediaPlayerEntityFeature.GROUPING
-        if self._tidal_catalogs():
+        if self._sources() or self._tidal_catalogs():
             features |= (
                 MediaPlayerEntityFeature.BROWSE_MEDIA
                 | MediaPlayerEntityFeature.PLAY_MEDIA
             )
         return features
+
+    def _browser_root_id(self) -> str:
+        return f"control4_advanced:media:{self.device_id}"
+
+    def _source_group_id(self, experience: str) -> str:
+        return f"{self._browser_root_id()}:sources:{experience}"
+
+    def _source_id(self, source: RoomSource) -> str:
+        return (
+            f"{self._browser_root_id()}:source:"
+            f"{source.experience}:{source.device_id}"
+        )
+
+    @staticmethod
+    def _source_title(source: RoomSource) -> str:
+        """Keep duplicate-name disambiguation without repeating the folder name."""
+        return source.label.removeprefix(f"{source.experience.title()}: ")
 
     def _tidal_catalogs(self) -> tuple[RoomTidalCatalog, ...]:
         return self.runtime.tidal_catalogs.get(self.device_id, ())
@@ -133,17 +151,102 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
                     return catalog, playlist
         return None
 
+    def _source_group_for_media_id(self, media_id: str) -> str | None:
+        return next(
+            (
+                experience
+                for experience in ("watch", "listen")
+                if self._source_group_id(experience) == media_id
+                and any(
+                    source.experience == experience for source in self._sources()
+                )
+            ),
+            None,
+        )
+
+    def _source_for_media_id(self, media_id: str) -> RoomSource | None:
+        return next(
+            (
+                source
+                for source in self._sources()
+                if self._source_id(source) == media_id
+            ),
+            None,
+        )
+
     async def async_browse_media(
         self,
         media_content_type: MediaType | str | None = None,
         media_content_id: str | None = None,
     ) -> BrowseMedia:
-        """Show configured Control4 TIDAL accounts and playlists."""
+        """Show validated room sources and configured TIDAL playlists."""
+        sources = self._sources()
         catalogs = self._tidal_catalogs()
-        if not catalogs:
-            raise BrowseError("No configured TIDAL playlists are available in this room")
+        if not sources and not catalogs:
+            raise BrowseError("No Control4 media is available in this room")
 
-        if media_content_id in (None, self._tidal_root_id()):
+        if media_content_id in (None, self._browser_root_id()):
+            children = [
+                BrowseMedia(
+                    title=experience.title(),
+                    media_class=MediaClass.DIRECTORY,
+                    media_content_id=self._source_group_id(experience),
+                    media_content_type=SOURCE_GROUP_TYPE,
+                    can_play=False,
+                    can_expand=True,
+                    children_media_class=MediaClass.APP,
+                )
+                for experience in ("watch", "listen")
+                if any(source.experience == experience for source in sources)
+            ]
+            if catalogs:
+                children.append(
+                    BrowseMedia(
+                        title="TIDAL",
+                        media_class=MediaClass.DIRECTORY,
+                        media_content_id=self._tidal_root_id(),
+                        media_content_type=TIDAL_ROOT_TYPE,
+                        can_play=False,
+                        can_expand=True,
+                        children_media_class=MediaClass.DIRECTORY,
+                    )
+                )
+            return BrowseMedia(
+                title="Control4",
+                media_class=MediaClass.DIRECTORY,
+                media_content_id=self._browser_root_id(),
+                media_content_type=CONTROL4_ROOT_TYPE,
+                can_play=False,
+                can_expand=True,
+                children=children,
+                children_media_class=MediaClass.DIRECTORY,
+            )
+
+        source_group = self._source_group_for_media_id(media_content_id)
+        if source_group is not None:
+            return BrowseMedia(
+                title=source_group.title(),
+                media_class=MediaClass.DIRECTORY,
+                media_content_id=self._source_group_id(source_group),
+                media_content_type=SOURCE_GROUP_TYPE,
+                can_play=False,
+                can_expand=True,
+                children=[
+                    BrowseMedia(
+                        title=self._source_title(source),
+                        media_class=MediaClass.APP,
+                        media_content_id=self._source_id(source),
+                        media_content_type=SOURCE_TYPE,
+                        can_play=True,
+                        can_expand=False,
+                    )
+                    for source in sources
+                    if source.experience == source_group
+                ],
+                children_media_class=MediaClass.APP,
+            )
+
+        if media_content_id == self._tidal_root_id() and catalogs:
             return BrowseMedia(
                 title="TIDAL",
                 media_class=MediaClass.DIRECTORY,
@@ -168,7 +271,7 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
 
         catalog = self._catalog_for_media_id(media_content_id)
         if catalog is None:
-            raise BrowseError("TIDAL account is not configured for this room")
+            raise BrowseError("Control4 media is not configured for this room")
         return BrowseMedia(
             title=catalog.source_name,
             media_class=MediaClass.DIRECTORY,
@@ -193,9 +296,17 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
     async def async_play_media(
         self, media_type: MediaType | str, media_id: str, **kwargs: Any
     ) -> None:
-        """Start a configured Control4 TIDAL playlist with shuffle disabled."""
-        if media_type != MediaType.PLAYLIST or not isinstance(media_id, str):
-            raise UnsupportedCommand("only configured TIDAL playlists can be played")
+        """Select an allowlisted source or start a configured TIDAL playlist."""
+        if not isinstance(media_id, str):
+            raise UnsupportedCommand("Control4 media ID must be text")
+        if media_type == SOURCE_TYPE:
+            source = self._source_for_media_id(media_id)
+            if source is None:
+                raise UnsupportedCommand("source is not advertised for this room")
+            await self._async_select_source(source)
+            return
+        if media_type != MediaType.PLAYLIST:
+            raise UnsupportedCommand("Control4 media type is not supported")
         resolved = self._playlist_for_media_id(media_id)
         if resolved is None:
             raise UnsupportedCommand("TIDAL playlist is not configured for this room")
@@ -315,10 +426,6 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
         return value if isinstance(value, str) else None
 
     @property
-    def source_list(self) -> list[str]:
-        return [source.label for source in self._sources()]
-
-    @property
     def source(self) -> str | None:
         selected = self._selected_source()
         return selected.label if selected is not None else None
@@ -332,10 +439,8 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
             None,
         )
 
-    async def async_select_source(self, source: str) -> None:
-        selected = next((item for item in self._sources() if item.label == source), None)
-        if selected is None:
-            raise UnsupportedCommand("source is not advertised for this room")
+    async def _async_select_source(self, selected: RoomSource) -> None:
+        """Select one already resolved, allowlisted browser source."""
         await self.runtime.commands.room_source(self.device_id, selected)
         # A command response is not state feedback. Only a REST read may
         # confirm the selected source; retry briefly for Director's settle.

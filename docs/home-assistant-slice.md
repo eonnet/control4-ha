@@ -35,6 +35,10 @@ Director REST omits the dynamic custom-select values that Composer displays.
 Version 0.1.28 exposes the same allowlisted accounts and playlists through each
 eligible room media player's native Home Assistant browse tree. Browse playback
 reuses `SelectPlaylist`; it does not claim unsupported live TIDAL search.
+Version 0.1.29 also exposes the validated Watch and Listen sources as playable
+app tiles under the native browse tree and removes the media player's source
+dropdown. Browser source selection retains the inventory allowlist, exact
+room-command metadata gate, and settled REST readback used by the earlier UI.
 
 The config flow accepts a local Director hostname/IP and Control4 account
 credentials. The account service issues a Director JWT; a separate local

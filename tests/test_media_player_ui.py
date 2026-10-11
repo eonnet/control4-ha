@@ -52,11 +52,14 @@ class FakeBrowseMedia:
 
 
 class FakeMediaClass(StrEnum):
+    APP = "app"
     DIRECTORY = "directory"
     PLAYLIST = "playlist"
 
 
 class FakeMediaType(StrEnum):
+    APP = "app"
+    APPS = "apps"
     PLAYLIST = "playlist"
 
 
@@ -266,9 +269,14 @@ class MediaPlayerUITests(unittest.IsolatedAsyncioTestCase):
         bedroom = entities[1]
         self.assertTrue(bedroom.available)
         self.assertEqual(bedroom.state, FakeMediaPlayerState.OFF)
-        self.assertEqual(bedroom.source_list, ["Listen: Wiim"])
+        self.assertFalse(hasattr(bedroom, "source_list"))
         self.assertEqual(
-            bedroom.supported_features, FakeMediaPlayerFeature.SELECT_SOURCE
+            bedroom.supported_features,
+            FakeMediaPlayerFeature.BROWSE_MEDIA
+            | FakeMediaPlayerFeature.PLAY_MEDIA,
+        )
+        self.assertFalse(
+            bedroom.supported_features & FakeMediaPlayerFeature.SELECT_SOURCE
         )
 
     async def test_browse_configured_tidal_accounts_and_playlists(self):
@@ -277,6 +285,12 @@ class MediaPlayerUITests(unittest.IsolatedAsyncioTestCase):
         )
         acoustic = TidalPlaylist(
             "Juliane", "Acoustic", "11111111-2222-4333-8444-555555555555"
+        )
+        self.runtime.media_sources[22] = (
+            RoomSource(1417, "listen", "Miki", "AUDIO_SELECTION", "Listen: Miki"),
+            RoomSource(
+                1366, "listen", "Juliane", "AUDIO_SELECTION", "Listen: Juliane"
+            ),
         )
         self.runtime.tidal_catalogs[22] = (
             RoomTidalCatalog(22, 1417, 1416, "Miki", (evening,)),
@@ -293,14 +307,20 @@ class MediaPlayerUITests(unittest.IsolatedAsyncioTestCase):
             entity.supported_features & FakeMediaPlayerFeature.PLAY_MEDIA
         )
         root = await entity.async_browse_media()
-        self.assertEqual(root.title, "TIDAL")
+        self.assertEqual(root.title, "Control4")
         self.assertEqual(root.media_class, FakeMediaClass.DIRECTORY)
-        self.assertEqual([child.title for child in root.children], ["Miki", "Juliane"])
-        self.assertTrue(all(child.can_expand for child in root.children))
+        self.assertEqual([child.title for child in root.children], ["Listen", "TIDAL"])
+
+        tidal = await entity.async_browse_media(
+            self.media_player.TIDAL_ROOT_TYPE,
+            root.children[1].media_content_id,
+        )
+        self.assertEqual([child.title for child in tidal.children], ["Miki", "Juliane"])
+        self.assertTrue(all(child.can_expand for child in tidal.children))
 
         account = await entity.async_browse_media(
             self.media_player.TIDAL_ACCOUNT_TYPE,
-            root.children[0].media_content_id,
+            tidal.children[0].media_content_id,
         )
         self.assertEqual(account.title, "Miki")
         self.assertEqual([child.title for child in account.children], ["Evening Mix"])
@@ -469,39 +489,73 @@ class MediaPlayerUITests(unittest.IsolatedAsyncioTestCase):
         self.state[22].update({"is_on": False, "media_title": None})
         self.assertIsNone(entity.media_title)
 
-    async def test_source_selector_is_inventory_discovered_and_rest_confirmed(self):
+    async def test_source_browser_is_inventory_discovered_and_rest_confirmed(self):
         plex = RoomSource(346, "watch", "Plex", "RF_MINI_APP", "Watch: Plex")
         wiim = RoomSource(623, "listen", "Wiim", "AUDIO_SELECTION", "Listen: Wiim")
         self.runtime.media_sources[22] = (plex, wiim)
         self.state[22]["selected_source_id"] = 346
         entity = self.media_player.Control4RoomMediaPlayer(self.runtime, self.items[22])
         self.assertEqual(entity.state, FakeMediaPlayerState.PLAYING)
-        self.assertEqual(entity.source_list, ["Watch: Plex", "Listen: Wiim"])
+        self.assertFalse(hasattr(entity, "source_list"))
         self.assertEqual(entity.source, "Watch: Plex")
-        self.assertTrue(entity.supported_features & FakeMediaPlayerFeature.SELECT_SOURCE)
+        self.assertFalse(
+            entity.supported_features & FakeMediaPlayerFeature.SELECT_SOURCE
+        )
+        self.assertTrue(
+            entity.supported_features & FakeMediaPlayerFeature.BROWSE_MEDIA
+        )
+        self.assertTrue(
+            entity.supported_features & FakeMediaPlayerFeature.PLAY_MEDIA
+        )
+
+        root = await entity.async_browse_media()
+        self.assertEqual([child.title for child in root.children], ["Watch", "Listen"])
+        watch = await entity.async_browse_media(
+            self.media_player.SOURCE_GROUP_TYPE,
+            root.children[0].media_content_id,
+        )
+        listen = await entity.async_browse_media(
+            self.media_player.SOURCE_GROUP_TYPE,
+            root.children[1].media_content_id,
+        )
+        self.assertEqual([child.title for child in watch.children], ["Plex"])
+        self.assertEqual([child.title for child in listen.children], ["Wiim"])
+        source_item = listen.children[0]
+        self.assertEqual(source_item.media_class, FakeMediaClass.APP)
+        self.assertEqual(source_item.media_content_type, self.media_player.SOURCE_TYPE)
+        self.assertTrue(source_item.can_play)
 
         async def settle(_room_id):
             self.state[22]["selected_source_id"] = 623
 
         self.runtime.transport.sync_device.side_effect = settle
-        await entity.async_select_source("Listen: Wiim")
+        await entity.async_play_media(
+            source_item.media_content_type, source_item.media_content_id
+        )
         self.commands.room_source.assert_awaited_once_with(22, wiim)
         self.runtime.transport.sync_device.assert_awaited_once_with(22)
         self.assertEqual(entity.source, "Listen: Wiim")
         self.assertEqual(entity.state, FakeMediaPlayerState.PLAYING)
         with self.assertRaises(UnsupportedCommand):
-            await entity.async_select_source("Unknown source")
+            await entity.async_play_media(
+                self.media_player.SOURCE_TYPE,
+                "control4_advanced:media:22:source:listen:9999",
+            )
         self.commands.room_source.assert_awaited_once()
 
         # A room without a bound volume endpoint remains usable for choosing
         # a source that can power it on; unavailable volume controls disappear.
         self.state[22].update({"is_on": False, "volume_device_id": 0})
         self.assertTrue(entity.available)
-        self.assertEqual(entity.supported_features, FakeMediaPlayerFeature.SELECT_SOURCE)
+        self.assertEqual(
+            entity.supported_features,
+            FakeMediaPlayerFeature.BROWSE_MEDIA
+            | FakeMediaPlayerFeature.PLAY_MEDIA,
+        )
 
         self.commands.source_supported = False
-        self.assertEqual(entity.source_list, [])
         self.assertIsNone(entity.source)
+        self.assertEqual(entity.supported_features, 0)
         self.assertFalse(entity.available)
 
     async def test_native_join_exposes_confirmed_group_members(self):
