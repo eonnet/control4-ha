@@ -17,6 +17,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from . import Control4Runtime
 from .entity import Control4Entity
 from .transport.commands import UnsupportedCommand
+from .transport.events import normalize_rest_variables
 from .transport.sources import RoomSource
 
 
@@ -45,7 +46,23 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
             features |= MediaPlayerEntityFeature.SELECT_SOURCE
         if self.state == MediaPlayerState.ON and self.runtime.commands.supports_room_off(self.device_id):
             features |= MediaPlayerEntityFeature.TURN_OFF
+        if self.state == MediaPlayerState.ON:
+            for command, feature in (
+                ("PLAY", MediaPlayerEntityFeature.PLAY),
+                ("PAUSE", MediaPlayerEntityFeature.PAUSE),
+                ("STOP", MediaPlayerEntityFeature.STOP),
+            ):
+                if self.runtime.commands.supports_room_transport(self.device_id, command):
+                    features |= feature
         return features
+
+    @property
+    def assumed_state(self) -> bool:
+        """Show each stateless playback action without inventing media state."""
+        return self.state == MediaPlayerState.ON and any(
+            self.runtime.commands.supports_room_transport(self.device_id, command)
+            for command in ("PLAY", "PAUSE", "STOP")
+        )
 
     def _sources(self) -> tuple[RoomSource, ...]:
         discovered = self.runtime.media_sources.get(self.device_id, ())
@@ -79,6 +96,35 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
 
     async def async_mute_volume(self, mute: bool) -> None:
         await self.runtime.commands.room_mute(self.device_id, mute)
+
+    async def async_media_play(self) -> None:
+        await self._async_room_transport("PLAY")
+
+    async def async_media_pause(self) -> None:
+        await self._async_room_transport("PAUSE")
+
+    async def async_media_stop(self) -> None:
+        await self._async_room_transport("STOP")
+
+    async def _async_room_transport(self, command: str) -> None:
+        if (
+            self.state != MediaPlayerState.ON
+            or not self.runtime.commands.supports_room_transport(self.device_id, command)
+        ):
+            raise UnsupportedCommand(
+                "room playback command is unavailable while the room is off"
+            )
+        # Control4 supplies no playback-state feedback. Re-read verified room
+        # power immediately before sending this stateless command.
+        variables = await self.runtime.transport.rest.get_variables(self.device_id)
+        live_state = normalize_rest_variables(
+            self.device_id, "roomdevice", variables
+        ).changes
+        if live_state.get("is_on") is not True or not self.runtime.transport.connected:
+            raise UnsupportedCommand(
+                "room playback command requires a live powered-on room"
+            )
+        await self.runtime.commands.room_transport(self.device_id, command)
 
     @property
     def source_list(self) -> list[str]:

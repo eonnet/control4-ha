@@ -134,6 +134,13 @@ validated `SelectPlaylist` command to the same room with Shuffle fixed to
 `Off`. The selector is stateless because Director does not report which
 playlist created the current queue.
 
+Version 0.1.18 also exposes each room's advertised Play, Pause, and Stop
+commands as native controls on the Home Assistant media-player dialog. Because
+Director does not report playback state, these controls are explicitly marked
+as assumed and never change the room's verified On/Off state. Every press
+re-reads live room power before sending the command. The separate button
+entities remain available for existing dashboards and automations.
+
 State is initialized through REST, then updated from WebSocket events;
 entities do not poll when a usable push path has been proven. REST re-syncs
 after reconnect and on a slow reconciliation interval. Home Assistant device metadata includes the
