@@ -128,7 +128,40 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
         except Exception as exc:
             _LOGGER.warning("Control4 media registry lookup failed: %s", type(exc).__name__)
-        for room_id in await _discover_media_room_ids(transport, known_media_rooms):
+        volume_room_ids = set(
+            await _discover_media_room_ids(transport, known_media_rooms)
+        )
+        all_room_ids = [
+            room_id
+            for room_id, item in sorted(transport.inventory.items.items())
+            if item.get("typeName") == "room" and item.get("proxy") == "roomdevice"
+        ]
+        media_sources: dict[int, tuple[RoomSource, ...]] = {}
+        try:
+            ui_configuration = await rest.get_ui_configuration()
+        except Exception as exc:
+            # Source discovery is optional and raw UI configuration may
+            # include account or media labels; never log it.
+            _LOGGER.warning("Control4 source discovery failed: %s", type(exc).__name__)
+        else:
+            media_sources = {
+                room_id: sources
+                for room_id in all_room_ids
+                if (
+                    sources := room_sources(
+                        ui_configuration, room_id, transport.inventory.items
+                    )
+                )
+            }
+        media_room_ids = sorted(volume_room_ids | set(media_sources))
+        if media_room_ids:
+            try:
+                await commands.refresh(media_room_ids)
+            except DirectorRestError:
+                # Media controls are optional; failed metadata leaves source
+                # rooms visible but without unsupported commands.
+                pass
+        for room_id in media_room_ids:
             coordinator = RoomVolumeCoordinator(transport, room_id)
             try:
                 await asyncio.wait_for(coordinator.start(), timeout=10)
@@ -136,33 +169,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.warning("Control4 room volume setup failed: %s", type(exc).__name__)
                 continue
             media_coordinators[room_id] = coordinator
-        if media_coordinators:
-            try:
-                await commands.refresh(media_coordinators)
-            except DirectorRestError:
-                # Media controls are optional; a failed metadata read leaves
-                # the room entity read-only without breaking other platforms.
-                pass
-        media_sources: dict[int, tuple[RoomSource, ...]] = {}
-        if media_coordinators:
-            try:
-                ui_configuration = await rest.get_ui_configuration()
-            except Exception as exc:
-                # Source discovery is optional and raw UI configuration may
-                # include account or media labels; never log it.
-                _LOGGER.warning("Control4 source discovery failed: %s", type(exc).__name__)
-            else:
-                media_sources = {
-                    room_id: room_sources(ui_configuration, room_id, transport.inventory.items)
-                    for room_id in media_coordinators
-                }
-                for room_id, sources in media_sources.items():
-                    commands.register_room_sources(room_id, sources)
-                    if any(
-                        commands.supports_room_source(room_id, source.experience)
-                        for source in sources
-                    ):
-                        media_coordinators[room_id].enable_source_fallback()
+        media_sources = {
+            room_id: sources
+            for room_id, sources in media_sources.items()
+            if room_id in media_coordinators
+        }
+        for room_id, sources in media_sources.items():
+            commands.register_room_sources(room_id, sources)
+            if any(
+                commands.supports_room_source(room_id, source.experience)
+                for source in sources
+            ):
+                media_coordinators[room_id].enable_source_fallback()
         tidal_catalogs: dict[int, tuple[RoomTidalCatalog, ...]] = {}
         raw_playlists = entry.options.get(CONF_TIDAL_PLAYLISTS, "")
         if raw_playlists:

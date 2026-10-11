@@ -85,7 +85,8 @@ class RoomVolumeCoordinator:
 
     async def _ensure_bound_device(self) -> None:
         device_id = self._bound_device_id()
-        if device_id is None or device_id not in self.transport.inventory.items:
+        item = self.transport.inventory.items.get(device_id) if device_id is not None else None
+        if item is None or item.get("proxy") != "aswitch":
             return
         try:
             await self.transport.track_device(device_id)

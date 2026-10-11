@@ -141,6 +141,12 @@ as assumed and never change the room's verified On/Off state. Every press
 re-reads live room power before sending the command. The separate button
 entities remain available for existing dashboards and automations.
 
+Version 0.1.19 exposes every Control4 room that has at least one validated
+Watch or Listen source as a Home Assistant media player. A proven volume
+binding is no longer required for the room entity to exist; volume and mute
+controls remain conditional on their existing validation, while source and
+playback controls use each room's own advertised commands.
+
 State is initialized through REST, then updated from WebSocket events;
 entities do not poll when a usable push path has been proven. REST re-syncs
 after reconnect and on a slow reconciliation interval. Home Assistant device metadata includes the
