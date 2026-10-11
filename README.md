@@ -182,6 +182,11 @@ state. `media_player.unjoin` uses Control4's documented Room Off behavior to
 remove only that room from the session. Join and unjoin wait for Director to
 confirm the new membership instead of updating Home Assistant optimistically.
 
+Version 0.1.26 keeps native grouping advertised on powered-off room players so
+Home Assistant includes them in the active leader's available-player list.
+Selecting an off room adds it to the leader's Control4 session and powers it
+through the native session command.
+
 State is initialized through REST, then updated from WebSocket events;
 entities do not poll when a usable push path has been proven. REST re-syncs
 after reconnect and on a slow reconciliation interval. Home Assistant device metadata includes the

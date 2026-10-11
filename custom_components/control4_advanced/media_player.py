@@ -87,8 +87,6 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
         return (
             coordinator is not None
             and coordinator.ready
-            and self._room_is_on()
-            and self._selected_source() is not None
             and len(coordinator.room_ids) >= 2
         )
 
@@ -240,6 +238,8 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
     async def async_join_players(self, group_members: list[str]) -> None:
         coordinator = self.runtime.media_session_coordinator
         if coordinator is None or not self._grouping_ready():
+            raise UnsupportedCommand("Control4 media grouping is unavailable")
+        if not self._room_is_on() or self._selected_source() is None:
             raise UnsupportedCommand("room must have an active source before grouping")
         entity_rooms = {
             entity_id: room_id
