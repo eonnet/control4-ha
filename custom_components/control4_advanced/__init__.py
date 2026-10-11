@@ -14,7 +14,10 @@ from typing import TYPE_CHECKING
 import aiohttp
 
 from .const import CONF_TIDAL_PLAYLISTS, DEFAULT_RECONCILIATION_SECONDS, PLATFORMS
-from .registry_cleanup import remove_stale_registry_entries
+from .registry_cleanup import (
+    migrate_tidal_playlist_registry_entries,
+    remove_stale_registry_entries,
+)
 from .selection import (
     command_metadata_ids, is_candidate_item, registered_media_room_ids,
     supported_media_room_ids,
@@ -210,6 +213,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             media_sources,
             tidal_catalogs,
         )
+        try:
+            migrate_tidal_playlist_registry_entries(
+                hass,
+                config_entry_id=entry.entry_id,
+                host=host,
+                preferred_protocol_ids={
+                    room_id: next(
+                        (
+                            catalog.protocol_id
+                            for catalog in catalogs
+                            if catalog.source_name.casefold() == "tidal"
+                        ),
+                        catalogs[0].protocol_id,
+                    )
+                    for room_id, catalogs in tidal_catalogs.items()
+                },
+            )
+        except Exception as exc:
+            # Registry migration is nonessential; platform setup may continue.
+            _LOGGER.warning("Control4 TIDAL registry migration failed: %s", type(exc).__name__)
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
         try:
             remove_stale_registry_entries(

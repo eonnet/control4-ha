@@ -114,8 +114,11 @@ verified `OPENED`/REST `0` as open and `CLOSED`/REST `1` as closed, matching
 the existing contact transport contract. The user subsequently confirmed the
 door entity in Home Assistant.
 
-Version 0.1.16 adds an account-aware TIDAL playlist select to each eligible
-Control4 room device. Director REST advertises the playlist command but omits
+Version 0.1.17 adds two linked selectors to each eligible Control4 room:
+**TIDAL account** and **TIDAL playlist**. Choosing an account selects that
+actual Control4 Listen source in the room, and the playlist dropdown then
+shows only playlists configured for that account. Director REST advertises
+the playlist command but omits
 the dynamic name/UUID choices shown by Composer, so enter them once under
 **Settings → Devices & services → Control4 Advanced → Configure**, one per
 line:
@@ -125,7 +128,7 @@ TIDAL source name | Playlist name | Playlist UUID
 ```
 
 The source name must match the Listen source shown by Control4 (for example
-`TIDAL`, `Juliane`, `Miki`, or `Jakob`). The integration adds the selector only
+`TIDAL`, `Juliane`, `Miki`, or `Jakob`). The integration adds the selectors only
 to rooms where that source is exposed. Selecting a playlist sends the live-
 validated `SelectPlaylist` command to the same room with Shuffle fixed to
 `Off`. The selector is stateless because Director does not report which

@@ -1,7 +1,9 @@
-"""Push-driven Control4 thermostat hold-mode select entities."""
+"""Push-driven Control4 select entities."""
 
 from __future__ import annotations
 
+import asyncio
+from collections import Counter
 from typing import Any
 
 from homeassistant.components.select import SelectEntity
@@ -14,6 +16,7 @@ from . import Control4Runtime
 from .entity import Control4Entity
 from .transport.commands import UnsupportedCommand
 from .transport.playlists import RoomTidalCatalog, TidalPlaylist
+from .transport.sources import RoomSource
 
 
 async def async_setup_entry(
@@ -41,10 +44,11 @@ async def async_setup_entry(
         room = items.get(room_id)
         if not isinstance(room, dict):
             continue
-        entities.extend(
-            Control4TidalPlaylistSelect(runtime, room, catalog)
-            for catalog in catalogs
-        )
+        selection = RoomTidalSelection(runtime, room_id, catalogs)
+        entities.extend((
+            Control4TidalAccountSelect(runtime, room, selection),
+            Control4TidalPlaylistSelect(runtime, room, selection),
+        ))
     async_add_entities(entities)
 
 
@@ -75,8 +79,125 @@ class Control4HoldSelect(Control4Entity, SelectEntity):
         await self.runtime.commands.hold_mode(self.device_id, option)
 
 
+class RoomTidalSelection:
+    """Share the selected TIDAL account between a room's two selectors."""
+
+    def __init__(
+        self,
+        runtime: Control4Runtime,
+        room_id: int,
+        catalogs: tuple[RoomTidalCatalog, ...],
+    ) -> None:
+        self.runtime = runtime
+        self.room_id = room_id
+        counts = Counter(catalog.source_name for catalog in catalogs)
+        self._labels = {
+            catalog.protocol_id: (
+                catalog.source_name
+                if counts[catalog.source_name] == 1
+                else f"{catalog.source_name} ({catalog.source_id})"
+            )
+            for catalog in catalogs
+        }
+        self._by_label = {
+            self._labels[catalog.protocol_id]: catalog for catalog in catalogs
+        }
+        self._by_source_id = {catalog.source_id: catalog for catalog in catalogs}
+        selected = self._catalog_for_director_state()
+        self._preferred = selected or catalogs[0]
+        self._entities: list[Control4Entity] = []
+
+    @property
+    def account_options(self) -> list[str]:
+        return list(self._by_label)
+
+    @property
+    def current_account(self) -> str | None:
+        catalog = self._catalog_for_director_state()
+        return self._labels[catalog.protocol_id] if catalog is not None else None
+
+    @property
+    def active_catalog(self) -> RoomTidalCatalog:
+        return self._catalog_for_director_state() or self._preferred
+
+    def catalog_for_account(self, option: str) -> RoomTidalCatalog | None:
+        return self._by_label.get(option)
+
+    def room_source(self, catalog: RoomTidalCatalog) -> RoomSource | None:
+        return next(
+            (
+                source
+                for source in self.runtime.media_sources.get(self.room_id, ())
+                if source.device_id == catalog.source_id
+                and source.experience == "listen"
+            ),
+            None,
+        )
+
+    def prefer(self, catalog: RoomTidalCatalog) -> None:
+        self._preferred = catalog
+        for entity in self._entities:
+            if getattr(entity, "hass", None) is not None:
+                entity.async_write_ha_state()
+
+    def attach(self, entity: Control4Entity) -> None:
+        self._entities.append(entity)
+
+    def _catalog_for_director_state(self) -> RoomTidalCatalog | None:
+        selected_id = self.runtime.transport.state.snapshot(self.room_id).get(
+            "selected_source_id"
+        )
+        if type(selected_id) is not int:
+            return None
+        return self._by_source_id.get(selected_id)
+
+
+class Control4TidalAccountSelect(Control4Entity, SelectEntity):
+    """Select the Control4 TIDAL Listen source for one room."""
+
+    _attr_icon = "mdi:account-music"
+
+    def __init__(
+        self,
+        runtime: Control4Runtime,
+        room: dict[str, Any],
+        selection: RoomTidalSelection,
+    ) -> None:
+        super().__init__(runtime, room)
+        self.selection = selection
+        self._attr_unique_id = (
+            f"{runtime.transport.rest.host}_{self.device_id}_tidal_account"
+        )
+        self._attr_name = f"{self._attr_name} TIDAL account"
+        self._attr_options = selection.account_options
+        selection.attach(self)
+
+    @property
+    def current_option(self) -> str | None:
+        return self.selection.current_account
+
+    async def async_select_option(self, option: str) -> None:
+        catalog = self.selection.catalog_for_account(option)
+        if catalog is None:
+            raise HomeAssistantError("TIDAL account is not configured for this room")
+        source = self.selection.room_source(catalog)
+        if source is None:
+            raise HomeAssistantError("TIDAL account is not exposed in this room")
+        await self.runtime.commands.room_source(self.device_id, source)
+        self.selection.prefer(catalog)
+        # A command response is not state feedback. Confirm the source from
+        # Director, allowing the same short settle window as media_player.
+        for delay in (0, 0.25, 0.5, 1.0, 1.0):
+            if delay:
+                await asyncio.sleep(delay)
+            await self.runtime.transport.sync_device(self.device_id)
+            if self.state_data.get("selected_source_id") == catalog.source_id:
+                break
+        self.selection.prefer(catalog)
+
+
 class Control4TidalPlaylistSelect(Control4Entity, SelectEntity):
-    """Stateless room playlist picker for one Control4 TIDAL account."""
+    """Stateless room playlist picker for the active Control4 TIDAL account."""
 
     _attr_icon = "mdi:playlist-music"
 
@@ -84,19 +205,19 @@ class Control4TidalPlaylistSelect(Control4Entity, SelectEntity):
         self,
         runtime: Control4Runtime,
         room: dict[str, Any],
-        catalog: RoomTidalCatalog,
+        selection: RoomTidalSelection,
     ) -> None:
         super().__init__(runtime, room)
-        self.catalog = catalog
-        self._by_name: dict[str, TidalPlaylist] = {
-            playlist.name: playlist for playlist in catalog.playlists
-        }
+        self.selection = selection
         self._attr_unique_id = (
-            f"{runtime.transport.rest.host}_{self.device_id}_"
-            f"tidal_playlist_{catalog.protocol_id}"
+            f"{runtime.transport.rest.host}_{self.device_id}_tidal_playlist"
         )
-        self._attr_name = f"{self._attr_name} {catalog.source_name} playlist"
-        self._attr_options = list(self._by_name)
+        self._attr_name = f"{self._attr_name} TIDAL playlist"
+        selection.attach(self)
+
+    @property
+    def options(self) -> list[str]:
+        return [playlist.name for playlist in self.selection.active_catalog.playlists]
 
     @property
     def current_option(self) -> str | None:
@@ -104,9 +225,13 @@ class Control4TidalPlaylistSelect(Control4Entity, SelectEntity):
         return None
 
     async def async_select_option(self, option: str) -> None:
-        playlist = self._by_name.get(option)
+        catalog = self.selection.active_catalog
+        playlist: TidalPlaylist | None = next(
+            (playlist for playlist in catalog.playlists if playlist.name == option),
+            None,
+        )
         if playlist is None:
-            raise HomeAssistantError("Playlist is not configured for this TIDAL source")
+            raise HomeAssistantError("Playlist is not configured for the selected TIDAL account")
         await self.runtime.commands.tidal_playlist(
-            self.catalog.protocol_id, self.device_id, playlist
+            catalog.protocol_id, self.device_id, playlist
         )
