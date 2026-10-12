@@ -267,6 +267,11 @@ Version 0.1.36 replaces the separate **Volume** number entities with a packaged
 **Control4 Media Group** dashboard card. Its popup combines group membership
 and independent volume controls for the individual Control4 room players.
 
+Version 0.1.37 registers the card as a versioned Lovelace dashboard resource
+instead of relying on Home Assistant's early extra-module loader. This avoids
+the scoped custom-element registry race that could display **Custom element not
+found**. YAML resource mode retains an automatic post-bootstrap fallback.
+
 State is initialized through REST, then updated from WebSocket events;
 entities do not poll when a usable push path has been proven. REST re-syncs
 after reconnect and on a slow reconciliation interval. Home Assistant device metadata includes the
@@ -284,7 +289,7 @@ still uses normal TLS verification.
 
 ## Control4 Media Group card
 
-After updating to version 0.1.36, restart Home Assistant and refresh the
+After updating to version 0.1.37, restart Home Assistant and refresh the
 browser or fully close and reopen the mobile app. In dashboard edit mode choose
 **Add card**, search for **Control4 Media Group**, and select the room that
 should lead the group. The equivalent manual configuration is:

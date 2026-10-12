@@ -663,16 +663,16 @@ const registerCard = () => {
   }
 };
 
-// Extra frontend modules can load before Home Assistant installs its scoped
-// custom-element registry. Poll the current registry and register only after
-// the main application element exists, avoiding a lost early registration.
-let attempts = 0;
-const registrationTimer = window.setInterval(() => {
-  attempts += 1;
-  if (window.customElements?.get("home-assistant")) {
-    window.clearInterval(registrationTimer);
-    registerCard();
-  } else if (attempts >= 1200) {
-    window.clearInterval(registrationTimer);
+// Register immediately for normal Lovelace resource loading. Extra modules can
+// execute before HA replaces the native custom-element registry with its scoped
+// registry, so check the live registry again after the application is defined.
+registerCard();
+(async () => {
+  for (let attempts = 0; attempts < 600; attempts += 1) {
+    if (window.customElements?.get("home-assistant")) {
+      registerCard();
+      return;
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 100));
   }
-}, 50);
+})();
