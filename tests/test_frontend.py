@@ -270,6 +270,7 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn('type: "media_player/browse_media"', javascript)
         self.assertIn("await Promise.allSettled(", javascript)
+        self.assertIn("loadControl4MediaSections", javascript)
         self.assertIn('mediaId.includes(":sources:watch")', javascript)
         self.assertIn('mediaId.includes(":sources:listen")', javascript)
         self.assertIn('mediaId.startsWith("control4_advanced:tidal:")', javascript)
@@ -280,7 +281,15 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("control4_media_content_id", javascript)
         self.assertIn('name: "Control4 Media Favorites"', javascript)
         self.assertIn("control4BrowsePlayers(this._hass)", javascript)
-        self.assertIn("automatically from this player's Media Browser", javascript)
+        self.assertIn("Array.isArray(this._config?.media_ids)", javascript)
+        self.assertIn("Items to show", javascript)
+        self.assertIn("data-select-all", javascript)
+        self.assertIn("data-select-none", javascript)
+        self.assertIn("data-section-key", javascript)
+        self.assertIn("data-media-id", javascript)
+        self.assertIn(
+            "grid-template-columns: repeat(2, minmax(0, 1fr));", javascript
+        )
 
     def test_manifest_declares_hassfest_runtime_dependencies(self) -> None:
         manifest = json.loads(
@@ -288,10 +297,10 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
                 encoding="utf-8"
             )
         )
-        self.assertEqual(manifest["version"], "0.1.57")
+        self.assertEqual(manifest["version"], "0.1.58")
         self.assertIn("http", manifest["dependencies"])
         self.assertEqual(manifest["requirements"], ["pyControl4>=2.0.2"])
-        self.assertTrue(FRONTEND_URL.endswith("?v=0.1.57"))
+        self.assertTrue(FRONTEND_URL.endswith("?v=0.1.58"))
 
     def test_official_control4_brand_assets_are_packaged(self) -> None:
         brand = Path(FRONTEND_FILE).parent.parent / "brand"

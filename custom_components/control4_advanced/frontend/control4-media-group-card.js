@@ -65,6 +65,112 @@ const control4BrowsePlayers = (hass) =>
     )
     .sort((left, right) => stateName(left).localeCompare(stateName(right)));
 
+const browseControl4Media = (hass, entityId, item) => {
+  if (typeof hass?.callWS !== "function") {
+    throw new Error("Home Assistant WebSocket connection is unavailable");
+  }
+  const message = {
+    type: "media_player/browse_media",
+    entity_id: entityId,
+  };
+  if (item?.media_content_id) {
+    message.media_content_id = item.media_content_id;
+  }
+  if (item?.media_content_type) {
+    message.media_content_type = item.media_content_type;
+  }
+  return hass.callWS(message);
+};
+
+const control4MediaSectionFor = (item) => {
+  const mediaId = String(item?.media_content_id || "").toLowerCase();
+  if (mediaId.includes(":sources:watch")) {
+    return { key: "watch", title: "Watch", icon: "mdi:television-play" };
+  }
+  if (mediaId.includes(":sources:listen")) {
+    return { key: "listen", title: "Listen", icon: "mdi:music" };
+  }
+  if (mediaId.startsWith("control4_advanced:tidal:")) {
+    return { key: "tidal", title: "TIDAL", icon: "mdi:playlist-music" };
+  }
+  if (mediaId.startsWith("control4_advanced:tunein:")) {
+    return { key: "tunein", title: "TuneIn", icon: "mdi:radio" };
+  }
+  return undefined;
+};
+
+const expandControl4MediaFolder = async (
+  hass,
+  entityId,
+  folder,
+  section,
+  inheritedThumbnail,
+  depth = 0
+) => {
+  const node = folder.can_expand
+    ? await browseControl4Media(hass, entityId, folder)
+    : folder;
+  const thumbnail = node.thumbnail || folder.thumbnail || inheritedThumbnail;
+  const items = [];
+  for (const child of node.children || []) {
+    if (child.can_play) {
+      items.push({
+        ...child,
+        key: `${child.media_content_type}|${child.media_content_id}`,
+        section: section.key,
+        sectionTitle: section.title,
+        icon: section.icon,
+        subtitle:
+          section.key === "tidal" || section.key === "tunein"
+            ? node.title
+            : "",
+        thumbnail: child.thumbnail || thumbnail,
+      });
+    }
+    if (child.can_expand && depth < 2) {
+      items.push(
+        ...(await expandControl4MediaFolder(
+          hass,
+          entityId,
+          child,
+          section,
+          child.thumbnail || thumbnail,
+          depth + 1
+        ))
+      );
+    }
+  }
+  return items;
+};
+
+const loadControl4MediaSections = async (hass, entityId) => {
+  const root = await browseControl4Media(hass, entityId);
+  const folders = (root.children || [])
+    .map((folder) => ({ folder, section: control4MediaSectionFor(folder) }))
+    .filter(({ section }) => section);
+  const results = await Promise.allSettled(
+    folders.map(async ({ folder, section }) => ({
+      ...section,
+      items: await expandControl4MediaFolder(
+        hass,
+        entityId,
+        folder,
+        section,
+        folder.thumbnail
+      ),
+    }))
+  );
+  return {
+    sections: results
+      .filter((result) => result.status === "fulfilled")
+      .map((result) => result.value)
+      .filter((section) => section.items.length),
+    errors: results
+      .filter((result) => result.status === "rejected")
+      .map((result) => result.reason),
+  };
+};
+
 class Control4MediaGroupDialog extends HTMLElement {
   constructor() {
     super();
@@ -2213,6 +2319,7 @@ class Control4MediaFavoritesCard extends HTMLElement {
     this.attachShadow({ mode: "open" });
     this._config = undefined;
     this._hass = undefined;
+    this._allSections = [];
     this._sections = [];
     this._loadedEntity = undefined;
     this._loading = false;
@@ -2242,8 +2349,11 @@ class Control4MediaFavoritesCard extends HTMLElement {
       this._loadSequence += 1;
       this._loadedEntity = undefined;
       this._loading = false;
+      this._allSections = [];
       this._sections = [];
       this._error = "";
+    } else {
+      this._sections = this._filterSections(this._allSections);
     }
     this._render();
     this._maybeLoad();
@@ -2292,71 +2402,19 @@ class Control4MediaFavoritesCard extends HTMLElement {
     void this._loadFavorites();
   }
 
-  _browse(item) {
-    if (typeof this._hass?.callWS !== "function") {
-      throw new Error("Home Assistant WebSocket connection is unavailable");
+  _filterSections(sections) {
+    if (!Array.isArray(this._config?.media_ids)) {
+      return sections;
     }
-    const message = {
-      type: "media_player/browse_media",
-      entity_id: this._config.entity,
-    };
-    if (item?.media_content_id) {
-      message.media_content_id = item.media_content_id;
-    }
-    if (item?.media_content_type) {
-      message.media_content_type = item.media_content_type;
-    }
-    return this._hass.callWS(message);
-  }
-
-  _sectionFor(item) {
-    const mediaId = String(item?.media_content_id || "").toLowerCase();
-    if (mediaId.includes(":sources:watch")) {
-      return { key: "watch", title: "Watch", icon: "mdi:television-play" };
-    }
-    if (mediaId.includes(":sources:listen")) {
-      return { key: "listen", title: "Listen", icon: "mdi:music" };
-    }
-    if (mediaId.startsWith("control4_advanced:tidal:")) {
-      return { key: "tidal", title: "TIDAL", icon: "mdi:playlist-music" };
-    }
-    if (mediaId.startsWith("control4_advanced:tunein:")) {
-      return { key: "tunein", title: "TuneIn", icon: "mdi:radio" };
-    }
-    return undefined;
-  }
-
-  async _expandFolder(folder, section, inheritedThumbnail, depth = 0) {
-    const node = folder.can_expand ? await this._browse(folder) : folder;
-    const thumbnail = node.thumbnail || folder.thumbnail || inheritedThumbnail;
-    const items = [];
-    for (const child of node.children || []) {
-      if (child.can_play) {
-        items.push({
-          ...child,
-          key: `${child.media_content_type}|${child.media_content_id}`,
-          section: section.key,
-          sectionTitle: section.title,
-          icon: section.icon,
-          subtitle:
-            section.key === "tidal" || section.key === "tunein"
-              ? node.title
-              : "",
-          thumbnail: child.thumbnail || thumbnail,
-        });
-      }
-      if (child.can_expand && depth < 2) {
-        items.push(
-          ...(await this._expandFolder(
-            child,
-            section,
-            child.thumbnail || thumbnail,
-            depth + 1
-          ))
-        );
-      }
-    }
-    return items;
+    const selected = new Set(this._config.media_ids);
+    return sections
+      .map((section) => ({
+        ...section,
+        items: section.items.filter((item) =>
+          selected.has(item.media_content_id)
+        ),
+      }))
+      .filter((section) => section.items.length);
   }
 
   async _loadFavorites() {
@@ -2366,38 +2424,26 @@ class Control4MediaFavoritesCard extends HTMLElement {
     this._error = "";
     this._render();
     try {
-      const root = await this._browse();
-      const folders = (root.children || [])
-        .map((folder) => ({ folder, section: this._sectionFor(folder) }))
-        .filter(({ section }) => section);
-      const results = await Promise.allSettled(
-        folders.map(async ({ folder, section }) => ({
-          ...section,
-          items: await this._expandFolder(
-            folder,
-            section,
-            folder.thumbnail
-          ),
-        }))
+      const loaded = await loadControl4MediaSections(
+        this._hass,
+        entityId
       );
       if (sequence !== this._loadSequence || !this.isConnected) {
         return;
       }
-      this._sections = results
-        .filter((result) => result.status === "fulfilled")
-        .map((result) => result.value)
-        .filter((section) => section.items.length);
-      const failed = results.filter((result) => result.status === "rejected");
-      this._error = failed.length
+      this._allSections = loaded.sections;
+      this._sections = this._filterSections(this._allSections);
+      this._error = loaded.errors.length
         ? this._sections.length
           ? "Some media favorites could not be loaded. Tap refresh to try again."
-          : failed[0].reason?.message || String(failed[0].reason)
+          : loaded.errors[0]?.message || String(loaded.errors[0])
         : "";
       this._loadedEntity = entityId;
     } catch (error) {
       if (sequence !== this._loadSequence || !this.isConnected) {
         return;
       }
+      this._allSections = [];
       this._sections = [];
       this._error = error?.message || String(error);
       this._loadedEntity = entityId;
@@ -2488,7 +2534,11 @@ class Control4MediaFavoritesCard extends HTMLElement {
                   </section>`
               )
               .join("")
-          : '<div class="empty">No media favorites are available for this player.</div>';
+          : `<div class="empty">${
+              Array.isArray(this._config.media_ids)
+                ? "No selected media items are available for this player."
+                : "No media favorites are available for this player."
+            }</div>`;
     this.shadowRoot.innerHTML = `
       <style>
         :host { display: block; }
@@ -2555,7 +2605,7 @@ class Control4MediaFavoritesCard extends HTMLElement {
         }
         .media-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+          grid-template-columns: repeat(2, minmax(0, 1fr));
           gap: 7px;
         }
         .media-item {
@@ -3070,9 +3120,11 @@ class Control4MediaPresetCardEditor extends HTMLElement {
     this.shadowRoot.querySelector("select")?.addEventListener("change", (event) =>
       this._changed({ preset_id: event.currentTarget.value })
     );
-    this.shadowRoot.querySelector("input")?.addEventListener("change", (event) =>
-      this._changed({ name: event.currentTarget.value.trim() })
-    );
+    this.shadowRoot
+      .querySelector('input[type="text"]')
+      ?.addEventListener("change", (event) =>
+        this._changed({ name: event.currentTarget.value.trim() })
+      );
   }
 }
 
@@ -3082,16 +3134,41 @@ class Control4MediaFavoritesCardEditor extends HTMLElement {
     this.attachShadow({ mode: "open" });
     this._hass = undefined;
     this._config = {};
+    this._sections = [];
+    this._loadedEntity = undefined;
+    this._loading = false;
+    this._error = "";
+    this._loadSequence = 0;
   }
 
   set hass(hass) {
     this._hass = hass;
     this._render();
+    this._maybeLoad();
   }
 
   setConfig(config) {
+    const entityChanged = config?.entity !== this._config.entity;
     this._config = { ...config };
+    if (entityChanged) {
+      this._loadSequence += 1;
+      this._sections = [];
+      this._loadedEntity = undefined;
+      this._loading = false;
+      this._error = "";
+    }
     this._render();
+    this._maybeLoad();
+  }
+
+  connectedCallback() {
+    this._maybeLoad();
+  }
+
+  disconnectedCallback() {
+    this._loadSequence += 1;
+    this._loading = false;
+    this._loadedEntity = undefined;
   }
 
   _changed(updates) {
@@ -3099,7 +3176,14 @@ class Control4MediaFavoritesCardEditor extends HTMLElement {
     if (!config.name) {
       delete config.name;
     }
+    if (
+      Object.prototype.hasOwnProperty.call(updates, "media_ids") &&
+      updates.media_ids === undefined
+    ) {
+      delete config.media_ids;
+    }
     this._config = config;
+    this._render();
     this.dispatchEvent(
       new CustomEvent("config-changed", {
         detail: { config },
@@ -3107,6 +3191,159 @@ class Control4MediaFavoritesCardEditor extends HTMLElement {
         composed: true,
       })
     );
+  }
+
+  _allItems() {
+    return this._sections.flatMap((section) => section.items);
+  }
+
+  _selectedIds() {
+    if (Array.isArray(this._config.media_ids)) {
+      return new Set(this._config.media_ids);
+    }
+    return new Set(this._allItems().map((item) => item.media_content_id));
+  }
+
+  _updateSelection(selected) {
+    const items = this._allItems();
+    const ordered = items
+      .filter((item) => selected.has(item.media_content_id))
+      .map((item) => item.media_content_id);
+    this._changed({
+      media_ids: ordered.length === items.length ? undefined : ordered,
+    });
+  }
+
+  _changeEntity(entityId) {
+    this._loadSequence += 1;
+    this._sections = [];
+    this._loadedEntity = undefined;
+    this._loading = false;
+    this._error = "";
+    this._changed({ entity: entityId, media_ids: undefined });
+    this._maybeLoad();
+  }
+
+  _maybeLoad() {
+    if (
+      !this.isConnected ||
+      !this._hass ||
+      !this._config.entity ||
+      this._loading ||
+      this._loadedEntity === this._config.entity
+    ) {
+      return;
+    }
+    void this._loadItems();
+  }
+
+  async _loadItems() {
+    const entityId = this._config.entity;
+    const sequence = ++this._loadSequence;
+    this._loading = true;
+    this._error = "";
+    this._render();
+    try {
+      const loaded = await loadControl4MediaSections(this._hass, entityId);
+      if (sequence !== this._loadSequence || !this.isConnected) {
+        return;
+      }
+      this._sections = loaded.sections;
+      this._error = loaded.errors.length
+        ? this._sections.length
+          ? "Some items could not be loaded."
+          : loaded.errors[0]?.message || String(loaded.errors[0])
+        : "";
+      this._loadedEntity = entityId;
+    } catch (error) {
+      if (sequence !== this._loadSequence || !this.isConnected) {
+        return;
+      }
+      this._sections = [];
+      this._error = error?.message || String(error);
+      this._loadedEntity = entityId;
+    } finally {
+      if (sequence === this._loadSequence) {
+        this._loading = false;
+        if (this.isConnected) {
+          this._render();
+        }
+      }
+    }
+  }
+
+  _renderItemSelector() {
+    if (this._loading && !this._sections.length) {
+      return '<div class="message loading"><ha-icon icon="mdi:loading"></ha-icon> Loading media items…</div>';
+    }
+    const items = this._allItems();
+    if (!items.length) {
+      return '<div class="message">No media items are available for this player.</div>';
+    }
+    const selected = this._selectedIds();
+    const selectedCount = items.filter((item) =>
+      selected.has(item.media_content_id)
+    ).length;
+    return `
+      <div class="selector-heading">
+        <div>
+          <strong>Items to show</strong>
+          <span>${selectedCount} of ${items.length} selected</span>
+        </div>
+        <div class="selection-actions">
+          <button type="button" data-select-all>Show all</button>
+          <button type="button" data-select-none>Hide all</button>
+        </div>
+      </div>
+      <div class="section-list">
+        ${this._sections
+          .map(
+            (section) => `
+              <section>
+                <label class="section-choice">
+                  <input
+                    type="checkbox"
+                    data-section-key="${escapeHtml(section.key)}"
+                    ${
+                      section.items.every((item) =>
+                        selected.has(item.media_content_id)
+                      )
+                        ? "checked"
+                        : ""
+                    }
+                  />
+                  <ha-icon icon="${escapeHtml(section.icon)}"></ha-icon>
+                  <strong>${escapeHtml(section.title)}</strong>
+                  <span>${section.items.length}</span>
+                </label>
+                <div class="item-list">
+                  ${section.items
+                    .map(
+                      (item) => `
+                        <label class="item-choice">
+                          <input
+                            type="checkbox"
+                            data-media-id="${escapeHtml(item.media_content_id)}"
+                            ${
+                              selected.has(item.media_content_id)
+                                ? "checked"
+                                : ""
+                            }
+                          />
+                          <span>
+                            <strong>${escapeHtml(item.title)}</strong>
+                            <small>${escapeHtml(
+                              item.subtitle || section.title
+                            )}</small>
+                          </span>
+                        </label>`
+                    )
+                    .join("")}
+                </div>
+              </section>`
+          )
+          .join("")}
+      </div>`;
   }
 
   _render() {
@@ -3120,8 +3357,13 @@ class Control4MediaFavoritesCardEditor extends HTMLElement {
     this.shadowRoot.innerHTML = `
       <style>
         :host { display: block; }
-        label { display: block; margin: 16px 0; color: var(--primary-text-color); }
-        select, input {
+        * { box-sizing: border-box; }
+        label.field {
+          display: block;
+          margin: 16px 0;
+          color: var(--primary-text-color);
+        }
+        select, input[type="text"] {
           width: 100%;
           margin-top: 8px;
           padding: 12px;
@@ -3131,9 +3373,99 @@ class Control4MediaFavoritesCardEditor extends HTMLElement {
           background: var(--card-background-color);
           font: inherit;
         }
-        .message { color: var(--secondary-text-color); font-size: 13px; }
+        input[type="checkbox"] {
+          width: 20px;
+          height: 20px;
+          margin: 0;
+          accent-color: var(--primary-color);
+        }
+        .message {
+          padding: 12px 0;
+          color: var(--secondary-text-color);
+          font-size: 13px;
+        }
+        .message.loading {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .message.loading ha-icon { animation: spin 1s linear infinite; }
+        .message.error { color: var(--error-color); }
+        .selector-heading {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          margin: 22px 0 10px;
+        }
+        .selector-heading strong, .selector-heading span { display: block; }
+        .selector-heading span {
+          margin-top: 3px;
+          color: var(--secondary-text-color);
+          font-size: 12px;
+        }
+        .selection-actions { display: flex; gap: 6px; }
+        .selection-actions button {
+          padding: 7px 9px;
+          border: 1px solid var(--divider-color);
+          border-radius: 9px;
+          color: var(--primary-color);
+          background: transparent;
+          font: inherit;
+          font-size: 12px;
+          cursor: pointer;
+        }
+        .section-list {
+          overflow: hidden;
+          border: 1px solid var(--divider-color);
+          border-radius: 12px;
+        }
+        .section-list section + section {
+          border-top: 1px solid var(--divider-color);
+        }
+        .section-choice {
+          display: grid;
+          grid-template-columns: 20px 22px minmax(0, 1fr) auto;
+          gap: 9px;
+          align-items: center;
+          padding: 11px 12px;
+          color: var(--primary-text-color);
+          background: var(--secondary-background-color);
+          cursor: pointer;
+        }
+        .section-choice ha-icon { --mdc-icon-size: 19px; }
+        .section-choice > span {
+          color: var(--secondary-text-color);
+          font-size: 12px;
+        }
+        .item-list { padding: 2px 12px 6px 43px; }
+        .item-choice {
+          display: grid;
+          grid-template-columns: 20px minmax(0, 1fr);
+          gap: 10px;
+          align-items: center;
+          min-height: 45px;
+          color: var(--primary-text-color);
+          cursor: pointer;
+        }
+        .item-choice > span,
+        .item-choice strong,
+        .item-choice small {
+          display: block;
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .item-choice strong { font-size: 14px; font-weight: 500; }
+        .item-choice small {
+          margin-top: 2px;
+          color: var(--secondary-text-color);
+          font-size: 11px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
       </style>
-      <label>
+      <label class="field">
         Control4 media player
         <select>
           ${
@@ -3152,20 +3484,67 @@ class Control4MediaFavoritesCardEditor extends HTMLElement {
             .join("")}
         </select>
       </label>
-      <label>
+      <label class="field">
         Card title (optional)
         <input type="text" value="${escapeHtml(this._config.name || "")}" />
       </label>
-      <div class="message">
-        Watch and Listen sources, TIDAL playlists, and TuneIn favorites load
-        automatically from this player's Media Browser.
-      </div>`;
+      ${this._renderItemSelector()}
+      ${
+        this._error
+          ? `<div class="message error">${escapeHtml(this._error)}</div>`
+          : ""
+      }`;
     this.shadowRoot.querySelector("select")?.addEventListener("change", (event) =>
-      this._changed({ entity: event.currentTarget.value })
+      this._changeEntity(event.currentTarget.value)
     );
-    this.shadowRoot.querySelector("input")?.addEventListener("change", (event) =>
-      this._changed({ name: event.currentTarget.value.trim() })
+    this.shadowRoot
+      .querySelector('input[type="text"]')
+      ?.addEventListener("change", (event) =>
+        this._changed({ name: event.currentTarget.value.trim() })
+      );
+    this.shadowRoot.querySelector("[data-select-all]")?.addEventListener(
+      "click",
+      () => this._updateSelection(
+        new Set(this._allItems().map((item) => item.media_content_id))
+      )
     );
+    this.shadowRoot.querySelector("[data-select-none]")?.addEventListener(
+      "click",
+      () => this._updateSelection(new Set())
+    );
+    for (const checkbox of this.shadowRoot.querySelectorAll("[data-media-id]")) {
+      checkbox.addEventListener("change", (event) => {
+        const selected = this._selectedIds();
+        if (event.currentTarget.checked) {
+          selected.add(event.currentTarget.dataset.mediaId);
+        } else {
+          selected.delete(event.currentTarget.dataset.mediaId);
+        }
+        this._updateSelection(selected);
+      });
+    }
+    for (const checkbox of this.shadowRoot.querySelectorAll("[data-section-key]")) {
+      const section = this._sections.find(
+        (candidate) => candidate.key === checkbox.dataset.sectionKey
+      );
+      const selected = this._selectedIds();
+      const selectedCount = section.items.filter((item) =>
+        selected.has(item.media_content_id)
+      ).length;
+      checkbox.indeterminate =
+        selectedCount > 0 && selectedCount < section.items.length;
+      checkbox.addEventListener("change", (event) => {
+        const next = this._selectedIds();
+        for (const item of section.items) {
+          if (event.currentTarget.checked) {
+            next.add(item.media_content_id);
+          } else {
+            next.delete(item.media_content_id);
+          }
+        }
+        this._updateSelection(next);
+      });
+    }
   }
 }
 
@@ -3298,7 +3677,7 @@ const registerCard = () => {
     window.customCards.push({
       type: FAVORITES_CARD_TAG,
       name: "Control4 Media Favorites",
-      description: "One-tap Watch, Listen, TIDAL, and TuneIn media",
+      description: "Selectable one-tap Watch, Listen, TIDAL, and TuneIn media",
       preview: true,
       documentationURL: "https://github.com/eonnet/control4-ha#control4-media-favorites-card",
     });

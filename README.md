@@ -185,8 +185,10 @@ entity: media_player.kitchen
 A compact one-tap launcher that automatically reads the selected room's
 Control4 Media Browser. Watch and Listen sources keep their packaged logos,
 while retrieved TIDAL playlists and TuneIn favorites appear in their own
-sections. Add it through the visual card picker and select a media player; no
-media items need to be entered in YAML.
+sections. Its visual editor can show or hide whole sections or individual
+media items, and the card keeps a compact two-column tile layout. Add it
+through the visual card picker and select a media player; no media items need
+to be entered in YAML.
 
 ```yaml
 type: custom:control4-media-favorites-card
