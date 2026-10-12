@@ -170,6 +170,14 @@ class Control4MediaGroupDialog extends HTMLElement {
       levels.size;
   }
 
+  _groupName() {
+    return stateName(this._hass.states[this._entityId]);
+  }
+
+  _groupTargetSummary(states = this._groupStates()) {
+    return states.map((state) => stateName(state)).join(" · ");
+  }
+
   _renderGroupControls() {
     const groupStates = this._groupStates();
     const volumeLevels = this._volumeStates().map(
@@ -189,8 +197,17 @@ class Control4MediaGroupDialog extends HTMLElement {
     return `
       <section class="group-controls" aria-label="Group controls">
         <div class="group-controls-heading">
-          <span>Group volume</span>
-          <span>${groupStates.length} selected</span>
+          <div>
+            <div class="group-name">Master volume — ${escapeHtml(
+              this._groupName()
+            )} group</div>
+            <div class="group-target">${escapeHtml(
+              this._groupTargetSummary(groupStates)
+            )}</div>
+          </div>
+          <span class="group-count">${groupStates.length} player${
+            groupStates.length === 1 ? "" : "s"
+          }</span>
         </div>
         <div class="group-volume-row">
           <button
@@ -217,6 +234,41 @@ class Control4MediaGroupDialog extends HTMLElement {
           <output data-group-volume-output>
             ${volumeLevels.length ? `${average}%` : "—"}
           </output>
+        </div>
+      </section>`;
+  }
+
+  _renderPlayerSections(players) {
+    const grouped = players.filter(
+      (state) =>
+        state.entity_id === this._entityId || this._selected.has(state.entity_id)
+    );
+    const available = players.filter(
+      (state) =>
+        state.entity_id !== this._entityId && !this._selected.has(state.entity_id)
+    );
+    return `
+      <section class="player-section grouped-section">
+        <div class="player-section-heading">
+          <h3>Players in this group</h3>
+          <span data-grouped-count>${grouped.length}</span>
+        </div>
+        <div data-grouped-players>
+          ${grouped.map((state) => this._renderPlayer(state)).join("")}
+        </div>
+      </section>
+      <section class="player-section available-section">
+        <div class="player-section-heading">
+          <h3>Available players</h3>
+          <span data-available-count>${available.length}</span>
+        </div>
+        <div
+          class="empty-players"
+          data-available-empty
+          ${available.length ? "hidden" : ""}
+        >All players are selected</div>
+        <div data-available-players>
+          ${available.map((state) => this._renderPlayer(state)).join("")}
         </div>
       </section>`;
   }
@@ -324,7 +376,7 @@ class Control4MediaGroupDialog extends HTMLElement {
             this._error
           )}</div>
           ${this._renderGroupControls()}
-          <main>${players.map((state) => this._renderPlayer(state)).join("")}</main>
+          <main>${this._renderPlayerSections(players)}</main>
           <footer>
             <button class="text-button cancel" ${this._submitting ? "disabled" : ""}>
               ${escapeHtml(localize("ui.common.cancel", "Cancel"))}
@@ -382,6 +434,7 @@ class Control4MediaGroupDialog extends HTMLElement {
           this._selected.delete(entityId);
         }
         this._groupVolumeBaseline = undefined;
+        this._movePlayerToSection(entityId, event.currentTarget.checked);
         this._updateGroupControls();
       });
     }
@@ -484,13 +537,55 @@ class Control4MediaGroupDialog extends HTMLElement {
     this._updateGroupControls(active);
   }
 
+  _movePlayerToSection(entityId, grouped) {
+    const player = this.shadowRoot.querySelector(
+      `[data-player-id="${CSS.escape(entityId)}"]`
+    );
+    const target = this.shadowRoot.querySelector(
+      grouped ? "[data-grouped-players]" : "[data-available-players]"
+    );
+    if (player && target) {
+      target.appendChild(player);
+    }
+    this._updatePlayerSections();
+  }
+
+  _updatePlayerSections() {
+    const grouped = this.shadowRoot.querySelectorAll(
+      "[data-grouped-players] > .player"
+    ).length;
+    const available = this.shadowRoot.querySelectorAll(
+      "[data-available-players] > .player"
+    ).length;
+    const groupedCount = this.shadowRoot.querySelector("[data-grouped-count]");
+    const availableCount = this.shadowRoot.querySelector(
+      "[data-available-count]"
+    );
+    const availableEmpty = this.shadowRoot.querySelector(
+      "[data-available-empty]"
+    );
+    if (groupedCount) {
+      groupedCount.textContent = String(grouped);
+    }
+    if (availableCount) {
+      availableCount.textContent = String(available);
+    }
+    if (availableEmpty) {
+      availableEmpty.hidden = available > 0;
+    }
+  }
+
   _updateGroupControls(active = this.shadowRoot.activeElement) {
     const selected = this._groupStates();
-    const heading = this.shadowRoot.querySelector(
-      ".group-controls-heading span:last-child"
-    );
-    if (heading) {
-      heading.textContent = `${selected.length} selected`;
+    const target = this.shadowRoot.querySelector(".group-target");
+    const count = this.shadowRoot.querySelector(".group-count");
+    if (target) {
+      target.textContent = this._groupTargetSummary(selected);
+    }
+    if (count) {
+      count.textContent = `${selected.length} player${
+        selected.length === 1 ? "" : "s"
+      }`;
     }
 
     const levels = this._volumeSnapshot();
@@ -807,14 +902,30 @@ class Control4MediaGroupDialog extends HTMLElement {
     .group-controls-heading {
       display: flex;
       justify-content: space-between;
+      align-items: flex-start;
       gap: 12px;
-      margin-bottom: 8px;
-      font-size: 14px;
+      margin-bottom: 10px;
+    }
+    .group-controls-heading > div { min-width: 0; }
+    .group-name {
+      font-size: 16px;
       font-weight: 500;
     }
-    .group-controls-heading span:last-child {
+    .group-target {
+      margin-top: 3px;
       color: var(--secondary-text-color, #aaa);
+      font-size: 13px;
       font-weight: 400;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+    .group-count {
+      flex: 0 0 auto;
+      padding: 3px 8px;
+      border-radius: 12px;
+      color: var(--secondary-text-color, #aaa);
+      background: color-mix(in srgb, var(--primary-text-color, #fff) 8%, transparent);
+      font-size: 12px;
     }
     .group-volume-row {
       display: grid;
@@ -848,7 +959,42 @@ class Control4MediaGroupDialog extends HTMLElement {
       color: var(--primary-color, #03a9f4);
       background: color-mix(in srgb, var(--primary-color, #03a9f4) 16%, transparent);
     }
-    main { min-height: 0; overflow-y: auto; padding: 12px 20px 20px; }
+    main { min-height: 0; overflow-y: auto; padding: 14px 20px 20px; }
+    .player-section + .player-section {
+      margin-top: 20px;
+      padding-top: 14px;
+      border-top: 2px solid var(--divider-color, #444);
+    }
+    .player-section-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 0 2px 6px;
+    }
+    .player-section-heading h3 {
+      margin: 0;
+      color: var(--secondary-text-color, #aaa);
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+    .player-section-heading span {
+      min-width: 24px;
+      padding: 2px 7px;
+      border-radius: 12px;
+      color: var(--secondary-text-color, #aaa);
+      background: color-mix(in srgb, var(--primary-text-color, #fff) 8%, transparent);
+      font-size: 12px;
+      text-align: center;
+    }
+    .empty-players {
+      padding: 18px 2px;
+      color: var(--secondary-text-color, #aaa);
+      font-size: 14px;
+    }
+    .empty-players[hidden] { display: none; }
     .player { padding: 12px 0 14px; border-bottom: 1px solid var(--divider-color, #444); }
     .player:last-child { border-bottom: 0; }
     .player-heading {

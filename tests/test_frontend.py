@@ -174,11 +174,24 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('this._setDisplayedVolume(entityId, adjusted)', javascript)
         self.assertIn('async _setGroupMute()', javascript)
         self.assertIn('const muted = !states.every(', javascript)
-        self.assertIn('`${selected.length} selected`', javascript)
+        self.assertIn('`${selected.length} player${', javascript)
         self.assertIn(
             "registerCard();\nregisterMoreInfoGrouping();\n(async () =>",
             javascript,
         )
+
+    def test_group_players_are_visually_partitioned_and_retarget_live(self) -> None:
+        javascript = Path(FRONTEND_FILE).read_text(encoding="utf-8")
+        self.assertIn("Master volume — ${escapeHtml(", javascript)
+        self.assertIn('class="group-target"', javascript)
+        self.assertIn('this._groupTargetSummary(groupStates)', javascript)
+        self.assertIn('class="player-section grouped-section"', javascript)
+        self.assertIn("Players in this group", javascript)
+        self.assertIn('class="player-section available-section"', javascript)
+        self.assertIn("Available players", javascript)
+        self.assertIn("this._movePlayerToSection(", javascript)
+        self.assertIn('grouped ? "[data-grouped-players]"', javascript)
+        self.assertIn("availableEmpty.hidden = available > 0", javascript)
 
     def test_manifest_declares_hassfest_runtime_dependencies(self) -> None:
         manifest = json.loads(
@@ -186,10 +199,10 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
                 encoding="utf-8"
             )
         )
-        self.assertEqual(manifest["version"], "0.1.47")
+        self.assertEqual(manifest["version"], "0.1.48")
         self.assertIn("http", manifest["dependencies"])
         self.assertEqual(manifest["requirements"], ["pyControl4>=2.0.2"])
-        self.assertTrue(FRONTEND_URL.endswith("?v=0.1.47"))
+        self.assertTrue(FRONTEND_URL.endswith("?v=0.1.48"))
 
     def test_official_control4_brand_assets_are_packaged(self) -> None:
         brand = Path(FRONTEND_FILE).parent.parent / "brand"

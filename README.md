@@ -481,6 +481,13 @@ individual volume differences are retained. Moving the slider fully to 0% or
 same selected-player scope and retains optimistic feedback while Director
 confirms each room.
 
+Version 0.1.48 makes the group target explicit in the popup. The master panel
+shows the leader-based group name and every selected room it controls. Selected
+rooms are collected under **Players in this group**, one below another, while
+unselected rooms appear separately under **Available players**. Toggling a
+room immediately moves its row between the two sections; **Apply** still sends
+the membership change to Control4.
+
 Version 0.1.37 registers the dashboard cards as versioned Lovelace resources
 instead of relying on Home Assistant's early extra-module loader. This avoids
 the scoped custom-element registry race that could show **Custom element not
