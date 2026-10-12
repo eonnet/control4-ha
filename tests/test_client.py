@@ -63,6 +63,10 @@ class FakeWebsocket:
     def add_item_callback(self, item_id, callback) -> None:
         self.callbacks[item_id] = callback
 
+    def remove_item_callback(self, item_id, callback=None) -> None:
+        if callback is None or self.callbacks.get(item_id) == callback:
+            self.callbacks.pop(item_id, None)
+
     async def sio_connect(self, token) -> None:
         self.connected = True
         self._sio.connected = True
@@ -141,6 +145,25 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.rest.read_release.set()
         await sync
         self.assertEqual(self.transport.state.snapshot(2726)["brightness_percent"], 41.0)
+
+    async def test_temporary_tracking_can_skip_rest_and_be_removed(self) -> None:
+        self.rest.items.append(
+            {"id": 1417, "name": "TIDAL account", "proxy": "media_service"}
+        )
+        await self.transport.start()
+        reads = self.rest.read_count
+        socket = FakeWebsocket.instances[-1]
+
+        await self.transport.track_device(1417, sync=False)
+
+        self.assertIn(1417, self.transport.tracked_ids)
+        self.assertIn(1417, socket.callbacks)
+        self.assertEqual(self.rest.read_count, reads)
+
+        await self.transport.untrack_device(1417)
+
+        self.assertNotIn(1417, self.transport.tracked_ids)
+        self.assertNotIn(1417, socket.callbacks)
 
     async def test_push_recovers_state_after_initial_rest_read_failure(self) -> None:
         self.rest.read_error = RuntimeError("temporary REST failure")

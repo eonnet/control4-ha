@@ -222,11 +222,23 @@ selector options directly from the room's inventory-backed Listen sources,
 even when no playlists are configured. Choosing an account selects that actual
 Control4 Listen source in the room. The playlist selector is added only when
 at least one playlist is configured, and then shows the playlists for the
-selected account. Director's REST metadata
-advertises the playlist command
-but omits the dynamic playlist-name/UUID choices shown by Composer, so those
-choices are entered once under **Settings > Devices & services > Control4
-Advanced > Configure**. Use one line per playlist:
+selected account. Director's REST metadata advertises the playlist command
+but omits the dynamic playlist-name/UUID choices shown by Composer.
+
+Version 0.1.39 adds guided retrieval under **Settings > Devices & services >
+Control4 Advanced > Configure**. Choose **Retrieve TIDAL playlists**, then
+open the Control4 app and go directly to the named account's **My
+Collection/Library > Playlists Created by Me** screen. Leave the list open;
+Home Assistant captures the validated playlist names and UUIDs, saves them,
+reloads the integration, and closes the workflow automatically. For TuneIn,
+choose **Retrieve TuneIn favorites**, then open the named TuneIn source's
+**Favorites** screen. When multiple accounts or sources are listed, visit each
+one before leaving the last list open. Retrieval listens only while that
+workflow is open and never logs the raw browser response.
+
+The existing **Media favorites** option remains available for manual entries
+or corrections. Retrieved items are merged with those entries so another
+source's manual records are not removed. Use one line per playlist:
 
 ```text
 TIDAL source name | Playlist name | Playlist UUID
@@ -309,7 +321,8 @@ Assistant's native media browser on each eligible Control4 room player. The
 browse hierarchy is **TIDAL > account > playlist**. Selecting a playlist uses
 the same allowlisted `SelectPlaylist` command as the playlist selector and
 keeps shuffle off. This intentionally exposes only playlists entered in the
-integration options; full TIDAL catalog browsing and search require a
+integration options, whether retrieved or entered manually; full TIDAL
+catalog browsing and search require a
 Control4-authorized MSP command channel that Director does not expose through
 its authenticated REST/WebSocket API.
 
@@ -323,9 +336,11 @@ REST confirmation before Home Assistant displays the changed source.
 
 Version 0.1.30 adds configured TuneIn favorites to that browser under
 **Control4 > TuneIn > source > station**. Director advertises its `Play Item`
-command but omits the dynamic `GetItemList` choices shown by Composer, so enter
-one favorite per line under **Settings > Devices & services > Control4
-Advanced > Configure**:
+command but omits the dynamic `GetItemList` choices from REST metadata.
+Version 0.1.39 can retrieve these favorites through the guided workflow
+described above. They can also be entered manually, one per line, under
+**Settings > Devices & services > Control4 Advanced > Configure > Media
+favorites**:
 
 ```text
 TuneIn source name | Favorite name | Station/id
@@ -404,6 +419,10 @@ popup combines group membership with an independent volume slider beneath
 every Control4 room player. Membership changes are sent when **Apply** is
 pressed; volume changes are sent immediately to the individual room whose
 slider was moved.
+
+Version 0.1.39 keeps the Apply/Cancel footer fixed inside the mobile viewport,
+with only the player list scrolling. This prevents the action buttons from
+falling below the visible Home Assistant companion-app screen on phones.
 
 Version 0.1.37 registers the dashboard cards as versioned Lovelace resources
 instead of relying on Home Assistant's early extra-module loader. This avoids

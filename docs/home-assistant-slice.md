@@ -64,6 +64,13 @@ Director percentage, requires the verified active `aswitch` binding, and sends
 the volume command only to that slider's room. This provides independent
 member volume control for Control4 groups outside Home Assistant's
 membership-only group dialog.
+Version 0.1.39 fixes the custom group dialog's mobile layout so its
+Apply/Cancel footer remains inside the viewport while only the room list
+scrolls. It also adds guided TIDAL/TuneIn retrieval to the options flow. The
+workflow temporarily routes only the discovered media-service source IDs,
+accepts validated playlist UUIDs or TuneIn `Station/s...` IDs from the live
+`OnDataToUI` browser response, merges them into options, removes its temporary
+callbacks, reloads the entry, and closes. Raw browser responses are not logged.
 
 The config flow accepts a local Director hostname/IP and Control4 account
 credentials. The account service issues a Director JWT; a separate local

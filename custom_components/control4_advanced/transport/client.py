@@ -271,7 +271,7 @@ class Control4Transport:
         if accepted:
             await self.events.publish(replace(event, changes=accepted))
 
-    async def track_device(self, device_id: int) -> None:
+    async def track_device(self, device_id: int, *, sync: bool = True) -> None:
         """Start routing a newly bound inventory item without reconnecting.
 
         pyControl4 callback registration is local: Director sends the global
@@ -284,7 +284,20 @@ class Control4Transport:
         self.tracked_ids.add(device_id)
         if self._websocket is not None:
             self._websocket.add_item_callback(device_id, self._on_websocket_event)
-        await self.sync_device(device_id)
+        if sync:
+            await self.sync_device(device_id)
+
+    async def untrack_device(self, device_id: int) -> None:
+        """Stop routing an item that was added only for temporary observation."""
+        if type(device_id) is not int:
+            raise ValueError("item ID must be an integer")
+        if device_id not in self.tracked_ids:
+            return
+        self.tracked_ids.remove(device_id)
+        if self._websocket is not None:
+            self._websocket.remove_item_callback(
+                device_id, self._on_websocket_event
+            )
 
     async def _on_connect(self) -> None:
         self._connected = True
