@@ -441,6 +441,15 @@ reserves space for the action bar, so **Cancel** and **Apply** remain visible
 above the system navigation area while every room can still be scrolled into
 view.
 
+Version 0.1.42 also opens the Control4 player-and-volume dialog from the Group
+button in Home Assistant's entity More Info window, not only from the packaged
+dashboard card. The global interception is limited to Control4 Advanced room
+players; other media integrations keep Home Assistant's standard grouping UI.
+Room volume now holds the requested value in the UI while Director confirms it,
+preventing the native slider from jumping back to the previous value during the
+short REST-feedback delay. If confirmation never arrives, the entity returns to
+the last verified volume after eight seconds.
+
 Version 0.1.37 registers the dashboard cards as versioned Lovelace resources
 instead of relying on Home Assistant's early extra-module loader. This avoids
 the scoped custom-element registry race that could show **Custom element not
