@@ -380,6 +380,12 @@ every Control4 room player. Membership changes are sent when **Apply** is
 pressed; volume changes are sent immediately to the individual room whose
 slider was moved.
 
+Version 0.1.37 registers that card as a versioned Lovelace dashboard resource
+instead of relying on Home Assistant's early extra-module loader. This avoids
+the scoped custom-element registry race that could show **Custom element not
+found** in the card editor. YAML resource mode keeps an automatic fallback that
+re-registers the card after Home Assistant completes its frontend bootstrap.
+
 After updating the integration, restart Home Assistant and refresh the browser
 or fully close and reopen the mobile app. In dashboard edit mode choose
 **Add card**, search for **Control4 Media Group**, and select the room that
