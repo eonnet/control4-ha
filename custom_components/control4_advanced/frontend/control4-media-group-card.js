@@ -3,10 +3,13 @@ const EDITOR_TAG = "control4-media-group-card-editor";
 const PLAYER_CARD_TAG = "control4-media-player-card";
 const PRESET_CARD_TAG = "control4-media-preset-card";
 const PRESET_EDITOR_TAG = "control4-media-preset-card-editor";
+const FAVORITES_CARD_TAG = "control4-media-favorites-card";
+const FAVORITES_EDITOR_TAG = "control4-media-favorites-card-editor";
 const DIALOG_TAG = "control4-media-group-dialog";
 const CONTROL4_PLATFORM = "control4_advanced";
 const FEATURE_VOLUME_SET = 4;
 const FEATURE_VOLUME_MUTE = 8;
+const FEATURE_BROWSE_MEDIA = 131072;
 const FEATURE_GROUPING = 524288;
 const FEEDBACK_TIMEOUT = 8000;
 const PRESET_LIST_COMMAND = `${CONTROL4_PLATFORM}/group_presets/list`;
@@ -48,6 +51,17 @@ const control4Players = (hass) =>
         (hass.entities?.[state.entity_id]?.platform === CONTROL4_PLATFORM ||
           Number.isInteger(state.attributes.control4_room_id)) &&
         supportsFeature(state, FEATURE_GROUPING)
+    )
+    .sort((left, right) => stateName(left).localeCompare(stateName(right)));
+
+const control4BrowsePlayers = (hass) =>
+  Object.values(hass?.states || {})
+    .filter(
+      (state) =>
+        state.entity_id.startsWith("media_player.") &&
+        (hass.entities?.[state.entity_id]?.platform === CONTROL4_PLATFORM ||
+          Number.isInteger(state.attributes.control4_room_id)) &&
+        supportsFeature(state, FEATURE_BROWSE_MEDIA)
     )
     .sort((left, right) => stateName(left).localeCompare(stateName(right)));
 
@@ -2193,6 +2207,499 @@ class Control4MediaPlayerCard extends HTMLElement {
   }
 }
 
+class Control4MediaFavoritesCard extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._config = undefined;
+    this._hass = undefined;
+    this._sections = [];
+    this._loadedEntity = undefined;
+    this._loading = false;
+    this._error = "";
+    this._status = "";
+    this._busyId = undefined;
+    this._pendingId = undefined;
+    this._loadSequence = 0;
+    this._statusTimer = undefined;
+  }
+
+  static getConfigElement() {
+    return document.createElement(FAVORITES_EDITOR_TAG);
+  }
+
+  static getStubConfig(hass) {
+    return { entity: control4BrowsePlayers(hass)[0]?.entity_id || "" };
+  }
+
+  setConfig(config) {
+    if (!config?.entity || !String(config.entity).startsWith("media_player.")) {
+      throw new Error("Select a Control4 media player entity");
+    }
+    const entityChanged = config.entity !== this._config?.entity;
+    this._config = { ...config };
+    if (entityChanged) {
+      this._loadSequence += 1;
+      this._loadedEntity = undefined;
+      this._loading = false;
+      this._sections = [];
+      this._error = "";
+    }
+    this._render();
+    this._maybeLoad();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+    this._maybeLoad();
+  }
+
+  connectedCallback() {
+    this._maybeLoad();
+  }
+
+  disconnectedCallback() {
+    this._loadSequence += 1;
+    this._loading = false;
+    this._loadedEntity = undefined;
+    window.clearTimeout(this._statusTimer);
+    this._statusTimer = undefined;
+  }
+
+  getCardSize() {
+    const itemCount = this._sections.reduce(
+      (total, section) => total + section.items.length,
+      0
+    );
+    return Math.max(2, Math.min(8, 1 + Math.ceil(itemCount / 2)));
+  }
+
+  getGridOptions() {
+    return { rows: 4, columns: 6, min_rows: 2, min_columns: 3 };
+  }
+
+  _maybeLoad() {
+    if (
+      !this.isConnected ||
+      !this._hass ||
+      !this._config ||
+      this._loading ||
+      this._loadedEntity === this._config.entity
+    ) {
+      return;
+    }
+    void this._loadFavorites();
+  }
+
+  _browse(item) {
+    if (typeof this._hass?.callWS !== "function") {
+      throw new Error("Home Assistant WebSocket connection is unavailable");
+    }
+    const message = {
+      type: "media_player/browse_media",
+      entity_id: this._config.entity,
+    };
+    if (item?.media_content_id) {
+      message.media_content_id = item.media_content_id;
+    }
+    if (item?.media_content_type) {
+      message.media_content_type = item.media_content_type;
+    }
+    return this._hass.callWS(message);
+  }
+
+  _sectionFor(item) {
+    const mediaId = String(item?.media_content_id || "").toLowerCase();
+    if (mediaId.includes(":sources:watch")) {
+      return { key: "watch", title: "Watch", icon: "mdi:television-play" };
+    }
+    if (mediaId.includes(":sources:listen")) {
+      return { key: "listen", title: "Listen", icon: "mdi:music" };
+    }
+    if (mediaId.startsWith("control4_advanced:tidal:")) {
+      return { key: "tidal", title: "TIDAL", icon: "mdi:playlist-music" };
+    }
+    if (mediaId.startsWith("control4_advanced:tunein:")) {
+      return { key: "tunein", title: "TuneIn", icon: "mdi:radio" };
+    }
+    return undefined;
+  }
+
+  async _expandFolder(folder, section, inheritedThumbnail, depth = 0) {
+    const node = folder.can_expand ? await this._browse(folder) : folder;
+    const thumbnail = node.thumbnail || folder.thumbnail || inheritedThumbnail;
+    const items = [];
+    for (const child of node.children || []) {
+      if (child.can_play) {
+        items.push({
+          ...child,
+          key: `${child.media_content_type}|${child.media_content_id}`,
+          section: section.key,
+          sectionTitle: section.title,
+          icon: section.icon,
+          subtitle:
+            section.key === "tidal" || section.key === "tunein"
+              ? node.title
+              : "",
+          thumbnail: child.thumbnail || thumbnail,
+        });
+      }
+      if (child.can_expand && depth < 2) {
+        items.push(
+          ...(await this._expandFolder(
+            child,
+            section,
+            child.thumbnail || thumbnail,
+            depth + 1
+          ))
+        );
+      }
+    }
+    return items;
+  }
+
+  async _loadFavorites() {
+    const entityId = this._config.entity;
+    const sequence = ++this._loadSequence;
+    this._loading = true;
+    this._error = "";
+    this._render();
+    try {
+      const root = await this._browse();
+      const folders = (root.children || [])
+        .map((folder) => ({ folder, section: this._sectionFor(folder) }))
+        .filter(({ section }) => section);
+      const results = await Promise.allSettled(
+        folders.map(async ({ folder, section }) => ({
+          ...section,
+          items: await this._expandFolder(
+            folder,
+            section,
+            folder.thumbnail
+          ),
+        }))
+      );
+      if (sequence !== this._loadSequence || !this.isConnected) {
+        return;
+      }
+      this._sections = results
+        .filter((result) => result.status === "fulfilled")
+        .map((result) => result.value)
+        .filter((section) => section.items.length);
+      const failed = results.filter((result) => result.status === "rejected");
+      this._error = failed.length
+        ? this._sections.length
+          ? "Some media favorites could not be loaded. Tap refresh to try again."
+          : failed[0].reason?.message || String(failed[0].reason)
+        : "";
+      this._loadedEntity = entityId;
+    } catch (error) {
+      if (sequence !== this._loadSequence || !this.isConnected) {
+        return;
+      }
+      this._sections = [];
+      this._error = error?.message || String(error);
+      this._loadedEntity = entityId;
+    } finally {
+      if (sequence === this._loadSequence) {
+        this._loading = false;
+        if (this.isConnected) {
+          this._render();
+        }
+      }
+    }
+  }
+
+  _refresh() {
+    if (this._loading) {
+      return;
+    }
+    this._loadedEntity = undefined;
+    this._error = "";
+    this._maybeLoad();
+  }
+
+  _renderArtwork(item) {
+    const fallback = `<ha-icon icon="${escapeHtml(item.icon)}"></ha-icon>`;
+    if (!item.thumbnail) {
+      return `<span class="art fallback">${fallback}</span>`;
+    }
+    return `<span class="art"><img src="${escapeHtml(
+      item.thumbnail
+    )}" alt="" loading="lazy" />${fallback}</span>`;
+  }
+
+  _renderItem(item, activeId) {
+    const active = item.media_content_id === activeId || item.key === this._pendingId;
+    const busy = item.key === this._busyId;
+    const detail = item.subtitle
+      ? `<span class="item-detail">${escapeHtml(item.subtitle)}</span>`
+      : "";
+    return `
+      <button
+        class="media-item ${active ? "active" : ""}"
+        data-media-key="${escapeHtml(item.key)}"
+        aria-label="Play ${escapeHtml(item.title)} in ${escapeHtml(
+          stateName(this._hass.states[this._config.entity])
+        )}"
+        aria-busy="${busy ? "true" : "false"}"
+        ${this._busyId ? "disabled" : ""}
+      >
+        ${this._renderArtwork(item)}
+        <span class="item-copy">
+          <span class="item-title">${escapeHtml(item.title)}</span>
+          ${detail}
+        </span>
+        <ha-icon class="play ${busy ? "busy" : ""}" icon="${
+          busy ? "mdi:loading" : active ? "mdi:play-circle" : "mdi:play"
+        }"></ha-icon>
+      </button>`;
+  }
+
+  _render() {
+    if (!this._config || !this._hass) {
+      return;
+    }
+    const state = this._hass.states[this._config.entity];
+    const title = this._config.name || "Media favorites";
+    const activeId = state?.attributes?.control4_media_content_id;
+    const body = !state
+      ? `<div class="empty error">Entity ${escapeHtml(
+          this._config.entity
+        )} was not found</div>`
+      : this._loading && !this._sections.length
+        ? '<div class="empty"><ha-icon class="spinner" icon="mdi:loading"></ha-icon> Loading media…</div>'
+        : this._sections.length
+          ? this._sections
+              .map(
+                (section) => `
+                  <section>
+                    <div class="section-heading">
+                      <ha-icon icon="${escapeHtml(section.icon)}"></ha-icon>
+                      <span>${escapeHtml(section.title)}</span>
+                      <span class="count">${section.items.length}</span>
+                    </div>
+                    <div class="media-grid">
+                      ${section.items
+                        .map((item) => this._renderItem(item, activeId))
+                        .join("")}
+                    </div>
+                  </section>`
+              )
+              .join("")
+          : '<div class="empty">No media favorites are available for this player.</div>';
+    this.shadowRoot.innerHTML = `
+      <style>
+        :host { display: block; }
+        * { box-sizing: border-box; }
+        ha-card { overflow: hidden; color: var(--primary-text-color); }
+        .header {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 14px 14px 8px 16px;
+        }
+        .heading { min-width: 0; flex: 1; }
+        .card-title {
+          overflow: hidden;
+          font-size: 18px;
+          font-weight: 500;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .room {
+          overflow: hidden;
+          margin-top: 2px;
+          color: var(--secondary-text-color);
+          font-size: 12px;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .refresh {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 40px;
+          height: 40px;
+          border: 0;
+          border-radius: 50%;
+          color: var(--secondary-text-color);
+          background: transparent;
+          cursor: pointer;
+        }
+        .refresh:hover { background: var(--secondary-background-color); }
+        .refresh:disabled { cursor: default; opacity: 0.55; }
+        .content { padding: 0 12px 12px; }
+        section + section { margin-top: 12px; }
+        .section-heading {
+          display: flex;
+          align-items: center;
+          gap: 7px;
+          min-height: 28px;
+          padding: 0 4px 4px;
+          color: var(--secondary-text-color);
+          font-size: 12px;
+          font-weight: 600;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+        }
+        .section-heading ha-icon { --mdc-icon-size: 17px; }
+        .count {
+          min-width: 20px;
+          margin-left: auto;
+          padding: 1px 6px;
+          border-radius: 10px;
+          text-align: center;
+          background: var(--secondary-background-color);
+        }
+        .media-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+          gap: 7px;
+        }
+        .media-item {
+          display: grid;
+          grid-template-columns: 38px minmax(0, 1fr) 22px;
+          gap: 9px;
+          align-items: center;
+          min-height: 54px;
+          padding: 7px 8px;
+          border: 1px solid var(--divider-color);
+          border-radius: 11px;
+          color: var(--primary-text-color);
+          text-align: start;
+          background: transparent;
+          cursor: pointer;
+        }
+        .media-item:hover { background: var(--secondary-background-color); }
+        .media-item.active {
+          border-color: color-mix(in srgb, var(--primary-color) 55%, var(--divider-color));
+          background: color-mix(in srgb, var(--primary-color) 10%, transparent);
+        }
+        .media-item:disabled { cursor: default; opacity: 0.65; }
+        .art {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 38px;
+          height: 38px;
+          overflow: hidden;
+          border-radius: 9px;
+          color: var(--primary-color);
+          background: var(--secondary-background-color);
+        }
+        .art img { width: 100%; height: 100%; object-fit: contain; }
+        .art ha-icon { display: none; --mdc-icon-size: 23px; }
+        .art.fallback img { display: none; }
+        .art.fallback ha-icon { display: block; }
+        .item-copy, .item-title, .item-detail {
+          display: block;
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .item-title { font-size: 14px; font-weight: 500; }
+        .item-detail {
+          margin-top: 2px;
+          color: var(--secondary-text-color);
+          font-size: 11px;
+        }
+        .play { color: var(--primary-color); --mdc-icon-size: 20px; }
+        .spinner, .busy { animation: spin 1s linear infinite; }
+        .empty, .notice {
+          padding: 16px 8px;
+          color: var(--secondary-text-color);
+          text-align: center;
+        }
+        .notice { padding: 7px 4px 2px; font-size: 12px; }
+        .notice.error, .empty.error { color: var(--error-color); }
+        @keyframes spin { to { transform: rotate(360deg); } }
+      </style>
+      <ha-card>
+        <div class="header">
+          <div class="heading">
+            <div class="card-title">${escapeHtml(title)}</div>
+            <div class="room">${escapeHtml(state ? stateName(state) : this._config.entity)}</div>
+          </div>
+          <button class="refresh" aria-label="Refresh media favorites" title="Refresh" ${
+            this._loading ? "disabled" : ""
+          }>
+            <ha-icon class="${this._loading ? "spinner" : ""}" icon="mdi:refresh"></ha-icon>
+          </button>
+        </div>
+        <div class="content">
+          ${body}
+          ${
+            this._error
+              ? `<div class="notice error">${escapeHtml(this._error)}</div>`
+              : this._status
+                ? `<div class="notice">${escapeHtml(this._status)}</div>`
+                : ""
+          }
+        </div>
+      </ha-card>`;
+    this.shadowRoot.querySelector(".refresh")?.addEventListener("click", () =>
+      this._refresh()
+    );
+    for (const image of this.shadowRoot.querySelectorAll(".art img")) {
+      image.addEventListener("error", () =>
+        image.parentElement?.classList.add("fallback")
+      );
+    }
+    for (const button of this.shadowRoot.querySelectorAll("[data-media-key]")) {
+      button.addEventListener("click", () => {
+        const item = this._sections
+          .flatMap((section) => section.items)
+          .find((candidate) => candidate.key === button.dataset.mediaKey);
+        if (item) {
+          void this._play(item);
+        }
+      });
+    }
+  }
+
+  async _play(item) {
+    if (this._busyId || !this._hass || !this._config) {
+      return;
+    }
+    window.clearTimeout(this._statusTimer);
+    this._busyId = item.key;
+    this._error = "";
+    this._status = `Starting ${item.title}…`;
+    this._render();
+    try {
+      await this._hass.callService(
+        "media_player",
+        "play_media",
+        {
+          media_content_id: item.media_content_id,
+          media_content_type: item.media_content_type,
+        },
+        { entity_id: this._config.entity }
+      );
+      this._pendingId = item.key;
+      this._status = `${item.title} started`;
+      this._statusTimer = window.setTimeout(() => {
+        this._pendingId = undefined;
+        this._status = "";
+        if (this.isConnected) {
+          this._render();
+        }
+      }, 4000);
+    } catch (error) {
+      this._status = "";
+      this._error = error?.message || String(error);
+    } finally {
+      this._busyId = undefined;
+      if (this.isConnected) {
+        this._render();
+      }
+    }
+  }
+}
+
 class Control4MediaPresetCard extends HTMLElement {
   constructor() {
     super();
@@ -2569,6 +3076,99 @@ class Control4MediaPresetCardEditor extends HTMLElement {
   }
 }
 
+class Control4MediaFavoritesCardEditor extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._hass = undefined;
+    this._config = {};
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+  }
+
+  setConfig(config) {
+    this._config = { ...config };
+    this._render();
+  }
+
+  _changed(updates) {
+    const config = { ...this._config, ...updates };
+    if (!config.name) {
+      delete config.name;
+    }
+    this._config = config;
+    this.dispatchEvent(
+      new CustomEvent("config-changed", {
+        detail: { config },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
+  _render() {
+    if (!this._hass) {
+      return;
+    }
+    const players = control4BrowsePlayers(this._hass);
+    const missingSelection =
+      this._config.entity &&
+      !players.some((state) => state.entity_id === this._config.entity);
+    this.shadowRoot.innerHTML = `
+      <style>
+        :host { display: block; }
+        label { display: block; margin: 16px 0; color: var(--primary-text-color); }
+        select, input {
+          width: 100%;
+          margin-top: 8px;
+          padding: 12px;
+          border: 1px solid var(--divider-color);
+          border-radius: 8px;
+          color: var(--primary-text-color);
+          background: var(--card-background-color);
+          font: inherit;
+        }
+        .message { color: var(--secondary-text-color); font-size: 13px; }
+      </style>
+      <label>
+        Control4 media player
+        <select>
+          ${
+            missingSelection
+              ? `<option value="${escapeHtml(this._config.entity)}" selected>${escapeHtml(
+                  this._config.entity
+                )} (unavailable)</option>`
+              : ""
+          }
+          ${players
+            .map(
+              (state) => `<option value="${escapeHtml(state.entity_id)}" ${
+                state.entity_id === this._config.entity ? "selected" : ""
+              }>${escapeHtml(stateName(state))}</option>`
+            )
+            .join("")}
+        </select>
+      </label>
+      <label>
+        Card title (optional)
+        <input type="text" value="${escapeHtml(this._config.name || "")}" />
+      </label>
+      <div class="message">
+        Watch and Listen sources, TIDAL playlists, and TuneIn favorites load
+        automatically from this player's Media Browser.
+      </div>`;
+    this.shadowRoot.querySelector("select")?.addEventListener("change", (event) =>
+      this._changed({ entity: event.currentTarget.value })
+    );
+    this.shadowRoot.querySelector("input")?.addEventListener("change", (event) =>
+      this._changed({ name: event.currentTarget.value.trim() })
+    );
+  }
+}
+
 class Control4MediaGroupCardEditor extends HTMLElement {
   constructor() {
     super();
@@ -2660,6 +3260,15 @@ const registerCard = () => {
   if (!customElements.get(PLAYER_CARD_TAG)) {
     customElements.define(PLAYER_CARD_TAG, Control4MediaPlayerCard);
   }
+  if (!customElements.get(FAVORITES_EDITOR_TAG)) {
+    customElements.define(
+      FAVORITES_EDITOR_TAG,
+      Control4MediaFavoritesCardEditor
+    );
+  }
+  if (!customElements.get(FAVORITES_CARD_TAG)) {
+    customElements.define(FAVORITES_CARD_TAG, Control4MediaFavoritesCard);
+  }
   if (!customElements.get(PRESET_EDITOR_TAG)) {
     customElements.define(PRESET_EDITOR_TAG, Control4MediaPresetCardEditor);
   }
@@ -2683,6 +3292,15 @@ const registerCard = () => {
       description: "Native media controls with Control4 room grouping and independent volume",
       preview: true,
       documentationURL: "https://github.com/eonnet/control4-ha#control4-media-player-card",
+    });
+  }
+  if (!window.customCards.some((card) => card.type === FAVORITES_CARD_TAG)) {
+    window.customCards.push({
+      type: FAVORITES_CARD_TAG,
+      name: "Control4 Media Favorites",
+      description: "One-tap Watch, Listen, TIDAL, and TuneIn media",
+      preview: true,
+      documentationURL: "https://github.com/eonnet/control4-ha#control4-media-favorites-card",
     });
   }
   if (!window.customCards.some((card) => card.type === PRESET_CARD_TAG)) {
