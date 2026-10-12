@@ -1032,9 +1032,10 @@ class Control4MediaGroupDialog extends HTMLElement {
       this._submitting = false;
       this._presetBusy = false;
       this._presetMessage = "";
-      this._error = `Could not activate ${preset.name}: ${
-        error?.message || String(error)
-      }`;
+      const message = error?.message || String(error);
+      this._error = message.startsWith("Could not activate ")
+        ? message
+        : `Could not activate ${preset.name}: ${message}`;
       this._render();
     }
   }
@@ -2360,7 +2361,14 @@ class Control4MediaPresetCard extends HTMLElement {
           color: var(--secondary-text-color);
           font-size: 12px;
         }
-        .notice { color: var(--primary-color); }
+        .notice {
+          overflow: visible;
+          text-overflow: clip;
+          white-space: normal;
+          overflow-wrap: anywhere;
+          line-height: 1.35;
+          color: var(--primary-color);
+        }
         .notice.error { color: var(--error-color); }
         .action { color: var(--primary-color); font-weight: 500; }
         @keyframes spin { to { transform: rotate(360deg); } }

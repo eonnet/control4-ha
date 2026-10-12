@@ -100,6 +100,9 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
                         type(selected_source_id) is int
                         and selected_source_id
                         != self._remembered_media["source_device_id"]
+                        and not self._is_digital_media_source_id(
+                            selected_source_id
+                        )
                     )
                 ):
                     self._remembered_media = None
@@ -127,7 +130,7 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
         if (
             media is None
             and self._room_is_on()
-            and (selected := self._selected_source()) is not None
+            and (selected := self._display_source()) is not None
         ):
             media = {
                 "content_type": str(SOURCE_TYPE),
@@ -176,7 +179,11 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
                     features |= feature
         if self._grouping_ready():
             features |= MediaPlayerEntityFeature.GROUPING
-        if self._sources() or self._tidal_catalogs() or self._tunein_catalogs():
+        if (
+            self._playable_sources()
+            or self._tidal_catalogs()
+            or self._tunein_catalogs()
+        ):
             features |= (
                 MediaPlayerEntityFeature.BROWSE_MEDIA
                 | MediaPlayerEntityFeature.PLAY_MEDIA
@@ -290,7 +297,8 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
                 for experience in ("watch", "listen")
                 if self._source_group_id(experience) == media_id
                 and any(
-                    source.experience == experience for source in self._sources()
+                    source.experience == experience
+                    for source in self._playable_sources()
                 )
             ),
             None,
@@ -300,7 +308,7 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
         return next(
             (
                 source
-                for source in self._sources()
+                for source in self._playable_sources()
                 if self._source_id(source) == media_id
             ),
             None,
@@ -312,7 +320,7 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
         media_content_id: str | None = None,
     ) -> BrowseMedia:
         """Show validated room sources and configured media favorites."""
-        sources = self._sources()
+        sources = self._playable_sources()
         catalogs = tuple(
             catalog for catalog in self._tidal_catalogs() if catalog.playlists
         )
@@ -573,6 +581,26 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
             if self.runtime.commands.supports_room_source(self.device_id, source.experience)
         )
 
+    def _is_digital_media_source_id(self, source_device_id: int) -> bool:
+        """Identify Control4's internal grouping endpoint, not a playable source."""
+        item = self.runtime.transport.inventory.items.get(source_device_id)
+        return bool(
+            isinstance(item, dict)
+            and item.get("proxy") == "control4_digitalaudio"
+            and item.get("filename") == "control4_digitalaudio.c4i"
+        )
+
+    def _is_digital_media_source(self, source: RoomSource) -> bool:
+        return self._is_digital_media_source_id(source.device_id)
+
+    def _playable_sources(self) -> tuple[RoomSource, ...]:
+        """Return user-launchable sources, excluding the grouping endpoint."""
+        return tuple(
+            source
+            for source in self._sources()
+            if not self._is_digital_media_source(source)
+        )
+
     def _room_is_on(self) -> bool:
         return self.state_data.get("is_on") is True
 
@@ -763,7 +791,7 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
         value = self.state_data.get("media_title")
         if isinstance(value, str):
             return value
-        selected = self._selected_source()
+        selected = self._display_source()
         return selected.name if self._room_is_on() and selected is not None else None
 
     @property
@@ -782,7 +810,7 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
         value = self.state_data.get("media_image_url")
         if isinstance(value, str):
             return value
-        selected = self._selected_source()
+        selected = self._display_source()
         if not self._room_is_on() or selected is None:
             return None
         return self._source_thumbnail(selected)
@@ -791,7 +819,7 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
         """Fetch Director artwork or serve the selected source logo directly."""
         if isinstance(self.state_data.get("media_image_url"), str):
             return await super().async_get_media_image()
-        selected = self._selected_source()
+        selected = self._display_source()
         if not self._room_is_on() or selected is None:
             return None, None
         item = self.runtime.transport.inventory.items.get(selected.device_id)
@@ -808,7 +836,7 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
 
     @property
     def source(self) -> str | None:
-        selected = self._selected_source()
+        selected = self._display_source()
         return selected.label if selected is not None else None
 
     def _selected_source(self) -> RoomSource | None:
@@ -817,6 +845,23 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
             return None
         return next(
             (source for source in self._sources() if source.device_id == selected_id),
+            None,
+        )
+
+    def _display_source(self) -> RoomSource | None:
+        """Resolve the source behind Control4's internal Digital Media route."""
+        selected = self._selected_source()
+        if selected is None or not self._is_digital_media_source(selected):
+            return selected
+        playing_id = self.state_data.get("playing_audio_source_id")
+        if type(playing_id) is not int or playing_id <= 0:
+            return None
+        return next(
+            (
+                source
+                for source in self._playable_sources()
+                if source.device_id == playing_id
+            ),
             None,
         )
 
@@ -966,5 +1011,5 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
         return (
             super().available
             and self.state is not None
-            and (self._volume_ready() or bool(self._sources()))
+            and (self._volume_ready() or bool(self._playable_sources()))
         )

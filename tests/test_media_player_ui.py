@@ -769,6 +769,71 @@ class MediaPlayerUITests(unittest.IsolatedAsyncioTestCase):
             (None, None),
         )
 
+    async def test_internal_digital_media_is_not_saved_or_shown_as_a_source(self):
+        self.items[100002] = {
+            "id": 100002,
+            "name": "Digital Media",
+            "proxy": "control4_digitalaudio",
+            "filename": "control4_digitalaudio.c4i",
+            "typeName": "device",
+        }
+        wiim = RoomSource(
+            623, "listen", "Wiim", "AUDIO_SELECTION", "Listen: Wiim"
+        )
+        digital_media = RoomSource(
+            100002,
+            "listen",
+            "Digital Media",
+            "DIGITAL_AUDIO_CLIENT",
+            "Listen: Digital Media",
+        )
+        self.runtime.media_sources[22] = (wiim, digital_media)
+        self.state[22]["selected_source_id"] = 100002
+        entity = self.media_player.Control4RoomMediaPlayer(
+            self.runtime, self.items[22]
+        )
+
+        self.assertIsNone(entity.source)
+        self.assertEqual(
+            entity.extra_state_attributes,
+            {"control4_room_id": 22},
+        )
+        root = await entity.async_browse_media()
+        listen = await entity.async_browse_media(
+            self.media_player.SOURCE_GROUP_TYPE,
+            root.children[0].media_content_id,
+        )
+        self.assertEqual([child.title for child in listen.children], ["Wiim"])
+
+        self.state[22]["playing_audio_source_id"] = 623
+        self.assertEqual(entity.source, "Listen: Wiim")
+        self.assertEqual(
+            entity.extra_state_attributes["control4_media_title"],
+            "Listen: Wiim",
+        )
+
+        entity._remember_media(
+            self.media_player.SOURCE_TYPE,
+            entity._source_id(wiim),
+            wiim.label,
+            wiim.device_id,
+        )
+        await entity._on_event(
+            NormalizedEvent(
+                22,
+                "rest",
+                "snapshot",
+                {"selected_source_id": 100002},
+                "2026-10-12T00:00:00Z",
+                True,
+                {},
+            )
+        )
+        self.assertEqual(
+            entity.extra_state_attributes["control4_media_title"],
+            "Listen: Wiim",
+        )
+
     async def test_native_join_exposes_confirmed_group_members(self):
         self.items[23] = {
             "id": 23, "name": "Bedroom", "proxy": "roomdevice",

@@ -340,6 +340,17 @@ def normalize_rest_variables(
             parsed = int(selected)
             if parsed <= 2147483647:
                 changes["selected_source_id"] = parsed
+        playing_audio = by_name.get("PLAYING_AUDIO_DEVICE")
+        if type(playing_audio) is int and 0 <= playing_audio <= 2147483647:
+            changes["playing_audio_source_id"] = playing_audio
+        elif (
+            isinstance(playing_audio, str)
+            and playing_audio.isdecimal()
+            and len(playing_audio) <= 10
+        ):
+            parsed = int(playing_audio)
+            if parsed <= 2147483647:
+                changes["playing_audio_source_id"] = parsed
         volume = _number(by_name.get("CURRENT_VOLUME"))
         if volume is not None and 0 <= volume <= 100:
             changes["volume_percent"] = volume

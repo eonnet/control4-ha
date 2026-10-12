@@ -101,6 +101,63 @@ def _normalize_media(value: Any) -> dict[str, str] | None:
     }
 
 
+def _source_device_id(media: Mapping[str, Any]) -> int | None:
+    """Extract the inventory ID from one packaged Watch/Listen source ID."""
+    if media.get("content_type") != "app":
+        return None
+    content_id = media.get("content_id")
+    if not isinstance(content_id, str):
+        return None
+    parts = content_id.split(":")
+    if (
+        len(parts) != 6
+        or parts[:2] != [DOMAIN, "media"]
+        or parts[3] != "source"
+        or parts[4] not in {"watch", "listen"}
+    ):
+        return None
+    try:
+        device_id = int(parts[5])
+    except ValueError:
+        return None
+    return device_id if device_id > 0 else None
+
+
+def _is_internal_digital_media(hass: Any, media: Mapping[str, Any]) -> bool:
+    """Recognize Control4's session endpoint stored by older card versions."""
+    source_device_id = _source_device_id(media)
+    if source_device_id is None:
+        return False
+
+    config_entries = getattr(hass, "config_entries", None)
+    async_entries = getattr(config_entries, "async_entries", None)
+    if callable(async_entries):
+        try:
+            entries = async_entries(DOMAIN)
+        except TypeError:
+            entries = async_entries()
+        for entry in entries:
+            runtime = getattr(entry, "runtime_data", None)
+            transport = getattr(runtime, "transport", None)
+            inventory = getattr(transport, "inventory", None)
+            items = getattr(inventory, "items", {})
+            item = items.get(source_device_id) if isinstance(items, Mapping) else None
+            if (
+                isinstance(item, Mapping)
+                and item.get("proxy") == "control4_digitalaudio"
+                and item.get("filename") == "control4_digitalaudio.c4i"
+            ):
+                return True
+
+    # The standard driver name lets already-saved presets recover even if the
+    # related config entry is temporarily unavailable while services load.
+    title = media.get("title")
+    return bool(
+        isinstance(title, str)
+        and title.rsplit(":", 1)[-1].strip().casefold() == "digital media"
+    )
+
+
 def _normalize_preset(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, Mapping):
         return None
@@ -416,7 +473,8 @@ class GroupPresetStorage:
             ]
 
             try:
-                if media := preset.get("media"):
+                media = preset.get("media")
+                if media and not _is_internal_digital_media(hass, media):
                     await self._async_call_media_player(
                         hass,
                         "play_media",

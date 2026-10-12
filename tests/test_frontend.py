@@ -238,6 +238,8 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(
             "class Control4MediaPresetCardEditor extends HTMLElement", javascript
         )
+        self.assertIn('message.startsWith("Could not activate ")', javascript)
+        self.assertIn("overflow-wrap: anywhere", javascript)
         self.assertIn('name: "Control4 Media Preset"', javascript)
         self.assertIn('aria-busy="${this._busy ? "true" : "false"}"', javascript)
         self.assertIn("Saved source and room settings", javascript)
@@ -255,10 +257,10 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
                 encoding="utf-8"
             )
         )
-        self.assertEqual(manifest["version"], "0.1.54")
+        self.assertEqual(manifest["version"], "0.1.55")
         self.assertIn("http", manifest["dependencies"])
         self.assertEqual(manifest["requirements"], ["pyControl4>=2.0.2"])
-        self.assertTrue(FRONTEND_URL.endswith("?v=0.1.54"))
+        self.assertTrue(FRONTEND_URL.endswith("?v=0.1.55"))
 
     def test_official_control4_brand_assets_are_packaged(self) -> None:
         brand = Path(FRONTEND_FILE).parent.parent / "brand"

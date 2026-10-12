@@ -311,6 +311,39 @@ class GroupPresetStorageTests(unittest.IsolatedAsyncioTestCase):
             all(call["context"] == "test-context" for call in services.calls)
         )
 
+    async def test_activate_skips_legacy_internal_digital_media_source(self):
+        saved = preset()
+        saved["media"] = {
+            "content_type": "app",
+            "content_id": (
+                "control4_advanced:media:22:source:listen:100002"
+            ),
+            "title": "Listen: Digital Media",
+        }
+        storage = GroupPresetStorage(FakeStore({"presets": [saved]}))
+        await storage.async_load()
+        services = FakeServices()
+        hass = SimpleNamespace(
+            states=FakeStates(
+                [
+                    FakeState("media_player.kitchen", 22),
+                    FakeState("media_player.living", 23),
+                ]
+            ),
+            services=services,
+        )
+
+        await storage.async_activate(hass, preset_id="whole")
+
+        self.assertNotIn(
+            "play_media", [call["service"] for call in services.calls]
+        )
+        self.assertEqual(services.calls[0]["service"], "join")
+        self.assertEqual(
+            services.calls[0]["service_data"],
+            {"group_members": ["media_player.living"]},
+        )
+
     async def test_activate_validates_selector_and_missing_players(self):
         storage = GroupPresetStorage(FakeStore({"presets": [preset()]}))
         await storage.async_load()

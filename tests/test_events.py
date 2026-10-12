@@ -56,12 +56,14 @@ class EventNormalizationTests(unittest.TestCase):
             {"varName": "IS_MUTED", "value": 0},
             {"varName": "CURRENT_VOLUME_DEVICE_ID", "value": 623},
             {"varName": "CURRENT_SELECTED_DEVICE", "value": 346},
+            {"varName": "PLAYING_AUDIO_DEVICE", "value": "1366"},
             {"varName": "CURRENT MEDIA INFO", "value": "private-title"},
         ])
         self.assertEqual(snapshot.changes, {
             "is_on": True, "volume_percent": 41.0,
             "is_muted": False, "volume_device_id": 623,
             "selected_source_id": 346,
+            "playing_audio_source_id": 1366,
         })
         self.assertTrue(snapshot.authoritative)
         no_push = normalize_websocket_event({
@@ -80,6 +82,20 @@ class EventNormalizationTests(unittest.TestCase):
         for value in (-1, True, "1.5", "999999999999", 4294966299):
             event = normalize_rest_variables(22, "roomdevice", [
                 {"varName": "CURRENT_SELECTED_DEVICE", "value": value},
+            ])
+            self.assertEqual(event.changes, {})
+
+    def test_room_playing_audio_source_rest_validation(self) -> None:
+        for value in (0, "1366"):
+            event = normalize_rest_variables(22, "roomdevice", [
+                {"varName": "PLAYING_AUDIO_DEVICE", "value": value},
+            ])
+            self.assertEqual(
+                event.changes, {"playing_audio_source_id": int(value)}
+            )
+        for value in (-1, True, "1.5", "999999999999", 4294966299):
+            event = normalize_rest_variables(22, "roomdevice", [
+                {"varName": "PLAYING_AUDIO_DEVICE", "value": value},
             ])
             self.assertEqual(event.changes, {})
 
