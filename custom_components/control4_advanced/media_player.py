@@ -23,7 +23,7 @@ from . import Control4Runtime
 from .entity import Control4Entity
 from .source_logos import SOURCE_LOGO_TYPE, source_logo_bytes, source_logo_key
 from .transport.commands import UnsupportedCommand
-from .transport.events import normalize_rest_variables
+from .transport.events import NormalizedEvent, normalize_rest_variables
 from .transport.favorites import RoomTuneInCatalog, TuneInFavorite
 from .transport.playlists import RoomTidalCatalog, TidalPlaylist
 from .transport.sources import RoomSource
@@ -36,6 +36,7 @@ TIDAL_ROOT_TYPE = "control4_tidal"
 TIDAL_ACCOUNT_TYPE = "control4_tidal_account"
 TUNEIN_ROOT_TYPE = "control4_tunein"
 TUNEIN_SOURCE_TYPE = "control4_tunein_source"
+VOLUME_CONFIRMATION_TIMEOUT = 8.0
 
 
 async def async_setup_entry(
@@ -55,6 +56,9 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
     def __init__(self, runtime: Control4Runtime, item: dict) -> None:
         super().__init__(runtime, item)
         self._remove_session = None
+        self._pending_volume_level: float | None = None
+        self._pending_volume_timer: asyncio.TimerHandle | None = None
+        self._volume_request_id = 0
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
@@ -64,6 +68,7 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
             self._remove_session = coordinator.subscribe(self._on_session_update)
 
     async def async_will_remove_from_hass(self) -> None:
+        self._clear_pending_volume()
         if self._remove_session is not None:
             self._remove_session()
             self._remove_session = None
@@ -73,6 +78,20 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
 
     def _on_session_update(self) -> None:
         self.async_write_ha_state()
+
+    async def _on_event(self, event: NormalizedEvent) -> None:
+        if (
+            event.device_id == self.device_id
+            and event.authoritative
+            and self._pending_volume_level is not None
+        ):
+            confirmed = event.changes.get("volume_percent")
+            if (
+                type(confirmed) in (int, float)
+                and abs(confirmed / 100 - self._pending_volume_level) < 0.005
+            ):
+                self._clear_pending_volume()
+        await super()._on_event(event)
 
     @property
     def extra_state_attributes(self) -> dict[str, int]:
@@ -512,7 +531,45 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
             raise UnsupportedCommand("Home Assistant room volume must be numeric")
         if not math.isfinite(volume) or not 0 <= volume <= 1:
             raise UnsupportedCommand("Home Assistant room volume must be between 0 and 1")
-        await self.runtime.commands.room_volume(self.device_id, math.floor(volume * 100 + 0.5))
+        percent = math.floor(volume * 100 + 0.5)
+        self._volume_request_id += 1
+        request_id = self._volume_request_id
+        self._clear_pending_volume()
+        self._pending_volume_level = percent / 100
+        self.async_write_ha_state()
+        try:
+            await self.runtime.commands.room_volume(self.device_id, percent)
+        except BaseException:
+            if request_id == self._volume_request_id:
+                self._clear_pending_volume(write_state=True)
+            raise
+        if (
+            request_id == self._volume_request_id
+            and self._pending_volume_level is not None
+        ):
+            self._pending_volume_timer = asyncio.get_running_loop().call_later(
+                VOLUME_CONFIRMATION_TIMEOUT,
+                self._expire_pending_volume,
+                request_id,
+            )
+
+    def _clear_pending_volume(self, *, write_state: bool = False) -> None:
+        if self._pending_volume_timer is not None:
+            self._pending_volume_timer.cancel()
+            self._pending_volume_timer = None
+        had_pending = self._pending_volume_level is not None
+        self._pending_volume_level = None
+        if write_state and had_pending:
+            self.async_write_ha_state()
+
+    def _expire_pending_volume(self, request_id: int) -> None:
+        if request_id != self._volume_request_id:
+            return
+        self._pending_volume_timer = None
+        if self._pending_volume_level is None:
+            return
+        self._pending_volume_level = None
+        self.async_write_ha_state()
 
     async def async_mute_volume(self, mute: bool) -> None:
         await self.runtime.commands.room_mute(self.device_id, mute)
@@ -739,6 +796,8 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
 
     @property
     def volume_level(self) -> float | None:
+        if self._pending_volume_level is not None:
+            return self._pending_volume_level
         percent = self.state_data.get("volume_percent")
         if type(percent) in (int, float) and 0 <= percent <= 100:
             return percent / 100

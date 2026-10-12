@@ -46,6 +46,7 @@ class Control4MediaGroupDialog extends HTMLElement {
     this._selected = new Set();
     this._submitting = false;
     this._error = "";
+    this._refreshTimer = undefined;
     this._onKeyDown = (event) => {
       if (event.key === "Escape" && !this._submitting) {
         this.close();
@@ -63,6 +64,12 @@ class Control4MediaGroupDialog extends HTMLElement {
     this._selected = new Set(this._originalMembers);
     this._render();
     document.addEventListener("keydown", this._onKeyDown);
+    this._refreshTimer = window.setInterval(() => {
+      const currentHass = document.querySelector("home-assistant")?.hass;
+      if (currentHass && currentHass !== this._hass) {
+        this.updateHass(currentHass);
+      }
+    }, 250);
     requestAnimationFrame(() =>
       this.shadowRoot.querySelector(".close-button")?.focus()
     );
@@ -78,12 +85,16 @@ class Control4MediaGroupDialog extends HTMLElement {
 
   close() {
     document.removeEventListener("keydown", this._onKeyDown);
+    window.clearInterval(this._refreshTimer);
+    this._refreshTimer = undefined;
     this.dispatchEvent(new CustomEvent("control4-dialog-closed"));
     this.remove();
   }
 
   disconnectedCallback() {
     document.removeEventListener("keydown", this._onKeyDown);
+    window.clearInterval(this._refreshTimer);
+    this._refreshTimer = undefined;
   }
 
   _players() {
@@ -482,6 +493,57 @@ class Control4MediaGroupDialog extends HTMLElement {
   `;
 }
 
+const openControl4GroupDialog = (hass, entityId) => {
+  document.querySelector(DIALOG_TAG)?.close?.();
+  const dialog = document.createElement(DIALOG_TAG);
+  document.body.appendChild(dialog);
+  dialog.show(hass, entityId);
+  return dialog;
+};
+
+const handleMoreInfoGrouping = (event) => {
+  const path = event.composedPath();
+  const groupingButton = path.find(
+    (element) => element?.id === "grouping-button"
+  );
+  if (!groupingButton) {
+    return;
+  }
+  const mediaControl = path.find(
+    (element) => element?.localName === "more-info-media_player"
+  );
+  const moreInfoDialog = path.find(
+    (element) => element?.localName === "ha-more-info-dialog"
+  );
+  const entityId = mediaControl?.stateObj?.entity_id;
+  const hass =
+    moreInfoDialog?.hass || document.querySelector("home-assistant")?.hass;
+  const state = hass?.states?.[entityId];
+  if (
+    !state ||
+    !supportsFeature(state, FEATURE_GROUPING) ||
+    !(
+      hass.entities?.[entityId]?.platform === CONTROL4_PLATFORM ||
+      Number.isInteger(state.attributes.control4_room_id)
+    )
+  ) {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  event.stopImmediatePropagation();
+  openControl4GroupDialog(hass, entityId);
+};
+
+const registerMoreInfoGrouping = () => {
+  const key = "__control4AdvancedMoreInfoGrouping";
+  if (window[key]) {
+    document.removeEventListener("click", window[key], true);
+  }
+  window[key] = handleMoreInfoGrouping;
+  document.addEventListener("click", handleMoreInfoGrouping, true);
+};
+
 class Control4MediaGroupCard extends HTMLElement {
   constructor() {
     super();
@@ -580,13 +642,14 @@ class Control4MediaGroupCard extends HTMLElement {
   }
 
   _openDialog() {
-    this._dialog?.remove();
-    this._dialog = document.createElement(DIALOG_TAG);
+    this._dialog?.close?.();
+    this._dialog = openControl4GroupDialog(
+      this._hass,
+      this._config.entity
+    );
     this._dialog.addEventListener("control4-dialog-closed", () => {
       this._dialog = undefined;
     });
-    document.body.appendChild(this._dialog);
-    this._dialog.show(this._hass, this._config.entity);
   }
 }
 
@@ -735,13 +798,14 @@ class Control4MediaPlayerCard extends HTMLElement {
     if (!this._hass || !this._config) {
       return;
     }
-    this._dialog?.remove();
-    this._dialog = document.createElement(DIALOG_TAG);
+    this._dialog?.close?.();
+    this._dialog = openControl4GroupDialog(
+      this._hass,
+      this._config.entity
+    );
     this._dialog.addEventListener("control4-dialog-closed", () => {
       this._dialog = undefined;
     });
-    document.body.appendChild(this._dialog);
-    this._dialog.show(this._hass, this._config.entity);
   }
 }
 
@@ -861,10 +925,12 @@ const registerCard = () => {
 // execute before HA replaces the native custom-element registry with its scoped
 // registry, so check the live registry again after the application is defined.
 registerCard();
+registerMoreInfoGrouping();
 (async () => {
   for (let attempts = 0; attempts < 600; attempts += 1) {
     if (window.customElements?.get("home-assistant")) {
       registerCard();
+      registerMoreInfoGrouping();
       return;
     }
     await new Promise((resolve) => window.setTimeout(resolve, 100));

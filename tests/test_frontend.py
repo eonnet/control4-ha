@@ -133,6 +133,10 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('const PLAYER_CARD_TAG = "control4-media-player-card"', javascript)
         self.assertIn('await helpers.createCardElement(this._nativeConfig())', javascript)
         self.assertIn('classList?.contains("join-media")', javascript)
+        self.assertIn('element?.id === "grouping-button"', javascript)
+        self.assertIn('element?.localName === "more-info-media_player"', javascript)
+        self.assertIn('element?.localName === "ha-more-info-dialog"', javascript)
+        self.assertIn("registerMoreInfoGrouping();", javascript)
         self.assertIn('"media_player",\n        "join"', javascript)
         self.assertIn('"media_player",\n        "volume_set"', javascript)
         self.assertIn("control4_room_id", javascript)
@@ -143,7 +147,10 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
             "padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px))",
             javascript,
         )
-        self.assertIn("registerCard();\n(async () =>", javascript)
+        self.assertIn(
+            "registerCard();\nregisterMoreInfoGrouping();\n(async () =>",
+            javascript,
+        )
 
 
 if __name__ == "__main__":
