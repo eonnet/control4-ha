@@ -74,6 +74,13 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
     await async_register_frontend(hass)
 
 
+async def _async_register_group_presets(hass: HomeAssistant) -> None:
+    """Register persistent media-group preset WebSocket commands."""
+    from .group_presets import async_register_group_presets
+
+    await async_register_group_presets(hass)
+
+
 async def _discover_media_room_ids(
     transport: Control4Transport, known_room_ids: set[int] | None = None,
 ) -> list[int]:
@@ -110,6 +117,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
     await _async_register_frontend(hass)
+    await _async_register_group_presets(hass)
     host = entry.data[CONF_HOST]
     provider = AccountTokenProvider(entry.data[CONF_USERNAME], entry.data[CONF_PASSWORD])
     session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False))
