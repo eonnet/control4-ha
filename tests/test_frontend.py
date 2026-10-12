@@ -295,72 +295,16 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("-webkit-line-clamp: 2;", javascript)
         self.assertIn("width: 52px;", javascript)
 
-    def test_room_dashboard_has_area_media_and_lighting_views(self) -> None:
-        javascript = Path(FRONTEND_FILE).read_text(encoding="utf-8")
-        self.assertIn(
-            'const ROOM_DASHBOARD_CARD_TAG = "control4-room-dashboard-card"',
-            javascript,
-        )
-        self.assertIn(
-            'const ROOM_DASHBOARD_EDITOR_TAG = "control4-room-dashboard-card-editor"',
-            javascript,
-        )
-        self.assertIn(
-            "class Control4RoomDashboardCard extends HTMLElement", javascript
-        )
-        self.assertIn(
-            "class Control4RoomDashboardCardEditor extends HTMLElement", javascript
-        )
-        self.assertIn("const entityAreaId = (hass, entityId) =>", javascript)
-        self.assertIn(
-            "const entitiesInArea = (hass, areaId, domain) =>", javascript
-        )
-        self.assertIn('data-c4-view="${view}"', javascript)
-        self.assertIn(
-            'data-light-toggle="${escapeHtml(state.entity_id)}"', javascript
-        )
-        self.assertIn(
-            'data-light-slider="${escapeHtml(state.entity_id)}"', javascript
-        )
-        self.assertIn('data-light-tab="scenes"', javascript)
-        self.assertIn("brightness_pct: brightnessPct", javascript)
-        self.assertIn('"scene",\n        "turn_on"', javascript)
-        self.assertIn('new CustomEvent("hass-more-info"', javascript)
-        self.assertIn("loadControl4MediaSections(this._hass, entityId)", javascript)
-        self.assertIn("height: calc(100dvh", javascript)
-        self.assertIn("dashboard.style.backgroundImage", javascript)
-        self.assertIn("Home Assistant area", javascript)
-        self.assertIn("Home Assistant Panel", javascript)
-        self.assertIn('name: "Control4 Room Dashboard"', javascript)
-        self.assertIn("_renderComfort()", javascript)
-        self.assertIn('_domainEntities("climate")', javascript)
-        self.assertIn("_securityEntities()", javascript)
-        self.assertIn('_domainEntities("alarm_control_panel")', javascript)
-        self.assertIn('_domainEntities("camera")', javascript)
-        self.assertIn("_renderIntercom()", javascript)
-        self.assertIn('_domainEntities("assist_satellite")', javascript)
-        self.assertIn("_renderRoutine(kind)", javascript)
-        self.assertIn('data-routine-options="${escapeHtml(', javascript)
-        self.assertIn('data-routine-start="${escapeHtml(', javascript)
-        self.assertIn("async _activateRoutine(entityId)", javascript)
-        self.assertIn(
-            'this._view === "wake" || this._view === "sleep"', javascript
-        )
-        self.assertIn(
-            "grid-template-columns: repeat(2, minmax(0, 1fr));", javascript
-        )
-        self.assertIn("background: conic-gradient(", javascript)
-
     def test_manifest_declares_hassfest_runtime_dependencies(self) -> None:
         manifest = json.loads(
             (Path(FRONTEND_FILE).parent.parent / "manifest.json").read_text(
                 encoding="utf-8"
             )
         )
-        self.assertEqual(manifest["version"], "0.1.61")
+        self.assertEqual(manifest["version"], "0.1.62")
         self.assertIn("http", manifest["dependencies"])
         self.assertEqual(manifest["requirements"], ["pyControl4>=2.0.2"])
-        self.assertTrue(FRONTEND_URL.endswith("?v=0.1.61"))
+        self.assertTrue(FRONTEND_URL.endswith("?v=0.1.62"))
 
     def test_official_control4_brand_assets_are_packaged(self) -> None:
         brand = Path(FRONTEND_FILE).parent.parent / "brand"

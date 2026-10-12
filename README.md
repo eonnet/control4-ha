@@ -3,7 +3,7 @@
 Control4 Advanced is an unofficial custom integration that brings compatible
 Control4 lighting, climate, relay, contact-sensor, and room-media devices into
 Home Assistant. It also includes media browsing, multi-room audio controls,
-saved group presets, privacy-preserving diagnostics, and five dashboard cards.
+saved group presets, privacy-preserving diagnostics, and four dashboard cards.
 
 ## Requirements
 
@@ -168,41 +168,6 @@ The action accepts either the case-insensitive preset `name` or its stable
 
 All cards are packaged with the integration and available from the Home
 Assistant visual card picker after a restart and browser/app refresh.
-
-### Control4 Room Dashboard
-
-A full-screen room interface inspired by the Control4 mobile layout. It uses
-the selected room's Control4 Media Browser and the entities assigned to a Home
-Assistant area to provide:
-
-- A room Home screen with climate status, Watch, Listen, Lighting, media
-  favorites, and a persistent now-playing bar.
-- Dedicated two-column Watch and Listen browsers with source and playlist
-  artwork.
-- A Lighting screen with Lights and Scenes tabs, direct on/off control, and
-  brightness sliders.
-- A global Comfort screen with live climate status and a Security screen for
-  alarm panels, locks, garage/gate covers, cameras, sirens, and relevant
-  security sensors.
-- An Intercom list that automatically finds Home Assistant Assist satellites,
-  intercom entities, and doorbell entities.
-- A slide-out room menu with Watch, Listen, Lighting, Comfort, Security,
-  Intercom, Wake, and Sleep entries.
-- Dedicated Wake and Sleep screens. They automatically use same-named Home
-  Assistant scenes or scripts, prefer entities assigned to the selected area,
-  and display a matching `input_datetime` or `timer` helper when available.
-
-Its visual editor selects the Control4 media player, Home Assistant area,
-optional room title, and optional background image. When no background is
-entered, the card uses the selected area's picture. Place the card in a Home
-Assistant **Panel** view for the closest app-style result.
-
-```yaml
-type: custom:control4-room-dashboard-card
-entity: media_player.living
-area_id: living
-background: /local/living-room.jpg
-```
 
 ### Control4 Media Player
 
