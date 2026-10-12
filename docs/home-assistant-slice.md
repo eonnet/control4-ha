@@ -55,6 +55,9 @@ structured `CURRENT MEDIA INFO` into the room media player's current artwork.
 The value must be a bounded absolute HTTP(S) URL, remains marked as not
 remotely accessible so Home Assistant serves it through its signed proxy, and
 is cleared with the other current-media fields when the room turns off.
+Version 0.1.33 handles the live Director format where `mediainfo.img` is a
+Base64-wrapped URL. The decoded value must pass the same bounded absolute
+HTTP(S) URL validation before Home Assistant proxies it.
 
 The config flow accepts a local Director hostname/IP and Control4 account
 credentials. The account service issues a Director JWT; a separate local

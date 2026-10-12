@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from base64 import b64encode
 import unittest
 
 from control4_transport import Control4Transport, RoomVolumeCoordinator
@@ -189,7 +190,9 @@ class RoomVolumeCoordinatorTests(unittest.IsolatedAsyncioTestCase):
             "value": {"mediainfo": {
                 "title": "Tender Surrender", "artist": "Steve Vai",
                 "album": "Alien Love Secrets",
-                "img": "https://media.example.test/alien-love-secrets.jpg",
+                "img": b64encode(
+                    b"https://media.example.test/alien-love-secrets.jpg"
+                ).decode(),
             }},
         }]
         await self.transport.sync_room_source(22)

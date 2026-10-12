@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from base64 import b64decode
+from binascii import Error as Base64Error
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -67,10 +69,8 @@ def _media_text(value: Any) -> str | None:
     return result
 
 
-def _media_image_url(value: Any) -> str | None:
-    """Return one bounded HTTP(S) artwork URL for HA's image proxy."""
-    if not isinstance(value, str):
-        return None
+def _validated_media_image_url(value: str) -> str | None:
+    """Validate one decoded artwork URL for HA's image proxy."""
     result = value.strip()
     if not result or len(result) > 2048 or any(ord(char) < 32 for char in result):
         return None
@@ -89,6 +89,24 @@ def _media_image_url(value: Any) -> str | None:
     ):
         return None
     return result
+
+
+def _media_image_url(value: Any) -> str | None:
+    """Decode Director's artwork value and return a bounded HTTP(S) URL."""
+    if not isinstance(value, str):
+        return None
+    if validated := _validated_media_image_url(value):
+        return validated
+    encoded = value.strip()
+    if not encoded or len(encoded) > 4096 or any(
+        ord(char) < 32 for char in encoded
+    ):
+        return None
+    try:
+        decoded = b64decode(encoded, validate=True).decode("utf-8")
+    except (Base64Error, UnicodeDecodeError):
+        return None
+    return _validated_media_image_url(decoded)
 
 
 def _room_media_changes(value: Any) -> dict[str, str | None]:

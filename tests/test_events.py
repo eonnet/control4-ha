@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from base64 import b64encode
 import unittest
 
 from control4_transport.client import DeviceStateCache
@@ -83,13 +84,14 @@ class EventNormalizationTests(unittest.TestCase):
             self.assertEqual(event.changes, {})
 
     def test_room_current_media_info_is_bounded_and_clears_when_off(self) -> None:
+        artwork_url = "http://resources.tidal.com/images/album.jpg"
         playing = normalize_rest_variables(22, "roomdevice", [
             {"varName": "POWER_STATE", "value": 1},
             {"varName": "CURRENT MEDIA INFO", "value": {"mediainfo": {
                 "title": "  Tender Surrender  ",
                 "artist": "Steve Vai",
                 "album": "The Infinite Steve Vai: An Anthology",
-                "img": "https://private.invalid/art",
+                "img": b64encode(artwork_url.encode()).decode(),
                 "stationid": "private-token",
             }}},
         ])
@@ -98,8 +100,17 @@ class EventNormalizationTests(unittest.TestCase):
             "media_title": "Tender Surrender",
             "media_artist": "Steve Vai",
             "media_album_name": "The Infinite Steve Vai: An Anthology",
-            "media_image_url": "https://private.invalid/art",
+            "media_image_url": artwork_url,
         })
+
+        raw_artwork = normalize_rest_variables(22, "roomdevice", [{
+            "varName": "CURRENT MEDIA INFO",
+            "value": {"mediainfo": {"img": "https://media.example.test/art.jpg"}},
+        }])
+        self.assertEqual(
+            raw_artwork.changes["media_image_url"],
+            "https://media.example.test/art.jpg",
+        )
 
         malformed = normalize_rest_variables(22, "roomdevice", [
             {"varName": "CURRENT MEDIA INFO", "value": "private-title"},
@@ -123,6 +134,8 @@ class EventNormalizationTests(unittest.TestCase):
             "https://user:password@private.invalid/art",
             "https://private.invalid:invalid/art",
             "https://private.invalid/" + "x" * 2049,
+            b64encode(b"file:///private/art.jpg").decode(),
+            b64encode(b"https://user:password@private.invalid/art").decode(),
         ):
             with self.subTest(image_url=image_url[:80]):
                 invalid_artwork = normalize_rest_variables(22, "roomdevice", [{

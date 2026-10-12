@@ -354,6 +354,10 @@ bounded absolute HTTP(S) artwork URLs are accepted. Home Assistant fetches
 them through its signed media-player image proxy, and stale artwork is cleared
 when the room turns off.
 
+Version 0.1.33 decodes Director's observed Base64-wrapped artwork URL before
+applying those same HTTP(S), length, and credential checks. This fixes TIDAL
+artwork values that v0.1.32 rejected because they were not sent as plain URLs.
+
 ## License
 
 This repository is licensed under the [Apache License 2.0](LICENSE).

@@ -232,6 +232,9 @@ accepts only bounded absolute HTTP(S) URLs without embedded credentials, and
 the entity leaves `media_image_remotely_accessible` false so Home Assistant
 uses its signed media-player proxy instead of exposing that upstream URL to
 the frontend.
+Version 0.1.33 decodes the observed Base64-wrapped TIDAL artwork value before
+running the same URL validation. Invalid Base64 and decoded non-HTTP(S) URLs
+remain rejected.
 At version 0.1.12, media-player discovery still required a supported volume
 binding at integration startup. Version 0.1.13 retains an already registered
 room while its off-state binding is zero; new source-only or unproven rooms
