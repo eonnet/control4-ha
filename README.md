@@ -364,6 +364,14 @@ targets only its own room, so group members can be adjusted independently from
 an Entities or Grid card. Home Assistant's standard group-membership dialog
 still controls membership only and cannot be extended by an integration.
 
+Version 0.1.35 adds an integration-wide **Recreate entity IDs** action under
+**Settings > Devices & services > Control4 Advanced > Configure**. It previews
+every ID that Home Assistant will change, then applies Home Assistant's current
+automatic entity-ID format to all entities owned by that Control4 config entry,
+including disabled entities. The entities and registry records are retained;
+references to renamed IDs in dashboards, automations, scripts, and scenes must
+still be updated manually.
+
 ## License
 
 This repository is licensed under the [Apache License 2.0](LICENSE).

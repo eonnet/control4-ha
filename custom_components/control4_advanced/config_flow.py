@@ -13,6 +13,10 @@ from homeassistant.core import callback
 from homeassistant.helpers.selector import TextSelector, TextSelectorConfig
 
 from .const import CONF_TIDAL_PLAYLISTS, CONF_TUNEIN_FAVORITES, DOMAIN
+from .entity_ids import (
+    config_entry_entity_id_recreation_plan,
+    recreate_config_entry_entity_ids,
+)
 from .selection import is_candidate_item
 from .transport import AccountTokenProvider, DirectorRestClient
 from .transport.auth import AuthenticationError, AuthenticationTransportError
@@ -106,9 +110,18 @@ class Control4ConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class Control4OptionsFlow(OptionsFlowWithReload):
-    """Configure optional media favorites without storing them in code."""
+    """Configure media favorites and integration-wide maintenance actions."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
+        return self.async_show_menu(
+            step_id="init",
+            menu_options=("media_favorites", "recreate_entity_ids"),
+        )
+
+    async def async_step_media_favorites(
+        self, user_input: dict[str, Any] | None = None
+    ):
+        """Configure optional media favorites without storing them in code."""
         errors: dict[str, str] = {}
         if user_input is not None:
             try:
@@ -124,7 +137,7 @@ class Control4OptionsFlow(OptionsFlowWithReload):
         current_tidal = self.config_entry.options.get(CONF_TIDAL_PLAYLISTS, "")
         current_tunein = self.config_entry.options.get(CONF_TUNEIN_FAVORITES, "")
         return self.async_show_form(
-            step_id="init",
+            step_id="media_favorites",
             data_schema=vol.Schema(
                 {
                     vol.Optional(
@@ -138,4 +151,40 @@ class Control4OptionsFlow(OptionsFlowWithReload):
                 }
             ),
             errors=errors,
+        )
+
+    async def async_step_recreate_entity_ids(
+        self, user_input: dict[str, Any] | None = None
+    ):
+        """Recreate automatic IDs for every entity in this config entry."""
+        changes = config_entry_entity_id_recreation_plan(
+            self.hass, self.config_entry.entry_id
+        )
+        if not changes:
+            return self.async_abort(reason="entity_ids_already_current")
+        if user_input is not None:
+            applied = recreate_config_entry_entity_ids(
+                self.hass, self.config_entry.entry_id
+            )
+            if not applied:
+                return self.async_abort(reason="entity_ids_already_current")
+            return self.async_abort(
+                reason="entity_ids_recreated",
+                description_placeholders={"count": str(len(applied))},
+            )
+
+        preview_limit = 50
+        preview = "\n".join(
+            f"- `{old_entity_id}` → `{new_entity_id}`"
+            for old_entity_id, new_entity_id in changes[:preview_limit]
+        )
+        if len(changes) > preview_limit:
+            preview += f"\n- … and {len(changes) - preview_limit} more"
+        return self.async_show_form(
+            step_id="recreate_entity_ids",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "count": str(len(changes)),
+                "changes": preview,
+            },
         )

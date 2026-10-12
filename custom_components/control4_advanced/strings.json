@@ -32,16 +32,35 @@
     "step": {
       "init": {
         "title": "Control4 options",
+        "menu_options": {
+          "media_favorites": "Media favorites",
+          "recreate_entity_ids": "Recreate entity IDs"
+        },
+        "menu_option_descriptions": {
+          "media_favorites": "Configure TIDAL playlists and TuneIn favorites.",
+          "recreate_entity_ids": "Apply Home Assistant's current automatic naming format to every entity in this Control4 integration entry."
+        }
+      },
+      "media_favorites": {
+        "title": "Control4 options",
         "description": "Optional Control4 media favorites. TIDAL: source name | playlist name | playlist UUID. TuneIn: source name | favorite name | Station/id. Entries appear only in rooms where that source is available.",
         "data": {
           "tidal_playlists": "TIDAL playlists",
           "tunein_favorites": "TuneIn favorites"
         }
+      },
+      "recreate_entity_ids": {
+        "title": "Recreate all Control4 entity IDs?",
+        "description": "Home Assistant will rename {count} entity IDs in this Control4 integration entry:\n\n{changes}\n\nYour entities and history are preserved, but dashboards, automations, scripts, and scenes that use an old entity ID must be updated manually."
       }
     },
     "error": {
       "invalid_tidal_playlists": "Use: source name | playlist name | UUID, with a valid UUID and no duplicate names per source",
       "invalid_tunein_favorites": "Use: source name | favorite name | Station/id, with a valid station ID and no duplicate names per source"
+    },
+    "abort": {
+      "entity_ids_already_current": "All Control4 entity IDs already use Home Assistant's current automatic naming format.",
+      "entity_ids_recreated": "Recreated {count} Control4 entity IDs. Update any dashboard, automation, script, or scene references that used the old IDs."
     }
   }
 }
