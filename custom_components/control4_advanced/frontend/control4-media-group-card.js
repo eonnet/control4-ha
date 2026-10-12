@@ -4,7 +4,9 @@ const PLAYER_CARD_TAG = "control4-media-player-card";
 const DIALOG_TAG = "control4-media-group-dialog";
 const CONTROL4_PLATFORM = "control4_advanced";
 const FEATURE_VOLUME_SET = 4;
+const FEATURE_VOLUME_MUTE = 8;
 const FEATURE_GROUPING = 524288;
+const FEEDBACK_TIMEOUT = 8000;
 
 const supportsFeature = (state, feature) =>
   Boolean((Number(state?.attributes?.supported_features) || 0) & feature);
@@ -46,6 +48,7 @@ class Control4MediaGroupDialog extends HTMLElement {
     this._selected = new Set();
     this._submitting = false;
     this._error = "";
+    this._pendingMutes = new Map();
     this._refreshTimer = undefined;
     this._onKeyDown = (event) => {
       if (event.key === "Escape" && !this._submitting) {
@@ -118,9 +121,17 @@ class Control4MediaGroupDialog extends HTMLElement {
     const volume = hasVolume
       ? Math.max(0, Math.min(100, Math.round(rawVolume * 100)))
       : 0;
+    const rawMuted = state.attributes.is_volume_muted;
+    const pendingMute = this._pendingMutes.get(state.entity_id);
+    const muted = pendingMute?.value ?? rawMuted;
+    const hasMute = typeof muted === "boolean";
     const canSetVolume =
       hasVolume &&
       supportsFeature(state, FEATURE_VOLUME_SET) &&
+      !["unavailable", "unknown", "off"].includes(state.state);
+    const canMute =
+      hasMute &&
+      supportsFeature(state, FEATURE_VOLUME_MUTE) &&
       !["unavailable", "unknown", "off"].includes(state.state);
     const icon =
       state.state === "playing"
@@ -149,7 +160,17 @@ class Control4MediaGroupDialog extends HTMLElement {
           </label>
         </div>
         <div class="volume-row ${canSetVolume ? "" : "disabled"}">
-          <ha-icon icon="mdi:volume-medium"></ha-icon>
+          <button
+            type="button"
+            class="mute-button ${muted ? "muted" : ""}"
+            data-mute-id="${escapeHtml(state.entity_id)}"
+            aria-label="${muted ? "Unmute" : "Mute"} ${escapeHtml(stateName(state))}"
+            aria-pressed="${muted ? "true" : "false"}"
+            title="${muted ? "Unmute" : "Mute"}"
+            ${canMute && !this._submitting ? "" : "disabled"}
+          >
+            <ha-icon icon="${muted ? "mdi:volume-off" : "mdi:volume-medium"}"></ha-icon>
+          </button>
           <input
             type="range"
             min="0"
@@ -266,6 +287,9 @@ class Control4MediaGroupDialog extends HTMLElement {
       });
       slider.addEventListener("change", (event) => this._setVolume(event));
     }
+    for (const button of this.shadowRoot.querySelectorAll("[data-mute-id]")) {
+      button.addEventListener("click", (event) => this._setMute(event));
+    }
     this.shadowRoot.querySelector(".apply").addEventListener("click", () =>
       this._applyGroup()
     );
@@ -300,6 +324,29 @@ class Control4MediaGroupDialog extends HTMLElement {
         }
       }
     }
+    for (const button of this.shadowRoot.querySelectorAll("[data-mute-id]")) {
+      const entityId = button.dataset.muteId;
+      const state = this._hass.states[entityId];
+      if (!state) {
+        continue;
+      }
+      const actualMuted = state.attributes.is_volume_muted;
+      let pending = this._pendingMutes.get(entityId);
+      if (
+        pending &&
+        (actualMuted === pending.value || Date.now() >= pending.expiresAt)
+      ) {
+        this._pendingMutes.delete(entityId);
+        pending = undefined;
+      }
+      const muted = pending?.value ?? actualMuted;
+      const canMute =
+        typeof actualMuted === "boolean" &&
+        supportsFeature(state, FEATURE_VOLUME_MUTE) &&
+        !["unavailable", "unknown", "off"].includes(state.state);
+      button.disabled = !canMute || this._submitting;
+      this._updateMuteButton(button, muted === true);
+    }
   }
 
   async _setVolume(event) {
@@ -315,6 +362,43 @@ class Control4MediaGroupDialog extends HTMLElement {
         { entity_id: entityId }
       );
     } catch (error) {
+      this._error = error?.message || String(error);
+      this._render();
+    }
+  }
+
+  _updateMuteButton(button, muted) {
+    const state = this._hass.states[button.dataset.muteId];
+    const action = muted ? "Unmute" : "Mute";
+    button.classList.toggle("muted", muted);
+    button.setAttribute("aria-pressed", muted ? "true" : "false");
+    button.setAttribute("aria-label", `${action} ${stateName(state)}`);
+    button.title = action;
+    button.querySelector("ha-icon")?.setAttribute(
+      "icon",
+      muted ? "mdi:volume-off" : "mdi:volume-medium"
+    );
+  }
+
+  async _setMute(event) {
+    const button = event.currentTarget;
+    const entityId = button.dataset.muteId;
+    const muted = button.getAttribute("aria-pressed") !== "true";
+    this._error = "";
+    this._pendingMutes.set(entityId, {
+      value: muted,
+      expiresAt: Date.now() + FEEDBACK_TIMEOUT,
+    });
+    this._updateMuteButton(button, muted);
+    try {
+      await this._hass.callService(
+        "media_player",
+        "volume_mute",
+        { is_volume_muted: muted },
+        { entity_id: entityId }
+      );
+    } catch (error) {
+      this._pendingMutes.delete(entityId);
       this._error = error?.message || String(error);
       this._render();
     }
@@ -448,7 +532,23 @@ class Control4MediaGroupDialog extends HTMLElement {
       align-items: center;
       margin-top: 12px;
     }
-    .volume-row ha-icon { width: 24px; color: var(--secondary-text-color, #aaa); }
+    .mute-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 40px;
+      height: 40px;
+      padding: 0;
+      border: 0;
+      border-radius: 50%;
+      color: var(--secondary-text-color, #aaa);
+      background: transparent;
+    }
+    .mute-button ha-icon { width: 24px; }
+    .mute-button.muted {
+      color: var(--primary-color, #03a9f4);
+      background: color-mix(in srgb, var(--primary-color, #03a9f4) 16%, transparent);
+    }
     .volume-row input[type="range"] { width: 100%; accent-color: var(--primary-color, #03a9f4); }
     .volume-row output { text-align: end; color: var(--secondary-text-color, #aaa); }
     .volume-row.disabled { opacity: 0.45; }
