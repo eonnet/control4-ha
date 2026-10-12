@@ -22,6 +22,12 @@ ROOM_PLAYBACK_BUTTONS = (
     ("STOP", "Stop", "mdi:stop"),
     ("SKIP_FWD", "Next", "mdi:skip-next"),
 )
+THERMOSTAT_HUMIDITY_BUTTONS = (
+    ("HUMIDIFY", False, "Humidifier −1%", "mdi:minus-circle-outline"),
+    ("HUMIDIFY", True, "Humidifier +1%", "mdi:plus-circle-outline"),
+    ("DEHUMIDIFY", False, "Dehumidifier −1%", "mdi:minus-circle-outline"),
+    ("DEHUMIDIFY", True, "Dehumidifier +1%", "mdi:plus-circle-outline"),
+)
 
 
 async def async_setup_entry(
@@ -29,7 +35,7 @@ async def async_setup_entry(
 ) -> None:
     runtime: Control4Runtime = entry.runtime_data
     items = runtime.transport.inventory.items
-    async_add_entities([
+    entities: list[ButtonEntity] = [
         Control4RoomPlaybackButton(runtime, items[room_id], command, label, icon)
         for room_id in sorted(runtime.media_coordinators)
         if room_id in items
@@ -37,7 +43,19 @@ async def async_setup_entry(
         and items[room_id].get("proxy") == "roomdevice"
         for command, label, icon in ROOM_PLAYBACK_BUTTONS
         if runtime.commands.supports_room_transport(room_id, command)
-    ])
+    ]
+    entities.extend(
+        Control4HumidityStepButton(
+            runtime, items[device_id], kind, increase, label, icon
+        )
+        for device_id in sorted(runtime.transport.tracked_ids)
+        if device_id in items and items[device_id].get("proxy") == "thermostatV2"
+        for kind, increase, label, icon in THERMOSTAT_HUMIDITY_BUTTONS
+        if runtime.commands.supports_parameterless(
+            device_id, f"{'INC' if increase else 'DEC'}_SETPOINT_{kind}"
+        )
+    )
+    async_add_entities(entities)
 
 
 class Control4RoomPlaybackButton(Control4Entity, ButtonEntity):
@@ -73,3 +91,64 @@ class Control4RoomPlaybackButton(Control4Entity, ButtonEntity):
         if live_state.get("is_on") is not True or not self.runtime.transport.connected:
             raise UnsupportedCommand("room playback command requires a live powered-on room")
         await self.runtime.commands.room_transport(self.device_id, self.command)
+
+
+class Control4HumidityStepButton(Control4Entity, ButtonEntity):
+    """Move one thermostat humidity setpoint by Director's one-percent step."""
+
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        runtime: Control4Runtime,
+        item: dict[str, Any],
+        kind: str,
+        increase: bool,
+        label: str,
+        icon: str,
+    ) -> None:
+        super().__init__(runtime, item)
+        self.kind = kind
+        self.increase = increase
+        direction = "increase" if increase else "decrease"
+        self.command = f"{'INC' if increase else 'DEC'}_SETPOINT_{kind}"
+        self._attr_unique_id = (
+            f"{runtime.transport.rest.host}_{self.device_id}_"
+            f"{kind.lower()}_{direction}"
+        )
+        self._attr_name = label
+        self._attr_icon = icon
+
+    @property
+    def available(self) -> bool:
+        if not super().available or not self.runtime.commands.supports_parameterless(
+            self.device_id, self.command
+        ):
+            return False
+        key = (
+            "humidify_setpoint"
+            if self.kind == "HUMIDIFY"
+            else "dehumidify_setpoint"
+        )
+        value = self.state_data.get(key)
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            return False
+        return value < 100 if self.increase else value > 0
+
+    @property
+    def extra_state_attributes(self) -> dict[str, float]:
+        key = (
+            "humidify_setpoint"
+            if self.kind == "HUMIDIFY"
+            else "dehumidify_setpoint"
+        )
+        value = self.state_data.get(key)
+        return {"current_setpoint": value} if isinstance(value, (int, float)) else {}
+
+    async def async_press(self) -> None:
+        if not self.available:
+            raise UnsupportedCommand("humidity setpoint adjustment is unavailable")
+        await self.runtime.commands.humidity_step(
+            self.device_id, self.kind, increase=self.increase
+        )
+        await self.runtime.transport.sync_device(self.device_id)

@@ -119,6 +119,14 @@ class FakeRest:
                 {"name": "MODE", "values": [{"value": value} for value in
                  ("Auto", "Low", "Medium", "High")]},
             ]},
+            {"command": "SET_MODE_HUMIDITY", "deviceId": 2646, "params": [
+                {"name": "MODE", "values": [{"value": value} for value in
+                 ("Off", "Humidify", "Dehumidify", "Auto")]},
+            ]},
+            {"command": "INC_SETPOINT_HUMIDIFY", "deviceId": 2646, "params": []},
+            {"command": "DEC_SETPOINT_HUMIDIFY", "deviceId": 2646, "params": []},
+            {"command": "INC_SETPOINT_DEHUMIDIFY", "deviceId": 2646, "params": []},
+            {"command": "DEC_SETPOINT_DEHUMIDIFY", "deviceId": 2646, "params": []},
         ]
 
     async def post_json(self, path, body):
@@ -145,6 +153,30 @@ class CommandTests(unittest.IsolatedAsyncioTestCase):
             ("/api/v1/items/22/commands", {"command": "MUTE_ON"}),
             ("/api/v1/items/22/commands", {"command": "MUTE_OFF"}),
         ])
+
+    async def test_humidity_mode_and_steps_require_exact_advertised_commands(self) -> None:
+        await self.commands.humidity_mode(2646, "Auto")
+        await self.commands.humidity_step(2646, "HUMIDIFY", increase=True)
+        await self.commands.humidity_step(2646, "DEHUMIDIFY", increase=False)
+        self.assertEqual(self.rest.sent, [
+            ("/api/v1/items/2646/commands", {
+                "command": "SET_MODE_HUMIDITY", "params": {"MODE": "Auto"},
+            }),
+            ("/api/v1/items/2646/commands", {
+                "command": "INC_SETPOINT_HUMIDIFY",
+            }),
+            ("/api/v1/items/2646/commands", {
+                "command": "DEC_SETPOINT_DEHUMIDIFY",
+            }),
+        ])
+        self.rest.sent.clear()
+        with self.assertRaises(UnsupportedCommand):
+            await self.commands.humidity_mode(2646, "Dry")
+        with self.assertRaises(UnsupportedCommand):
+            await self.commands.humidity_step(2646, "OTHER", increase=True)
+        with self.assertRaises(UnsupportedCommand):
+            await self.commands.humidity_step(2811, "HUMIDIFY", increase=True)
+        self.assertFalse(self.rest.sent)
 
     async def test_room_off_requires_parameterless_metadata(self) -> None:
         self.assertTrue(self.commands.supports_room_off(22))

@@ -50,7 +50,10 @@ def _director_id(unique_id: str, host: str) -> int | None:
         return None
     suffix = unique_id[len(prefix):]
     for entity_suffix in (
-        "_hold_mode", "_media_play", "_media_pause", "_media_stop",
+        "_hold_mode", "_humidity_mode",
+        "_humidify_increase", "_humidify_decrease",
+        "_dehumidify_increase", "_dehumidify_decrease",
+        "_media_play", "_media_pause", "_media_stop",
         "_media_skip_rev", "_media_skip_fwd",
         "_tidal_account", "_tidal_playlist", "_room_volume",
     ):

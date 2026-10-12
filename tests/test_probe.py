@@ -134,6 +134,12 @@ class FakeThermostatSession:
                 {"varName": "HEAT_SETPOINT_C", "value": 23},
                 {"varName": "COOL_SETPOINT_C", "value": "private-test-token"},
                 {"varName": "SETPOINT_SECRET", "value": 24},
+                {"varName": "HUMIDITY", "value": 47},
+                {"varName": "HUMIDITY_MODE", "value": "Auto"},
+                {"varName": "HUMIDITY_STATE", "value": "Idle"},
+                {"varName": "HUMIDIFY_SETPOINT", "value": 35},
+                {"varName": "DEHUMIDIFY_SETPOINT", "value": 55},
+                {"varName": "HUMIDITY_SETPOINTS_DEADBAND", "value": 10},
                 {"varName": "OTHER", "value": "never-print-this"},
             ])
         if url.endswith("/commands"):
@@ -162,6 +168,16 @@ class FakeThermostatSession:
                     {"name": "CELSIUS", "low": 6, "high": 1000,
                      "resolution": 0.5, "valueType": "FLOAT"},
                 ]},
+                {"deviceId": 2646, "command": "SET_MODE_HUMIDITY", "params": [
+                    {"name": "MODE", "values": [
+                        {"value": "Off"}, {"value": "Auto"},
+                        {"value": "Bearer private-test-token"},
+                    ]},
+                ]},
+                {"deviceId": 2646, "command": "INC_SETPOINT_HUMIDIFY", "params": []},
+                {"deviceId": 2646, "command": "DEC_SETPOINT_HUMIDIFY", "params": []},
+                {"deviceId": 2646, "command": "INC_SETPOINT_DEHUMIDIFY", "params": []},
+                {"deviceId": 2646, "command": "DEC_SETPOINT_DEHUMIDIFY", "params": []},
                 {"deviceId": 2811, "command": "SET_PRESET", "params": [
                     {"name": "NAME", "values": [{"value": "Other device"}]},
                 ]},
@@ -327,6 +343,25 @@ class ProbeInventoryTests(unittest.IsolatedAsyncioTestCase):
                 {"name": "CELSIUS", "low": 6, "resolution": 0.5,
                  "value_type": "FLOAT"},
             ]},
+        ])
+        self.assertEqual(details["humidity_variable_names"], [
+            "DEHUMIDIFY_SETPOINT", "HUMIDIFY_SETPOINT", "HUMIDITY",
+            "HUMIDITY_MODE", "HUMIDITY_SETPOINTS_DEADBAND", "HUMIDITY_STATE",
+        ])
+        self.assertEqual(details["humidity_state_values"], {
+            "HUMIDITY": 47, "HUMIDITY_MODE": "Auto", "HUMIDITY_STATE": "Idle",
+            "HUMIDIFY_SETPOINT": 35, "DEHUMIDIFY_SETPOINT": 55,
+            "HUMIDITY_SETPOINTS_DEADBAND": 10,
+        })
+        self.assertEqual(details["humidity_commands"], [
+            {"command": "SET_MODE_HUMIDITY", "parameters": [{
+                "name": "MODE", "choice_count": 3, "choices": ["Off", "Auto"],
+                "choices_truncated_or_redacted": True,
+            }]},
+            {"command": "INC_SETPOINT_HUMIDIFY", "parameters": []},
+            {"command": "DEC_SETPOINT_HUMIDIFY", "parameters": []},
+            {"command": "INC_SETPOINT_DEHUMIDIFY", "parameters": []},
+            {"command": "DEC_SETPOINT_DEHUMIDIFY", "parameters": []},
         ])
         self.assertNotIn("private-test-token", output.getvalue())
         self.assertNotIn("never-print-this", output.getvalue())

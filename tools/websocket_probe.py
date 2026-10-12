@@ -55,6 +55,16 @@ THERMOSTAT_SETPOINT_VARIABLES = frozenset({
 THERMOSTAT_SETPOINT_COMMANDS = frozenset({
     "SET_SETPOINT_SINGLE", "SET_SETPOINT_HEAT", "SET_SETPOINT_COOL",
 })
+THERMOSTAT_HUMIDITY_VARIABLES = frozenset({
+    "HUMIDITY", "HUMIDITY_MODE", "HUMIDITY_STATE",
+    "HUMIDIFY_SETPOINT", "DEHUMIDIFY_SETPOINT",
+    "HUMIDITY_SETPOINTS_DEADBAND",
+})
+THERMOSTAT_HUMIDITY_COMMANDS = frozenset({
+    "SET_MODE_HUMIDITY",
+    "INC_SETPOINT_HUMIDIFY", "DEC_SETPOINT_HUMIDIFY",
+    "INC_SETPOINT_DEHUMIDIFY", "DEC_SETPOINT_DEHUMIDIFY",
+})
 MAX_THERMOSTAT_LABEL = 120
 MEDIA_ROOM_COMMANDS = frozenset({
     "ROOM_OFF", "SET_VOLUME_LEVEL", "MUTE_ON", "MUTE_OFF",
@@ -369,6 +379,8 @@ def thermostat_metadata_summary(
     state_values: dict[str, str] = {}
     setpoint_variable_names: list[str] = []
     setpoint_state_values: dict[str, bool | int | float | str] = {}
+    humidity_variable_names: list[str] = []
+    humidity_state_values: dict[str, bool | int | float | str] = {}
     for record in variables:
         if not isinstance(record, Mapping):
             continue
@@ -380,6 +392,13 @@ def thermostat_metadata_summary(
             value = safe_state_value(record.get("value"))
             if value is not None:
                 setpoint_state_values[name] = value
+        if name.strip().upper() in THERMOSTAT_HUMIDITY_VARIABLES:
+            humidity_variable_names.append(name)
+            value = safe_state_value(record.get("value"))
+            if value is None:
+                value = safe_thermostat_label(record.get("value"))
+            if value is not None:
+                humidity_state_values[name] = value
         canonical = re.sub(r"[^A-Z0-9]", "", name.upper())
         if (
             "PRESET" not in canonical
@@ -394,6 +413,7 @@ def thermostat_metadata_summary(
 
     command_details: list[dict[str, Any]] = []
     setpoint_command_details: list[dict[str, Any]] = []
+    humidity_command_details: list[dict[str, Any]] = []
     for record in commands:
         if (
             not isinstance(record, Mapping)
@@ -416,6 +436,30 @@ def thermostat_metadata_summary(
                     parameter["value_type"] = spec["valueType"]
                 parameters.append(parameter)
             setpoint_command_details.append({
+                "command": record["command"], "parameters": parameters,
+            })
+            continue
+        if record["command"] in THERMOSTAT_HUMIDITY_COMMANDS:
+            parameters: list[dict[str, Any]] = []
+            specs = record.get("params")
+            for spec in specs if isinstance(specs, list) else []:
+                if not isinstance(spec, Mapping) or spec.get("name") != "MODE":
+                    continue
+                choices = spec.get("values")
+                choices = choices if isinstance(choices, list) else []
+                safe_choices = [
+                    label for option in choices
+                    if isinstance(option, Mapping)
+                    if (label := safe_thermostat_label(option.get("value"))) is not None
+                ]
+                parameters.append({
+                    "name": "MODE",
+                    "choice_count": len(choices),
+                    "choices": safe_choices[:MAX_METADATA_ITEMS],
+                    "choices_truncated_or_redacted": len(safe_choices) != len(choices)
+                    or len(safe_choices) > MAX_METADATA_ITEMS,
+                })
+            humidity_command_details.append({
                 "command": record["command"], "parameters": parameters,
             })
             continue
@@ -442,7 +486,11 @@ def thermostat_metadata_summary(
             })
         command_details.append({"command": record["command"], "parameters": parameters})
 
-    if not candidates and not command_details and not setpoint_variable_names and not setpoint_command_details:
+    if (
+        not candidates and not command_details
+        and not setpoint_variable_names and not setpoint_command_details
+        and not humidity_variable_names and not humidity_command_details
+    ):
         return None
     return {
         "iddevice": device_id,
@@ -453,6 +501,9 @@ def thermostat_metadata_summary(
         "setpoint_variable_names": sorted(set(setpoint_variable_names)),
         "setpoint_state_values": setpoint_state_values,
         "setpoint_commands": setpoint_command_details,
+        "humidity_variable_names": sorted(set(humidity_variable_names)),
+        "humidity_state_values": humidity_state_values,
+        "humidity_commands": humidity_command_details,
     }
 
 

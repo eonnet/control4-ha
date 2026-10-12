@@ -105,9 +105,21 @@ class Control4Climate(Control4Entity, ClimateEntity):
         )
 
     @property
-    def extra_state_attributes(self) -> dict[str, str]:
+    def extra_state_attributes(self) -> dict[str, Any]:
+        attributes: dict[str, Any] = {}
         hold = self.state_data.get("hold_mode")
-        return {"control4_hold_mode": hold} if isinstance(hold, str) else {}
+        if isinstance(hold, str):
+            attributes["control4_hold_mode"] = hold
+        for state_key, attribute_key in (
+            ("humidity_mode", "control4_humidity_mode"),
+            ("humidity_state", "control4_humidity_state"),
+            ("humidify_setpoint", "control4_humidify_setpoint"),
+            ("dehumidify_setpoint", "control4_dehumidify_setpoint"),
+        ):
+            value = self.state_data.get(state_key)
+            if isinstance(value, (str, int, float)) and not isinstance(value, bool):
+                attributes[attribute_key] = value
+        return attributes
 
     @property
     def hvac_modes(self) -> list[HVACMode]:
@@ -122,6 +134,10 @@ class Control4Climate(Control4Entity, ClimateEntity):
     @property
     def current_temperature(self) -> float | None:
         return self.state_data.get("current_temperature_c")
+
+    @property
+    def current_humidity(self) -> float | None:
+        return self.state_data.get("current_humidity")
 
     @property
     def target_temperature(self) -> float | None:

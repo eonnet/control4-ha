@@ -66,16 +66,26 @@ class MediaButtonTests(unittest.IsolatedAsyncioTestCase):
         cls.patcher.stop()
 
     async def asyncSetUp(self):
-        self.state = {22: {"is_on": True}}
+        self.state = {
+            22: {"is_on": True},
+            2646: {
+                "current_humidity": 43.0,
+                "humidify_setpoint": 35.0,
+                "dehumidify_setpoint": 55.0,
+            },
+        }
         self.items = {
             22: {"id": 22, "name": "Living", "typeName": "room", "proxy": "roomdevice", "roomName": "Living"},
             23: {"id": 23, "name": "Bedroom", "typeName": "room", "proxy": "roomdevice"},
+            2646: {"id": 2646, "name": "Living AC", "typeName": "device", "proxy": "thermostatV2"},
         }
         self.commands = SimpleNamespace(
             supports_room_transport=lambda room_id, command: room_id == 22 and command in {
                 "SKIP_REV", "PLAY", "PAUSE", "STOP", "SKIP_FWD",
             },
             room_transport=AsyncMock(),
+            supports_parameterless=lambda device_id, command: False,
+            humidity_step=AsyncMock(),
         )
         self.live_variables = [{"varName": "POWER_STATE", "value": 1}]
         self.get_variables = AsyncMock(side_effect=lambda room_id: self.live_variables)
@@ -86,6 +96,8 @@ class MediaButtonTests(unittest.IsolatedAsyncioTestCase):
             events=SimpleNamespace(subscribe=lambda callback: lambda: None),
             subscribe_connection=lambda callback: lambda: None,
             connected=True,
+            tracked_ids=set(self.items),
+            sync_device=AsyncMock(),
         )
         self.runtime = SimpleNamespace(
             transport=self.transport, commands=self.commands,
@@ -122,6 +134,59 @@ class MediaButtonTests(unittest.IsolatedAsyncioTestCase):
         self.get_variables.assert_awaited_once_with(22)
         self.commands.room_transport.assert_awaited_once_with(22, "PAUSE")
         self.assertEqual(self.state[22], {"is_on": True})
+
+    async def test_humidity_step_buttons_share_thermostat_device_and_resync(self):
+        supported = {
+            "INC_SETPOINT_HUMIDIFY", "DEC_SETPOINT_HUMIDIFY",
+            "INC_SETPOINT_DEHUMIDIFY", "DEC_SETPOINT_DEHUMIDIFY",
+        }
+        self.commands.supports_parameterless = (
+            lambda device_id, command: device_id == 2646 and command in supported
+        )
+        entities = []
+        await self.button.async_setup_entry(
+            None, SimpleNamespace(runtime_data=self.runtime), entities.extend
+        )
+        humidity = [
+            entity for entity in entities
+            if isinstance(entity, self.button.Control4HumidityStepButton)
+        ]
+        self.assertEqual([entity.name for entity in humidity], [
+            "Humidifier −1%", "Humidifier +1%",
+            "Dehumidifier −1%", "Dehumidifier +1%",
+        ])
+        self.assertEqual([entity.unique_id for entity in humidity], [
+            "192.168.0.24_2646_humidify_decrease",
+            "192.168.0.24_2646_humidify_increase",
+            "192.168.0.24_2646_dehumidify_decrease",
+            "192.168.0.24_2646_dehumidify_increase",
+        ])
+        for entity in humidity:
+            self.assertEqual(entity.device_info["identifiers"], {
+                ("control4_advanced", "192.168.0.24_2646")
+            })
+            self.assertTrue(entity.available)
+        self.assertEqual(
+            humidity[0].extra_state_attributes, {"current_setpoint": 35.0}
+        )
+        self.assertEqual(
+            humidity[2].extra_state_attributes, {"current_setpoint": 55.0}
+        )
+        self.state[2646].update({
+            "humidify_setpoint": 0.0, "dehumidify_setpoint": 100.0,
+        })
+        self.assertFalse(humidity[0].available)
+        self.assertTrue(humidity[1].available)
+        self.assertTrue(humidity[2].available)
+        self.assertFalse(humidity[3].available)
+        self.state[2646].update({
+            "humidify_setpoint": 35.0, "dehumidify_setpoint": 55.0,
+        })
+        await humidity[1].async_press()
+        self.commands.humidity_step.assert_awaited_once_with(
+            2646, "HUMIDIFY", increase=True
+        )
+        self.transport.sync_device.assert_awaited_once_with(2646)
 
     async def test_stale_on_snapshot_cannot_send_if_live_room_is_off(self):
         button = self.button.Control4RoomPlaybackButton(

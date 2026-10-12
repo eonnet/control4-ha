@@ -28,18 +28,27 @@ async def async_setup_entry(
     for device_id in sorted(runtime.transport.tracked_ids):
         if items[device_id].get("proxy") != "thermostatV2":
             continue
-        if not runtime.commands.supports(device_id, "SET_MODE_HOLD"):
-            continue
-        try:
-            options = runtime.commands.choices(device_id, "SET_MODE_HOLD", "MODE")
-        except UnsupportedCommand:
-            continue
-        current = runtime.transport.state.snapshot(device_id).get("hold_mode")
-        if not isinstance(current, str) or not any(
-            option.casefold() == current.casefold() for option in options
-        ):
-            continue
-        entities.append(Control4HoldSelect(runtime, items[device_id], options))
+        if runtime.commands.supports(device_id, "SET_MODE_HOLD"):
+            try:
+                options = runtime.commands.choices(device_id, "SET_MODE_HOLD", "MODE")
+            except UnsupportedCommand:
+                options = []
+            current = runtime.transport.state.snapshot(device_id).get("hold_mode")
+            if isinstance(current, str) and any(
+                option.casefold() == current.casefold() for option in options
+            ):
+                entities.append(Control4HoldSelect(runtime, items[device_id], options))
+        if runtime.commands.supports(device_id, "SET_MODE_HUMIDITY"):
+            try:
+                options = runtime.commands.choices(
+                    device_id, "SET_MODE_HUMIDITY", "MODE"
+                )
+            except UnsupportedCommand:
+                options = []
+            if options:
+                entities.append(
+                    Control4HumidityModeSelect(runtime, items[device_id], options)
+                )
     for room_id, catalogs in sorted(runtime.tidal_catalogs.items()):
         room = items.get(room_id)
         if not isinstance(room, dict):
@@ -76,6 +85,38 @@ class Control4HoldSelect(Control4Entity, SelectEntity):
         if option not in self.options:
             raise HomeAssistantError("Hold mode is not advertised by this thermostat")
         await self.runtime.commands.hold_mode(self.device_id, option)
+
+
+class Control4HumidityModeSelect(Control4Entity, SelectEntity):
+    """Select a Director-advertised thermostat humidity mode."""
+
+    _attr_icon = "mdi:water-percent"
+
+    def __init__(
+        self, runtime: Control4Runtime, item: dict[str, Any], options: list[str]
+    ) -> None:
+        super().__init__(runtime, item)
+        self._attr_unique_id = (
+            f"{runtime.transport.rest.host}_{self.device_id}_humidity_mode"
+        )
+        self._attr_name = f"{self._attr_name} Humidity mode"
+        self._attr_options = options
+
+    @property
+    def current_option(self) -> str | None:
+        current = self.state_data.get("humidity_mode")
+        if not isinstance(current, str):
+            return None
+        return next(
+            (option for option in self.options if option.casefold() == current.casefold()),
+            None,
+        )
+
+    async def async_select_option(self, option: str) -> None:
+        if option not in self.options:
+            raise HomeAssistantError("Humidity mode is not advertised by this thermostat")
+        await self.runtime.commands.humidity_mode(self.device_id, option)
+        await self.runtime.transport.sync_device(self.device_id)
 
 
 class RoomTidalSelection:

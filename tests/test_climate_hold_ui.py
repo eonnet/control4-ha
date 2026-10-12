@@ -100,6 +100,9 @@ class FakeCommands:
     async def fan_mode(self, device_id, option):
         self.sent.append(("fan", device_id, option))
 
+    async def humidity_mode(self, device_id, option):
+        self.sent.append(("humidity_mode", device_id, option))
+
     def range(self, device_id, command, parameter):
         if (device_id, command, parameter) == (404, "SET_SETPOINT_SINGLE", "CELSIUS"):
             return (8.0, 30.0)
@@ -169,12 +172,17 @@ class ClimateHoldUITests(unittest.IsolatedAsyncioTestCase):
             for device_id, name in ((2646, "Living AC"), (2811, "Kid AC"))
         }
         self.commands = FakeCommands()
+        async def sync_device(device_id):
+            self.synced_device_ids.append(device_id)
+
+        self.synced_device_ids = []
         transport = SimpleNamespace(
             rest=SimpleNamespace(host="192.168.0.24"),
             inventory=SimpleNamespace(items=self.items),
             tracked_ids=set(self.items),
             state=SimpleNamespace(snapshot=lambda device_id: self.states[device_id]),
             connected=True,
+            sync_device=sync_device,
         )
         self.runtime = SimpleNamespace(
             transport=transport, commands=self.commands, tidal_catalogs={},
@@ -236,6 +244,45 @@ class ClimateHoldUITests(unittest.IsolatedAsyncioTestCase):
             ("fan", 2811, "Auto"),
             ("hold", 2646, "Permanent"),
         ])
+
+    async def test_humidity_is_on_climate_and_mode_select_uses_same_device(self):
+        self.commands.choices_by_device[2646][
+            ("SET_MODE_HUMIDITY", "MODE")
+        ] = ["Off", "Humidify", "Dehumidify", "Auto"]
+        self.states[2646].update({
+            "current_humidity": 43.0,
+            "humidity_mode": "Off",
+            "humidity_state": "Off",
+            "humidify_setpoint": 35.0,
+            "dehumidify_setpoint": 55.0,
+        })
+        living = self.climate.Control4Climate(self.runtime, self.items[2646])
+        self.assertEqual(living.current_humidity, 43.0)
+        self.assertEqual(living.extra_state_attributes, {
+            "control4_hold_mode": "Off",
+            "control4_humidity_mode": "Off",
+            "control4_humidity_state": "Off",
+            "control4_humidify_setpoint": 35.0,
+            "control4_dehumidify_setpoint": 55.0,
+        })
+
+        selects = []
+        await self.select.async_setup_entry(None, self.entry, selects.extend)
+        humidity = next(
+            entity for entity in selects
+            if isinstance(entity, self.select.Control4HumidityModeSelect)
+        )
+        self.assertEqual(humidity.options, ["Off", "Humidify", "Dehumidify", "Auto"])
+        self.assertEqual(humidity.current_option, "Off")
+        self.assertEqual(humidity.device_info["identifiers"], living.device_info["identifiers"])
+        self.assertEqual(
+            humidity.unique_id, "192.168.0.24_2646_humidity_mode"
+        )
+        with self.assertRaises(self.error):
+            await humidity.async_select_option("Dry")
+        await humidity.async_select_option("Auto")
+        self.assertEqual(self.commands.sent, [("humidity_mode", 2646, "Auto")])
+        self.assertEqual(self.synced_device_ids, [2646])
 
     async def test_tidal_account_and_playlist_selects_are_linked_to_room(self):
         self.items[22] = {

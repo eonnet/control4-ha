@@ -365,6 +365,52 @@ class EventNormalizationTests(unittest.TestCase):
                 self.assertEqual(event.changes, expected)
                 self.assertEqual(event.authoritative, bool(expected))
 
+    def test_thermostat_humidity_rest_and_push_use_observed_fields(self) -> None:
+        rest = normalize_rest_variables(2646, "thermostatV2", [
+            {"varName": "HUMIDITY", "value": 43},
+            {"varName": "HUMIDITY_MODE", "value": "Auto"},
+            {"varName": "HUMIDITY_STATE", "value": "Humidifying"},
+            {"varName": "HUMIDIFY_SETPOINT", "value": 35},
+            {"varName": "DEHUMIDIFY_SETPOINT", "value": 55},
+        ])
+        self.assertEqual(rest.changes, {
+            "current_humidity": 43.0,
+            "humidity_mode": "Auto",
+            "humidity_state": "Humidifying",
+            "humidify_setpoint": 35.0,
+            "dehumidify_setpoint": 55.0,
+        })
+        push = normalize_websocket_event(
+            {
+                "evtName": "OnDataToUI",
+                "iddevice": 2646,
+                "data": {
+                    "humidity": 44,
+                    "humidity_mode": "Dehumidify",
+                    "humidity_state": "Dehumidifying",
+                    "setpoint_humidify": 36,
+                    "setpoint_dehumidify": 54,
+                },
+            },
+            "thermostatV2",
+        )
+        self.assertEqual(push.changes, {
+            "current_humidity": 44.0,
+            "humidity_mode": "Dehumidify",
+            "humidity_state": "Dehumidifying",
+            "humidify_setpoint": 36.0,
+            "dehumidify_setpoint": 54.0,
+        })
+        invalid = normalize_websocket_event(
+            {
+                "evtName": "OnDataToUI",
+                "iddevice": 2646,
+                "data": {"humidity": 101, "setpoint_humidify": -1},
+            },
+            "thermostatV2",
+        )
+        self.assertEqual(invalid.changes, {})
+
     def test_kid_ac_fan_change_trace_merges_partial_push(self) -> None:
         cache = DeviceStateCache()
         for value in ("Medium", "High", "Medium", "Auto", "Low"):

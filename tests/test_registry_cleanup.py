@@ -95,6 +95,27 @@ class StaleRegistryTests(unittest.TestCase):
         ])
         self.assertEqual(stale_devices, ["registry_192.168.0.24_2646"])
 
+    def test_humidity_controls_are_cleaned_with_their_thermostat(self) -> None:
+        entities = [
+            entity("192.168.0.24_2646_humidity_mode"),
+            entity("192.168.0.24_2646_humidify_decrease"),
+            entity("192.168.0.24_2646_humidify_increase"),
+            entity("192.168.0.24_2646_dehumidify_decrease"),
+            entity("192.168.0.24_2646_dehumidify_increase"),
+            entity("192.168.0.24_2811_humidity_mode"),
+        ]
+        stale_entities, _ = stale_registry_ids(
+            entities, [], config_entry_id="ours", host="192.168.0.24",
+            first_inventory_ids={2811, 99}, second_inventory_ids={2811, 99},
+        )
+        self.assertEqual(stale_entities, [
+            "light.192.168.0.24_2646_humidity_mode",
+            "light.192.168.0.24_2646_humidify_decrease",
+            "light.192.168.0.24_2646_humidify_increase",
+            "light.192.168.0.24_2646_dehumidify_decrease",
+            "light.192.168.0.24_2646_dehumidify_increase",
+        ])
+
     def test_playback_buttons_are_cleaned_only_with_their_room(self) -> None:
         entities = [
             entity("192.168.0.24_22_media_play"),

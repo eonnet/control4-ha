@@ -49,12 +49,12 @@ credentials are stored in Home Assistant's config entry.
 | Home Assistant entity | Compatible Control4 device | Available features |
 | --- | --- | --- |
 | Light | `light_v2` | On, off, and brightness for dimmable devices; on/off control for non-dimmable lights |
-| Climate | Celsius `thermostatV2` | Heat, Cool, Auto, Off, target temperature, fan mode, named presets, and hold mode when available |
+| Climate | Celsius `thermostatV2` | Heat, Cool, Auto, Off, target temperature, current humidity, fan mode, named presets, hold mode, and humidity status when available |
 | Switch | Compatible standard, wireless, and radiant-floor relays | On and off; newly discovered relay entities are disabled by default |
 | Binary sensor | Window contacts, door contacts, and motion/PIR sensors | Window, door, and motion state |
 | Media player | Rooms with compatible Watch or Listen sources | Source browsing, metadata, artwork, transport, power-off, volume, mute, and grouping as available |
-| Button | Room playback actions | Previous, Play, Pause, Stop, and Next when available |
-| Select | Thermostat and media choices | Hold mode, TIDAL account, and TIDAL playlist when available |
+| Button | Room playback and thermostat humidity actions | Previous, Play, Pause, Stop, Next, and one-percent humidify/dehumidify setpoint adjustments when available |
+| Select | Thermostat and media choices | Hold mode, humidity mode, TIDAL account, and TIDAL playlist when available |
 
 Only features available to a specific Control4 device are exposed on its Home
 Assistant entity.
@@ -68,6 +68,16 @@ Assistant entity.
 - Device-specific fan modes.
 - Device-specific named presets.
 - A companion hold-mode selector when available.
+- Current relative humidity on the existing climate entity.
+- Director-advertised Off, Humidify, Dehumidify, and Auto humidity modes.
+- One-percent humidifier and dehumidifier setpoint controls attached to the
+  same Home Assistant thermostat device.
+- Current humidity mode, operating state, and both setpoints as climate
+  attributes.
+
+Humidity controls appear only when the individual thermostat advertises the
+matching Control4 commands. Thermostats with a humidity reading but no control
+capability expose only the reading.
 
 ## Lighting, relays, and sensors
 
@@ -249,6 +259,9 @@ other Control4 entries are not changed.
 ## Current scope
 
 - Climate entities are Celsius-only.
+- Humidifier and dehumidifier setpoints use Control4's one-percent increase and
+  decrease controls because the Director does not advertise a direct setpoint
+  command.
 - Relay entities require explicit enabling in Home Assistant.
 - TIDAL browsing is limited to configured or retrieved playlists.
 - TuneIn browsing is limited to configured or retrieved favorites.

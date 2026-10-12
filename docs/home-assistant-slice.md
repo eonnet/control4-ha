@@ -118,6 +118,13 @@ climate preset selector. Kid AC did not advertise `SET_PRESET`, so no preset
 control is exposed there. Both devices advertised `SET_MODE_HOLD` and a
 current `HOLD_MODE`; hold is shown as the climate attribute
 `control4_hold_mode` and as a companion select entity on the same HA device.
+Thermostat humidity is exposed as the climate entity's native current-humidity
+value. Devices that advertise `SET_MODE_HUMIDITY` receive an Off/Humidify/
+Dehumidify/Auto companion selector. Parameterless Director-advertised
+humidify and dehumidify increment/decrement commands become four one-percent
+buttons on the same HA device. The climate attributes retain the confirmed
+humidity mode, operating state, and both setpoints. Read-only humidity devices
+do not receive controls.
 The select and preset commands are validated against each device's live
 metadata and wait for Director feedback rather than optimistically changing
 the displayed state. The Living AC push fields were captured. The user later
@@ -154,8 +161,8 @@ initial REST read fails, their HA state remains unavailable until a verified
 push update or later reconciliation.
 Window and motion devices have user-reported HA field validation; door entity
 registration in HA is still pending. Other sensor proxies,
-`cardaccess_wirelessrelay`, and `uibutton` remain out of scope. Color and
-humidity controls are still out of scope. Fan mode has a metadata-gated 0.1.6
+`cardaccess_wirelessrelay`, and `uibutton` remain out of scope. Color controls
+are still out of scope. Fan mode has a metadata-gated 0.1.6
 implementation. Both known ACs' choices/current state and
 Kid AC fan-change push have live Director evidence. The user reports fan
 control working in both directions in HA, without identifying individual
