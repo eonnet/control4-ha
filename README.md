@@ -3,7 +3,7 @@
 Control4 Advanced is an unofficial custom integration that brings compatible
 Control4 lighting, climate, relay, contact-sensor, and room-media devices into
 Home Assistant. It also includes media browsing, multi-room audio controls,
-saved group presets, and three dashboard cards.
+saved group presets, privacy-preserving diagnostics, and three dashboard cards.
 
 ## Requirements
 
@@ -202,6 +202,18 @@ preset_id: YOUR_PRESET_ID
 ```
 
 ## Integration tools
+
+### Diagnostics
+
+Download integration-wide diagnostics from **Settings > Devices & services >
+Control4 Advanced > three-dot menu > Download diagnostics**. Device-specific
+diagnostics are also available from each Control4 device page.
+
+The report includes connection health, synchronized and tracked device counts,
+entity availability, supported media capabilities, group-session status, and
+configured TIDAL, TuneIn, and group-preset counts. Director addresses, account
+credentials, device and room names, media titles, artwork URLs, playlist IDs,
+station IDs, and raw events are not included.
 
 ### Recreate entity IDs
 
