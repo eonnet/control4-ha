@@ -3,7 +3,7 @@
 Control4 Advanced is an unofficial custom integration that brings compatible
 Control4 lighting, climate, relay, contact-sensor, and room-media devices into
 Home Assistant. It also includes media browsing, multi-room audio controls,
-saved group presets, privacy-preserving diagnostics, and three dashboard cards.
+saved group presets, privacy-preserving diagnostics, and four dashboard cards.
 
 ## Requirements
 
@@ -177,6 +177,19 @@ popup.
 
 ```yaml
 type: custom:control4-media-player-card
+entity: media_player.kitchen
+```
+
+### Control4 Media Favorites
+
+A compact one-tap launcher that automatically reads the selected room's
+Control4 Media Browser. Watch and Listen sources keep their packaged logos,
+while retrieved TIDAL playlists and TuneIn favorites appear in their own
+sections. Add it through the visual card picker and select a media player; no
+media items need to be entered in YAML.
+
+```yaml
+type: custom:control4-media-favorites-card
 entity: media_player.kitchen
 ```
 

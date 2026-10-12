@@ -251,16 +251,47 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("preset_id:", service_text)
         self.assertIn("name:", service_text)
 
+    def test_media_favorites_card_browses_and_plays_automatically(self) -> None:
+        javascript = Path(FRONTEND_FILE).read_text(encoding="utf-8")
+        self.assertIn(
+            'const FAVORITES_CARD_TAG = "control4-media-favorites-card"',
+            javascript,
+        )
+        self.assertIn(
+            'const FAVORITES_EDITOR_TAG = "control4-media-favorites-card-editor"',
+            javascript,
+        )
+        self.assertIn(
+            "class Control4MediaFavoritesCard extends HTMLElement", javascript
+        )
+        self.assertIn(
+            "class Control4MediaFavoritesCardEditor extends HTMLElement",
+            javascript,
+        )
+        self.assertIn('type: "media_player/browse_media"', javascript)
+        self.assertIn("await Promise.allSettled(", javascript)
+        self.assertIn('mediaId.includes(":sources:watch")', javascript)
+        self.assertIn('mediaId.includes(":sources:listen")', javascript)
+        self.assertIn('mediaId.startsWith("control4_advanced:tidal:")', javascript)
+        self.assertIn('mediaId.startsWith("control4_advanced:tunein:")', javascript)
+        self.assertIn('"media_player",\n        "play_media"', javascript)
+        self.assertIn("media_content_id: item.media_content_id", javascript)
+        self.assertIn("media_content_type: item.media_content_type", javascript)
+        self.assertIn("control4_media_content_id", javascript)
+        self.assertIn('name: "Control4 Media Favorites"', javascript)
+        self.assertIn("control4BrowsePlayers(this._hass)", javascript)
+        self.assertIn("automatically from this player's Media Browser", javascript)
+
     def test_manifest_declares_hassfest_runtime_dependencies(self) -> None:
         manifest = json.loads(
             (Path(FRONTEND_FILE).parent.parent / "manifest.json").read_text(
                 encoding="utf-8"
             )
         )
-        self.assertEqual(manifest["version"], "0.1.56")
+        self.assertEqual(manifest["version"], "0.1.57")
         self.assertIn("http", manifest["dependencies"])
         self.assertEqual(manifest["requirements"], ["pyControl4>=2.0.2"])
-        self.assertTrue(FRONTEND_URL.endswith("?v=0.1.56"))
+        self.assertTrue(FRONTEND_URL.endswith("?v=0.1.57"))
 
     def test_official_control4_brand_assets_are_packaged(self) -> None:
         brand = Path(FRONTEND_FILE).parent.parent / "brand"
