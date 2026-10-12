@@ -501,6 +501,42 @@ const openControl4GroupDialog = (hass, entityId) => {
   return dialog;
 };
 
+const replaceMoreInfoWithControl4GroupDialog = (
+  moreInfoDialog,
+  hass,
+  entityId
+) => {
+  let opened = false;
+  let fallbackTimer;
+  const open = () => {
+    if (opened) {
+      return;
+    }
+    opened = true;
+    window.clearTimeout(fallbackTimer);
+    moreInfoDialog?.removeEventListener("dialog-closed", handleClosed);
+    openControl4GroupDialog(hass, entityId);
+  };
+  const handleClosed = (event) => {
+    if (event.target === moreInfoDialog) {
+      open();
+    }
+  };
+
+  if (typeof moreInfoDialog?.closeDialog !== "function") {
+    open();
+    return;
+  }
+
+  moreInfoDialog.addEventListener("dialog-closed", handleClosed);
+  fallbackTimer = window.setTimeout(open, 500);
+  try {
+    moreInfoDialog.closeDialog();
+  } catch (_error) {
+    open();
+  }
+};
+
 const handleMoreInfoGrouping = (event) => {
   const path = event.composedPath();
   const groupingButton = path.find(
@@ -532,7 +568,7 @@ const handleMoreInfoGrouping = (event) => {
   event.preventDefault();
   event.stopPropagation();
   event.stopImmediatePropagation();
-  openControl4GroupDialog(hass, entityId);
+  replaceMoreInfoWithControl4GroupDialog(moreInfoDialog, hass, entityId);
 };
 
 const registerMoreInfoGrouping = () => {
