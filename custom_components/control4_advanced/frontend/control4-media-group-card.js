@@ -49,6 +49,7 @@ class Control4MediaGroupDialog extends HTMLElement {
     this._submitting = false;
     this._error = "";
     this._pendingMutes = new Map();
+    this._groupVolumeBaseline = undefined;
     this._refreshTimer = undefined;
     this._onKeyDown = (event) => {
       if (event.key === "Escape" && !this._submitting) {
@@ -111,6 +112,113 @@ class Control4MediaGroupDialog extends HTMLElement {
       return players;
     }
     return [leader, ...players.filter((state) => state !== leader)];
+  }
+
+  _groupStates() {
+    return this._players().filter(
+      (state) =>
+        state.entity_id === this._entityId || this._selected.has(state.entity_id)
+    );
+  }
+
+  _volumeStates() {
+    return this._groupStates().filter((state) => {
+      const volume = state.attributes.volume_level;
+      return (
+        typeof volume === "number" &&
+        Number.isFinite(volume) &&
+        supportsFeature(state, FEATURE_VOLUME_SET) &&
+        !["unavailable", "unknown", "off"].includes(state.state)
+      );
+    });
+  }
+
+  _muteStates() {
+    return this._groupStates().filter(
+      (state) =>
+        typeof state.attributes.is_volume_muted === "boolean" &&
+        supportsFeature(state, FEATURE_VOLUME_MUTE) &&
+        !["unavailable", "unknown", "off"].includes(state.state)
+    );
+  }
+
+  _displayedMuted(state) {
+    return this._pendingMutes.get(state.entity_id)?.value ??
+      state.attributes.is_volume_muted;
+  }
+
+  _volumeSnapshot() {
+    const levels = new Map();
+    for (const state of this._volumeStates()) {
+      const slider = this.shadowRoot.querySelector(
+        `[data-volume-id="${CSS.escape(state.entity_id)}"]`
+      );
+      const displayed = slider ? Number(slider.value) : Number.NaN;
+      const value = Number.isFinite(displayed)
+        ? displayed
+        : state.attributes.volume_level * 100;
+      levels.set(state.entity_id, Math.max(0, Math.min(100, value)));
+    }
+    return levels;
+  }
+
+  _averageVolume(levels) {
+    if (!levels.size) {
+      return undefined;
+    }
+    return [...levels.values()].reduce((sum, value) => sum + value, 0) /
+      levels.size;
+  }
+
+  _renderGroupControls() {
+    const groupStates = this._groupStates();
+    const volumeLevels = this._volumeStates().map(
+      (state) => state.attributes.volume_level * 100
+    );
+    const average = volumeLevels.length
+      ? Math.round(
+          volumeLevels.reduce((sum, value) => sum + value, 0) /
+            volumeLevels.length
+        )
+      : 0;
+    const muteStates = this._muteStates();
+    const allMuted =
+      muteStates.length > 0 &&
+      muteStates.every((state) => this._displayedMuted(state) === true);
+    const muteAction = allMuted ? "Unmute all" : "Mute all";
+    return `
+      <section class="group-controls" aria-label="Group controls">
+        <div class="group-controls-heading">
+          <span>Group volume</span>
+          <span>${groupStates.length} selected</span>
+        </div>
+        <div class="group-volume-row">
+          <button
+            type="button"
+            class="group-mute-button ${allMuted ? "muted" : ""}"
+            aria-label="${muteAction} selected players"
+            aria-pressed="${allMuted ? "true" : "false"}"
+            title="${muteAction}"
+            ${muteStates.length && !this._submitting ? "" : "disabled"}
+          >
+            <ha-icon icon="${allMuted ? "mdi:volume-off" : "mdi:volume-medium"}"></ha-icon>
+            <span>${muteAction}</span>
+          </button>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            step="1"
+            value="${average}"
+            data-group-volume
+            aria-label="Group volume"
+            ${volumeLevels.length && !this._submitting ? "" : "disabled"}
+          />
+          <output data-group-volume-output>
+            ${volumeLevels.length ? `${average}%` : "—"}
+          </output>
+        </div>
+      </section>`;
   }
 
   _renderPlayer(state) {
@@ -215,6 +323,7 @@ class Control4MediaGroupDialog extends HTMLElement {
           <div class="error" ${this._error ? "" : "hidden"}>${escapeHtml(
             this._error
           )}</div>
+          ${this._renderGroupControls()}
           <main>${players.map((state) => this._renderPlayer(state)).join("")}</main>
           <footer>
             <button class="text-button cancel" ${this._submitting ? "disabled" : ""}>
@@ -272,8 +381,33 @@ class Control4MediaGroupDialog extends HTMLElement {
         } else {
           this._selected.delete(entityId);
         }
+        this._groupVolumeBaseline = undefined;
+        this._updateGroupControls();
       });
     }
+    const groupSlider = this.shadowRoot.querySelector("[data-group-volume]");
+    groupSlider.addEventListener("pointerdown", () =>
+      this._captureGroupVolumeBaseline(true)
+    );
+    groupSlider.addEventListener("focus", () =>
+      this._captureGroupVolumeBaseline(false)
+    );
+    groupSlider.addEventListener("input", (event) => {
+      this._captureGroupVolumeBaseline(false);
+      const output = this.shadowRoot.querySelector("[data-group-volume-output]");
+      output.value = `${event.currentTarget.value}%`;
+      output.textContent = `${event.currentTarget.value}%`;
+    });
+    groupSlider.addEventListener("change", (event) =>
+      this._setGroupVolume(event)
+    );
+    groupSlider.addEventListener("blur", () => {
+      this._groupVolumeBaseline = undefined;
+      requestAnimationFrame(() => this._updateGroupControls());
+    });
+    this.shadowRoot
+      .querySelector(".group-mute-button")
+      .addEventListener("click", () => this._setGroupMute());
     for (const slider of this.shadowRoot.querySelectorAll("[data-volume-id]")) {
       slider.addEventListener("input", (event) => {
         const entityId = event.currentTarget.dataset.volumeId;
@@ -347,6 +481,105 @@ class Control4MediaGroupDialog extends HTMLElement {
       button.disabled = !canMute || this._submitting;
       this._updateMuteButton(button, muted === true);
     }
+    this._updateGroupControls(active);
+  }
+
+  _updateGroupControls(active = this.shadowRoot.activeElement) {
+    const selected = this._groupStates();
+    const heading = this.shadowRoot.querySelector(
+      ".group-controls-heading span:last-child"
+    );
+    if (heading) {
+      heading.textContent = `${selected.length} selected`;
+    }
+
+    const levels = this._volumeSnapshot();
+    const average = this._averageVolume(levels);
+    const slider = this.shadowRoot.querySelector("[data-group-volume]");
+    const output = this.shadowRoot.querySelector("[data-group-volume-output]");
+    slider.disabled = average === undefined || this._submitting;
+    if (slider !== active && this._groupVolumeBaseline === undefined) {
+      const value = average === undefined ? 0 : Math.round(average);
+      slider.value = String(value);
+      output.value = average === undefined ? "—" : `${value}%`;
+      output.textContent = average === undefined ? "—" : `${value}%`;
+    }
+
+    const muteStates = this._muteStates();
+    const allMuted =
+      muteStates.length > 0 &&
+      muteStates.every((state) => this._displayedMuted(state) === true);
+    const groupMute = this.shadowRoot.querySelector(".group-mute-button");
+    groupMute.disabled = !muteStates.length || this._submitting;
+    this._updateGroupMuteButton(groupMute, allMuted);
+  }
+
+  _captureGroupVolumeBaseline(force) {
+    if (this._groupVolumeBaseline !== undefined && !force) {
+      return;
+    }
+    const levels = this._volumeSnapshot();
+    const average = this._averageVolume(levels);
+    this._groupVolumeBaseline =
+      average === undefined ? undefined : { levels, average };
+  }
+
+  _setDisplayedVolume(entityId, value) {
+    const slider = this.shadowRoot.querySelector(
+      `[data-volume-id="${CSS.escape(entityId)}"]`
+    );
+    const output = this.shadowRoot.querySelector(
+      `[data-volume-output="${CSS.escape(entityId)}"]`
+    );
+    if (slider) {
+      slider.value = String(value);
+    }
+    if (output) {
+      output.value = `${value}%`;
+      output.textContent = `${value}%`;
+    }
+  }
+
+  async _setGroupVolume(event) {
+    this._captureGroupVolumeBaseline(false);
+    const baseline = this._groupVolumeBaseline;
+    if (!baseline) {
+      return;
+    }
+    const requested = Math.max(0, Math.min(100, Number(event.currentTarget.value)));
+    const delta = requested - baseline.average;
+    const levels = new Map();
+    for (const [entityId, value] of baseline.levels) {
+      const adjusted =
+        requested === 0 || requested === 100
+          ? requested
+          : Math.round(Math.max(0, Math.min(100, value + delta)));
+      levels.set(entityId, adjusted);
+      this._setDisplayedVolume(entityId, adjusted);
+    }
+    const average = Math.round(this._averageVolume(levels));
+    event.currentTarget.value = String(average);
+    const output = this.shadowRoot.querySelector("[data-group-volume-output]");
+    output.value = `${average}%`;
+    output.textContent = `${average}%`;
+    this._groupVolumeBaseline = { levels, average };
+    this._error = "";
+    try {
+      await Promise.all(
+        [...levels].map(([entityId, value]) =>
+          this._hass.callService(
+            "media_player",
+            "volume_set",
+            { volume_level: value / 100 },
+            { entity_id: entityId }
+          )
+        )
+      );
+    } catch (error) {
+      this._groupVolumeBaseline = undefined;
+      this._error = error?.message || String(error);
+      this._render();
+    }
   }
 
   async _setVolume(event) {
@@ -378,6 +611,64 @@ class Control4MediaGroupDialog extends HTMLElement {
       "icon",
       muted ? "mdi:volume-off" : "mdi:volume-medium"
     );
+  }
+
+  _updateGroupMuteButton(button, allMuted) {
+    const action = allMuted ? "Unmute all" : "Mute all";
+    button.classList.toggle("muted", allMuted);
+    button.setAttribute("aria-pressed", allMuted ? "true" : "false");
+    button.setAttribute("aria-label", `${action} selected players`);
+    button.title = action;
+    button.querySelector("ha-icon")?.setAttribute(
+      "icon",
+      allMuted ? "mdi:volume-off" : "mdi:volume-medium"
+    );
+    const label = button.querySelector("span");
+    if (label) {
+      label.textContent = action;
+    }
+  }
+
+  async _setGroupMute() {
+    const states = this._muteStates();
+    if (!states.length) {
+      return;
+    }
+    const muted = !states.every(
+      (state) => this._displayedMuted(state) === true
+    );
+    this._error = "";
+    for (const state of states) {
+      this._pendingMutes.set(state.entity_id, {
+        value: muted,
+        expiresAt: Date.now() + FEEDBACK_TIMEOUT,
+      });
+      const button = this.shadowRoot.querySelector(
+        `[data-mute-id="${CSS.escape(state.entity_id)}"]`
+      );
+      if (button) {
+        this._updateMuteButton(button, muted);
+      }
+    }
+    this._updateGroupControls();
+    try {
+      await Promise.all(
+        states.map((state) =>
+          this._hass.callService(
+            "media_player",
+            "volume_mute",
+            { is_volume_muted: muted },
+            { entity_id: state.entity_id }
+          )
+        )
+      );
+    } catch (error) {
+      for (const state of states) {
+        this._pendingMutes.delete(state.entity_id);
+      }
+      this._error = error?.message || String(error);
+      this._render();
+    }
   }
 
   async _setMute(event) {
@@ -472,7 +763,7 @@ class Control4MediaGroupDialog extends HTMLElement {
     }
     .dialog {
       display: grid;
-      grid-template-rows: auto auto minmax(0, 1fr) auto;
+      grid-template-rows: auto auto auto minmax(0, 1fr) auto;
       width: min(560px, calc(100vw - 32px));
       height: min(800px, calc(100vh - 32px));
       height: min(800px, calc(100dvh - 32px));
@@ -508,6 +799,55 @@ class Control4MediaGroupDialog extends HTMLElement {
       background: color-mix(in srgb, var(--error-color, #db4437) 15%, transparent);
     }
     .error[hidden] { display: none; }
+    .group-controls {
+      padding: 12px 20px 14px;
+      border-bottom: 1px solid var(--divider-color, #444);
+      background: color-mix(in srgb, var(--primary-color, #03a9f4) 7%, transparent);
+    }
+    .group-controls-heading {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 8px;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    .group-controls-heading span:last-child {
+      color: var(--secondary-text-color, #aaa);
+      font-weight: 400;
+    }
+    .group-volume-row {
+      display: grid;
+      grid-template-columns: 112px minmax(0, 1fr) 48px;
+      gap: 10px;
+      align-items: center;
+    }
+    .group-volume-row input[type="range"] {
+      width: 100%;
+      accent-color: var(--primary-color, #03a9f4);
+    }
+    .group-volume-row output {
+      color: var(--secondary-text-color, #aaa);
+      text-align: end;
+    }
+    .group-mute-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 40px;
+      padding: 6px 10px;
+      border: 1px solid var(--divider-color, #555);
+      border-radius: 20px;
+      color: var(--primary-text-color, #fff);
+      background: var(--card-background-color, #1c1c1c);
+    }
+    .group-mute-button ha-icon { width: 20px; }
+    .group-mute-button.muted {
+      border-color: var(--primary-color, #03a9f4);
+      color: var(--primary-color, #03a9f4);
+      background: color-mix(in srgb, var(--primary-color, #03a9f4) 16%, transparent);
+    }
     main { min-height: 0; overflow-y: auto; padding: 12px 20px 20px; }
     .player { padding: 12px 0 14px; border-bottom: 1px solid var(--divider-color, #444); }
     .player:last-child { border-bottom: 0; }
