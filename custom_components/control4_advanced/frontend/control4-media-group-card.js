@@ -87,6 +87,10 @@ class Control4MediaGroupDialog extends HTMLElement {
     document.removeEventListener("keydown", this._onKeyDown);
     window.clearInterval(this._refreshTimer);
     this._refreshTimer = undefined;
+    const modal = this.shadowRoot.querySelector(".modal-shell");
+    if (modal?.open) {
+      modal.close();
+    }
     this.dispatchEvent(new CustomEvent("control4-dialog-closed"));
     this.remove();
   }
@@ -171,12 +175,10 @@ class Control4MediaGroupDialog extends HTMLElement {
     const players = this._players();
     this.shadowRoot.innerHTML = `
       <style>${Control4MediaGroupDialog.styles}</style>
-      <div class="backdrop" role="presentation">
+      <dialog class="modal-shell" aria-labelledby="dialog-title">
+        <div class="backdrop" role="presentation">
         <section
           class="dialog"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="dialog-title"
         >
           <header>
             <button class="icon-button close-button" aria-label="Close">×</button>
@@ -202,7 +204,25 @@ class Control4MediaGroupDialog extends HTMLElement {
             </button>
           </footer>
         </section>
-      </div>`;
+        </div>
+      </dialog>`;
+
+    const modal = this.shadowRoot.querySelector(".modal-shell");
+    modal.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      if (!this._submitting) {
+        this.close();
+      }
+    });
+    if (typeof modal.showModal === "function") {
+      try {
+        modal.showModal();
+      } catch (_error) {
+        modal.setAttribute("open", "");
+      }
+    } else {
+      modal.setAttribute("open", "");
+    }
 
     this.shadowRoot.querySelector(".backdrop").addEventListener("click", (event) => {
       if (event.target.classList.contains("backdrop") && !this._submitting) {
@@ -341,6 +361,22 @@ class Control4MediaGroupDialog extends HTMLElement {
       font-family: var(--paper-font-body1_-_font-family, sans-serif);
     }
     * { box-sizing: border-box; }
+    .modal-shell {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      max-width: none;
+      height: 100vh;
+      height: 100dvh;
+      max-height: none;
+      margin: 0;
+      padding: 0;
+      border: 0;
+      color: inherit;
+      background: transparent;
+      overflow: hidden;
+    }
+    .modal-shell::backdrop { background: transparent; }
     .backdrop {
       position: fixed;
       inset: 0;
@@ -501,42 +537,6 @@ const openControl4GroupDialog = (hass, entityId) => {
   return dialog;
 };
 
-const replaceMoreInfoWithControl4GroupDialog = (
-  moreInfoDialog,
-  hass,
-  entityId
-) => {
-  let opened = false;
-  let fallbackTimer;
-  const open = () => {
-    if (opened) {
-      return;
-    }
-    opened = true;
-    window.clearTimeout(fallbackTimer);
-    moreInfoDialog?.removeEventListener("dialog-closed", handleClosed);
-    openControl4GroupDialog(hass, entityId);
-  };
-  const handleClosed = (event) => {
-    if (event.target === moreInfoDialog) {
-      open();
-    }
-  };
-
-  if (typeof moreInfoDialog?.closeDialog !== "function") {
-    open();
-    return;
-  }
-
-  moreInfoDialog.addEventListener("dialog-closed", handleClosed);
-  fallbackTimer = window.setTimeout(open, 500);
-  try {
-    moreInfoDialog.closeDialog();
-  } catch (_error) {
-    open();
-  }
-};
-
 const handleMoreInfoGrouping = (event) => {
   const path = event.composedPath();
   const groupingButton = path.find(
@@ -568,7 +568,7 @@ const handleMoreInfoGrouping = (event) => {
   event.preventDefault();
   event.stopPropagation();
   event.stopImmediatePropagation();
-  replaceMoreInfoWithControl4GroupDialog(moreInfoDialog, hass, entityId);
+  openControl4GroupDialog(hass, entityId);
 };
 
 const registerMoreInfoGrouping = () => {
