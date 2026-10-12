@@ -358,6 +358,12 @@ Version 0.1.33 decodes Director's observed Base64-wrapped artwork URL before
 applying those same HTTP(S), length, and credential checks. This fixes TIDAL
 artwork values that v0.1.32 rejected because they were not sent as plain URLs.
 
+Version 0.1.34 adds a native **Volume** number slider to every Control4 room
+with a validated volume command and active `aswitch` binding. Each slider
+targets only its own room, so group members can be adjusted independently from
+an Entities or Grid card. Home Assistant's standard group-membership dialog
+still controls membership only and cannot be extended by an integration.
+
 ## License
 
 This repository is licensed under the [Apache License 2.0](LICENSE).

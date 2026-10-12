@@ -225,6 +225,7 @@ class MediaPlayerSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(await integration.async_setup_entry(hass, entry))
             self.assertIn("media_player", forwarded)
             self.assertIn("button", forwarded)
+            self.assertIn("number", forwarded)
             self.assertEqual(FakeTransport.instances[0].tracked_ids, {2726})
             self.assertEqual(
                 entry.runtime_data.commands.metadata_ids,

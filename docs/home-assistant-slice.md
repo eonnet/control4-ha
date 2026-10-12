@@ -58,6 +58,12 @@ is cleared with the other current-media fields when the room turns off.
 Version 0.1.33 handles the live Director format where `mediainfo.img` is a
 Base64-wrapped URL. The decoded value must pass the same bounded absolute
 HTTP(S) URL validation before Home Assistant proxies it.
+Version 0.1.34 adds one native percentage number slider per media room whose
+advertised command metadata supports volume. It uses the room's settled
+Director percentage, requires the verified active `aswitch` binding, and sends
+the volume command only to that slider's room. This provides independent
+member volume control for Control4 groups outside Home Assistant's
+membership-only group dialog.
 
 The config flow accepts a local Director hostname/IP and Control4 account
 credentials. The account service issues a Director JWT; a separate local

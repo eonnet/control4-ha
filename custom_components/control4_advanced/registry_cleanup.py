@@ -39,7 +39,7 @@ def _director_id(unique_id: str, host: str) -> int | None:
     for entity_suffix in (
         "_hold_mode", "_media_play", "_media_pause", "_media_stop",
         "_media_skip_rev", "_media_skip_fwd",
-        "_tidal_account", "_tidal_playlist",
+        "_tidal_account", "_tidal_playlist", "_room_volume",
     ):
         if suffix.endswith(entity_suffix):
             suffix = suffix[:-len(entity_suffix)]

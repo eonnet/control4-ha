@@ -235,6 +235,11 @@ the frontend.
 Version 0.1.33 decodes the observed Base64-wrapped TIDAL artwork value before
 running the same URL validation. Invalid Base64 and decoded non-HTTP(S) URLs
 remain rejected.
+Version 0.1.34 exposes the same validated room-volume path as a native
+percentage number slider for each eligible media room. Sliders keep independent
+room IDs and settled Director feedback, allowing a dashboard to show all group
+member volumes without turning the leader's value into a synthetic group
+volume.
 At version 0.1.12, media-player discovery still required a supported volume
 binding at integration startup. Version 0.1.13 retains an already registered
 room while its off-state binding is zero; new source-only or unproven rooms
