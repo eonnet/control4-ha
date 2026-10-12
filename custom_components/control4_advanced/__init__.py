@@ -197,6 +197,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             except Exception as exc:
                 _LOGGER.warning("Control4 room volume setup failed: %s", type(exc).__name__)
                 continue
+            coordinator.enable_volume_fallback()
             media_coordinators[room_id] = coordinator
         media_sources = {
             room_id: sources

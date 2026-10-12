@@ -504,6 +504,14 @@ device, not only an audio switch. These rooms use short, authoritative Director
 REST reads after a volume or mute command because their bound device does not
 provide the proven audio-switch push feedback path.
 
+Version 0.1.51 keeps TV/AV-bound room volume and mute state synchronized when
+changes originate in Control4, using a three-second authoritative REST fallback
+only while a non-audio-switch volume path is active. Audio-switch rooms continue
+to use immediate push feedback. The custom group dialog is also denser: compact
+player rows, slimmer progress-aware volume sliders, smaller toggles, and reduced
+section, header, preset, and footer spacing bring it closer to Home Assistant's
+stock media-player layout.
+
 Version 0.1.37 registers the dashboard cards as versioned Lovelace resources
 instead of relying on Home Assistant's early extra-module loader. This avoids
 the scoped custom-element registry race that could show **Custom element not
