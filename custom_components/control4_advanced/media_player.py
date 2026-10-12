@@ -62,6 +62,7 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
         self._pending_volume_muted: bool | None = None
         self._pending_mute_timer: asyncio.TimerHandle | None = None
         self._mute_request_id = 0
+        self._volume_confirmation_task: asyncio.Task[None] | None = None
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
@@ -71,6 +72,11 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
             self._remove_session = coordinator.subscribe(self._on_session_update)
 
     async def async_will_remove_from_hass(self) -> None:
+        confirmation_task = self._volume_confirmation_task
+        self._volume_confirmation_task = None
+        if confirmation_task is not None:
+            confirmation_task.cancel()
+            await asyncio.gather(confirmation_task, return_exceptions=True)
         self._clear_pending_volume()
         self._clear_pending_mute()
         if self._remove_session is not None:
@@ -528,11 +534,48 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
         volume = self.state_data.get("volume_percent")
         return (
             bound is not None
-            and bound.get("proxy") == "aswitch"
             and type(volume) in (int, float)
             and 0 <= volume <= 100
             and isinstance(self.state_data.get("is_muted"), bool)
         )
+
+    def _volume_push_ready(self) -> bool:
+        """Return whether the bound device has proven volume push feedback."""
+        bound_id = self.state_data.get("volume_device_id")
+        bound = (
+            self.runtime.transport.inventory.items.get(bound_id)
+            if type(bound_id) is int and bound_id > 0
+            else None
+        )
+        return bound is not None and bound.get("proxy") == "aswitch"
+
+    def _schedule_volume_confirmation(self) -> None:
+        """Poll room state briefly when the volume binding has no push path."""
+        if self._volume_push_ready():
+            return
+        if self._volume_confirmation_task is not None:
+            self._volume_confirmation_task.cancel()
+        self._volume_confirmation_task = asyncio.create_task(
+            self._confirm_volume_state()
+        )
+
+    async def _confirm_volume_state(self) -> None:
+        """Re-read Director until the pending volume or mute is confirmed."""
+        try:
+            for delay in (0.25, 0.5, 1.0, 1.0):
+                await asyncio.sleep(delay)
+                try:
+                    await self.runtime.transport.sync_device(self.device_id)
+                except Exception:
+                    continue
+                if (
+                    self._pending_volume_level is None
+                    and self._pending_volume_muted is None
+                ):
+                    return
+        finally:
+            if self._volume_confirmation_task is asyncio.current_task():
+                self._volume_confirmation_task = None
 
     async def async_set_volume_level(self, volume: float) -> None:
         if not isinstance(volume, (int, float)) or isinstance(volume, bool):
@@ -560,6 +603,7 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
                 self._expire_pending_volume,
                 request_id,
             )
+            self._schedule_volume_confirmation()
 
     def _clear_pending_volume(self, *, write_state: bool = False) -> None:
         if self._pending_volume_timer is not None:
@@ -602,6 +646,7 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
                 self._expire_pending_mute,
                 request_id,
             )
+            self._schedule_volume_confirmation()
 
     def _clear_pending_mute(self, *, write_state: bool = False) -> None:
         if self._pending_mute_timer is not None:
