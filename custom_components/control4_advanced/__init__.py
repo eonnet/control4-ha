@@ -67,6 +67,14 @@ class Control4Runtime:
     media_entity_ids: dict[int, str] = field(default_factory=dict)
 
 
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Register the optional Control4 dashboard card frontend."""
+    from .frontend import async_register_frontend
+
+    await async_register_frontend(hass)
+    return True
+
+
 async def _discover_media_room_ids(
     transport: Control4Transport, known_room_ids: set[int] | None = None,
 ) -> list[int]:

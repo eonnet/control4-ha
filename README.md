@@ -263,6 +263,10 @@ including disabled entities. The entities and registry records are retained;
 references to renamed IDs in dashboards, automations, scripts, and scenes must
 still be updated manually.
 
+Version 0.1.36 replaces the separate **Volume** number entities with a packaged
+**Control4 Media Group** dashboard card. Its popup combines group membership
+and independent volume controls for the individual Control4 room players.
+
 State is initialized through REST, then updated from WebSocket events;
 entities do not poll when a usable push path has been proven. REST re-syncs
 after reconnect and on a slow reconciliation interval. Home Assistant device metadata includes the
@@ -277,6 +281,25 @@ Authentication requires access to the Control4 account service. Once a
 Director token has been obtained, device communication is local. The local
 Director's self-signed TLS certificate is not verified; cloud authentication
 still uses normal TLS verification.
+
+## Control4 Media Group card
+
+After updating to version 0.1.36, restart Home Assistant and refresh the
+browser or fully close and reopen the mobile app. In dashboard edit mode choose
+**Add card**, search for **Control4 Media Group**, and select the room that
+should lead the group. The equivalent manual configuration is:
+
+```yaml
+type: custom:control4-media-group-card
+entity: media_player.kitchen
+```
+
+The popup sends membership changes when **Apply** is pressed. Moving a volume
+slider sends the change immediately and only to that room. A slider is disabled
+while its room is off, unavailable, or does not advertise Control4's validated
+room-volume command; join an off room first, then reopen the card. The old
+Volume number entities are removed during the first successful integration
+reload after the update.
 
 Issues and test reports: [GitHub Issues](https://github.com/eonnet/control4-ha/issues).
 
