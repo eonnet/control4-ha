@@ -450,6 +450,12 @@ preventing the native slider from jumping back to the previous value during the
 short REST-feedback delay. If confirmation never arrives, the entity returns to
 the last verified volume after eight seconds.
 
+Version 0.1.43 closes Home Assistant's native More Info window before opening
+the Control4 grouping dialog. This moves the custom player-and-volume popup into
+the visible browser layer instead of leaving it hidden behind the native dialog;
+a short fallback also covers Android Companion App versions that omit the close
+event.
+
 Version 0.1.37 registers the dashboard cards as versioned Lovelace resources
 instead of relying on Home Assistant's early extra-module loader. This avoids
 the scoped custom-element registry race that could show **Custom element not
