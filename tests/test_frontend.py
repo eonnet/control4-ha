@@ -153,13 +153,28 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("{ is_volume_muted: muted }", javascript)
         self.assertIn('muted ? "mdi:volume-off" : "mdi:volume-medium"', javascript)
         self.assertIn("control4_room_id", javascript)
-        self.assertIn("grid-template-rows: auto auto minmax(0, 1fr) auto", javascript)
+        self.assertIn(
+            "grid-template-rows: auto auto auto minmax(0, 1fr) auto",
+            javascript,
+        )
         self.assertIn("position: fixed;\n        z-index: 10000", javascript)
         self.assertIn("bottom: 0;", javascript)
         self.assertIn(
             "padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px))",
             javascript,
         )
+
+    def test_card_asset_contains_relative_group_master_controls(self) -> None:
+        javascript = Path(FRONTEND_FILE).read_text(encoding="utf-8")
+        self.assertIn('<section class="group-controls"', javascript)
+        self.assertIn('data-group-volume', javascript)
+        self.assertIn('class="group-mute-button', javascript)
+        self.assertIn('const delta = requested - baseline.average', javascript)
+        self.assertIn('requested === 0 || requested === 100', javascript)
+        self.assertIn('this._setDisplayedVolume(entityId, adjusted)', javascript)
+        self.assertIn('async _setGroupMute()', javascript)
+        self.assertIn('const muted = !states.every(', javascript)
+        self.assertIn('`${selected.length} selected`', javascript)
         self.assertIn(
             "registerCard();\nregisterMoreInfoGrouping();\n(async () =>",
             javascript,
@@ -171,10 +186,10 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
                 encoding="utf-8"
             )
         )
-        self.assertEqual(manifest["version"], "0.1.46")
+        self.assertEqual(manifest["version"], "0.1.47")
         self.assertIn("http", manifest["dependencies"])
         self.assertEqual(manifest["requirements"], ["pyControl4>=2.0.2"])
-        self.assertTrue(FRONTEND_URL.endswith("?v=0.1.46"))
+        self.assertTrue(FRONTEND_URL.endswith("?v=0.1.47"))
 
     def test_official_control4_brand_assets_are_packaged(self) -> None:
         brand = Path(FRONTEND_FILE).parent.parent / "brand"

@@ -473,6 +473,14 @@ seconds if no confirmation arrives. This release also replaces the temporary
 integration artwork with the official Control4 icon and wordmark, including
 high-resolution variants for Home Assistant 2026.3 and newer.
 
+Version 0.1.47 adds **Group volume** and **Mute all / Unmute all** above the
+individual room controls. The master slider targets the currently selected,
+powered-on players and adjusts them by the same relative amount so their
+individual volume differences are retained. Moving the slider fully to 0% or
+100% explicitly sets every target to that endpoint. Group mute follows the
+same selected-player scope and retains optimistic feedback while Director
+confirms each room.
+
 Version 0.1.37 registers the dashboard cards as versioned Lovelace resources
 instead of relying on Home Assistant's early extra-module loader. This avoids
 the scoped custom-element registry race that could show **Custom element not

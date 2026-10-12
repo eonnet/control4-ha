@@ -12,7 +12,7 @@ from .const import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 FRONTEND_URL_PATH = f"/{DOMAIN}/frontend/control4-media-group-card.js"
-FRONTEND_URL = f"{FRONTEND_URL_PATH}?v=0.1.46"
+FRONTEND_URL = f"{FRONTEND_URL_PATH}?v=0.1.47"
 FRONTEND_FILE = Path(__file__).parent / "frontend" / "control4-media-group-card.js"
 _REGISTERED_KEY = f"{DOMAIN}_frontend_registered"
 
