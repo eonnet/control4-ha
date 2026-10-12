@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from .proxies import (
     CONTACT_SENSOR_PROXIES,
@@ -66,8 +67,32 @@ def _media_text(value: Any) -> str | None:
     return result
 
 
+def _media_image_url(value: Any) -> str | None:
+    """Return one bounded HTTP(S) artwork URL for HA's image proxy."""
+    if not isinstance(value, str):
+        return None
+    result = value.strip()
+    if not result or len(result) > 2048 or any(ord(char) < 32 for char in result):
+        return None
+    try:
+        parsed = urlsplit(result)
+        # Accessing these properties also rejects malformed ports and hosts.
+        hostname = parsed.hostname
+        parsed.port
+    except ValueError:
+        return None
+    if (
+        parsed.scheme.lower() not in {"http", "https"}
+        or not hostname
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        return None
+    return result
+
+
 def _room_media_changes(value: Any) -> dict[str, str | None]:
-    """Decode only the observed title fields from CURRENT MEDIA INFO."""
+    """Decode only observed display fields from CURRENT MEDIA INFO."""
     if not isinstance(value, Mapping):
         return {}
     media_info = value.get("mediainfo")
@@ -77,6 +102,7 @@ def _room_media_changes(value: Any) -> dict[str, str | None]:
         "media_title": _media_text(media_info.get("title")),
         "media_artist": _media_text(media_info.get("artist")),
         "media_album_name": _media_text(media_info.get("album")),
+        "media_image_url": _media_image_url(media_info.get("img")),
     }
 
 
@@ -283,7 +309,9 @@ def normalize_rest_variables(
         power = _rest_binary_state(by_name.get("POWER_STATE"))
         if power is not None:
             changes["is_on"] = power
-        media_keys = ("media_title", "media_artist", "media_album_name")
+        media_keys = (
+            "media_title", "media_artist", "media_album_name", "media_image_url",
+        )
         changes.update(_room_media_changes(by_name.get("CURRENT MEDIA INFO")))
         if power is False:
             changes.update({key: None for key in media_keys})

@@ -254,7 +254,7 @@ class Control4Transport:
         changes = {}
         for key in (
             "selected_source_id", "is_on", "media_title", "media_artist",
-            "media_album_name",
+            "media_album_name", "media_image_url",
         ):
             if key in snapshot.changes and snapshot.changes[key] != current.get(key):
                 changes[key] = snapshot.changes[key]

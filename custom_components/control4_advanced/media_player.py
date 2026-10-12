@@ -569,6 +569,17 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
         return value if isinstance(value, str) else None
 
     @property
+    def media_image_url(self) -> str | None:
+        """Return Director artwork for Home Assistant's signed image proxy."""
+        value = self.state_data.get("media_image_url")
+        return value if isinstance(value, str) else None
+
+    @property
+    def media_image_remotely_accessible(self) -> bool:
+        """Keep the upstream artwork URL behind Home Assistant's proxy."""
+        return False
+
+    @property
     def source(self) -> str | None:
         selected = self._selected_source()
         return selected.label if selected is not None else None
