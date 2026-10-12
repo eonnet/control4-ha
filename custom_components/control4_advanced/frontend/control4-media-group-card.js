@@ -2580,8 +2580,8 @@ class Control4MediaFavoritesCard extends HTMLElement {
         }
         .refresh:hover { background: var(--secondary-background-color); }
         .refresh:disabled { cursor: default; opacity: 0.55; }
-        .content { padding: 0 12px 12px; }
-        section + section { margin-top: 12px; }
+        .content { padding: 0 12px 14px; }
+        section + section { margin-top: 18px; }
         .section-heading {
           display: flex;
           align-items: center;
@@ -2606,20 +2606,27 @@ class Control4MediaFavoritesCard extends HTMLElement {
         .media-grid {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 7px;
+          gap: 10px;
         }
         .media-item {
-          display: grid;
-          grid-template-columns: 38px minmax(0, 1fr) 22px;
-          gap: 9px;
+          position: relative;
+          display: flex;
+          flex-direction: column;
           align-items: center;
-          min-height: 54px;
-          padding: 7px 8px;
+          justify-content: center;
+          gap: 7px;
+          width: 100%;
+          height: clamp(132px, 36vw, 152px);
+          padding: 9px 12px;
           border: 1px solid var(--divider-color);
-          border-radius: 11px;
+          border-radius: 12px;
           color: var(--primary-text-color);
-          text-align: start;
-          background: transparent;
+          text-align: center;
+          background: color-mix(
+            in srgb,
+            var(--primary-text-color, #fff) 3%,
+            transparent
+          );
           cursor: pointer;
         }
         .media-item:hover { background: var(--secondary-background-color); }
@@ -2632,31 +2639,59 @@ class Control4MediaFavoritesCard extends HTMLElement {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          width: 38px;
-          height: 38px;
+          flex: 0 0 auto;
+          width: 52px;
+          height: 52px;
           overflow: hidden;
-          border-radius: 9px;
+          border-radius: 12px;
           color: var(--primary-color);
           background: var(--secondary-background-color);
         }
         .art img { width: 100%; height: 100%; object-fit: contain; }
-        .art ha-icon { display: none; --mdc-icon-size: 23px; }
+        .art ha-icon { display: none; --mdc-icon-size: 30px; }
         .art.fallback img { display: none; }
         .art.fallback ha-icon { display: block; }
-        .item-copy, .item-title, .item-detail {
-          display: block;
+        .item-copy {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          width: 100%;
           min-width: 0;
+        }
+        .item-title, .item-detail {
+          max-width: 100%;
           overflow: hidden;
           text-overflow: ellipsis;
-          white-space: nowrap;
         }
-        .item-title { font-size: 14px; font-weight: 500; }
+        .item-title {
+          display: -webkit-box;
+          font-size: 16px;
+          font-weight: 500;
+          line-height: 1.15;
+          white-space: normal;
+          -webkit-box-orient: vertical;
+          -webkit-line-clamp: 2;
+        }
         .item-detail {
           margin-top: 2px;
           color: var(--secondary-text-color);
-          font-size: 11px;
+          font-size: 12px;
+          white-space: nowrap;
         }
-        .play { color: var(--primary-color); --mdc-icon-size: 20px; }
+        .play {
+          position: absolute;
+          top: 9px;
+          right: 9px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 28px;
+          height: 28px;
+          border-radius: 50%;
+          color: var(--primary-color);
+          background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+          --mdc-icon-size: 19px;
+        }
         .spinner, .busy { animation: spin 1s linear infinite; }
         .empty, .notice {
           padding: 16px 8px;

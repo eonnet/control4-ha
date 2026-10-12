@@ -290,6 +290,10 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(
             "grid-template-columns: repeat(2, minmax(0, 1fr));", javascript
         )
+        self.assertIn("height: clamp(132px, 36vw, 152px);", javascript)
+        self.assertIn("flex-direction: column;", javascript)
+        self.assertIn("-webkit-line-clamp: 2;", javascript)
+        self.assertIn("width: 52px;", javascript)
 
     def test_manifest_declares_hassfest_runtime_dependencies(self) -> None:
         manifest = json.loads(
@@ -297,10 +301,10 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
                 encoding="utf-8"
             )
         )
-        self.assertEqual(manifest["version"], "0.1.58")
+        self.assertEqual(manifest["version"], "0.1.59")
         self.assertIn("http", manifest["dependencies"])
         self.assertEqual(manifest["requirements"], ["pyControl4>=2.0.2"])
-        self.assertTrue(FRONTEND_URL.endswith("?v=0.1.58"))
+        self.assertTrue(FRONTEND_URL.endswith("?v=0.1.59"))
 
     def test_official_control4_brand_assets_are_packaged(self) -> None:
         brand = Path(FRONTEND_FILE).parent.parent / "brand"
