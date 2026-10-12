@@ -455,17 +455,28 @@ class Control4MediaGroupDialog extends HTMLElement {
     @media (max-width: 600px) {
       .backdrop { align-items: stretch; }
       .dialog {
+        position: fixed;
+        inset: 0;
         width: 100%;
-        height: 100vh;
-        height: 100dvh;
-        max-height: 100dvh;
+        height: auto;
+        max-height: none;
         border-radius: 0;
       }
       header { grid-template-columns: 44px minmax(0, 1fr) auto; min-height: 64px; }
       h2 { font-size: 22px; white-space: nowrap; }
-      main { padding-inline: 20px; }
+      main {
+        padding-inline: 20px;
+        padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+      }
       footer {
-        padding-bottom: max(14px, env(safe-area-inset-bottom));
+        position: fixed;
+        z-index: 10000;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        min-height: 72px;
+        padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+        box-shadow: 0 -6px 16px rgba(0, 0, 0, 0.28);
       }
     }
   `;
