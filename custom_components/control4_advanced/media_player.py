@@ -63,6 +63,7 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
         self._pending_mute_timer: asyncio.TimerHandle | None = None
         self._mute_request_id = 0
         self._volume_confirmation_task: asyncio.Task[None] | None = None
+        self._remembered_media: dict[str, Any] | None = None
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
@@ -91,6 +92,17 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
 
     async def _on_event(self, event: NormalizedEvent) -> None:
         if event.device_id == self.device_id and event.authoritative:
+            if self._remembered_media is not None:
+                selected_source_id = event.changes.get("selected_source_id")
+                if (
+                    event.changes.get("is_on") is False
+                    or (
+                        type(selected_source_id) is int
+                        and selected_source_id
+                        != self._remembered_media["source_device_id"]
+                    )
+                ):
+                    self._remembered_media = None
             if self._pending_volume_level is not None:
                 confirmed = event.changes.get("volume_percent")
                 if (
@@ -108,9 +120,40 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
         await super()._on_event(event)
 
     @property
-    def extra_state_attributes(self) -> dict[str, int]:
-        """Mark room players so the packaged dashboard card can find them."""
-        return {"control4_room_id": self.device_id}
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose stable room and allowlisted media IDs to the packaged card."""
+        attributes: dict[str, Any] = {"control4_room_id": self.device_id}
+        media = self._remembered_media
+        if (
+            media is None
+            and self._room_is_on()
+            and (selected := self._selected_source()) is not None
+        ):
+            media = {
+                "content_type": str(SOURCE_TYPE),
+                "content_id": self._source_id(selected),
+                "title": selected.label,
+                "source_device_id": selected.device_id,
+            }
+        if media is not None:
+            attributes.update({
+                "control4_media_content_type": media["content_type"],
+                "control4_media_content_id": media["content_id"],
+                "control4_media_title": media["title"],
+            })
+        return attributes
+
+    def _remember_media(
+        self, media_type: MediaType | str, media_id: str, title: str,
+        source_device_id: int,
+    ) -> None:
+        self._remembered_media = {
+            "content_type": str(media_type),
+            "content_id": media_id,
+            "title": title,
+            "source_device_id": source_device_id,
+        }
+        self.async_write_ha_state()
 
     @property
     def supported_features(self) -> MediaPlayerEntityFeature:
@@ -476,6 +519,7 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
             if source is None:
                 raise UnsupportedCommand("source is not advertised for this room")
             await self._async_select_source(source)
+            self._remember_media(media_type, media_id, source.label, source.device_id)
             return
         if media_type == MediaType.CHANNEL:
             resolved_favorite = self._tunein_favorite_for_media_id(media_id)
@@ -487,6 +531,10 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
             await self.runtime.commands.tunein_favorite(
                 catalog.protocol_id, self.device_id, favorite
             )
+            await self._confirm_media_source(catalog.source_id)
+            self._remember_media(
+                media_type, media_id, favorite.name, catalog.source_id
+            )
             return
         if media_type != MediaType.PLAYLIST:
             raise UnsupportedCommand("Control4 media type is not supported")
@@ -496,6 +544,10 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
         catalog, playlist = resolved
         await self.runtime.commands.tidal_playlist(
             catalog.protocol_id, self.device_id, playlist
+        )
+        await self._confirm_media_source(catalog.source_id)
+        self._remember_media(
+            media_type, media_id, playlist.name, catalog.source_id
         )
 
     def _grouping_ready(self) -> bool:
@@ -771,13 +823,20 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
     async def _async_select_source(self, selected: RoomSource) -> None:
         """Select one already resolved, allowlisted browser source."""
         await self.runtime.commands.room_source(self.device_id, selected)
+        await self._confirm_media_source(selected.device_id)
+
+    async def _confirm_media_source(self, source_device_id: int) -> None:
+        """Wait briefly for Director to expose the selected, powered source."""
         # A command response is not state feedback. Only a REST read may
         # confirm the selected source; retry briefly for Director's settle.
         for delay in (0, 0.25, 0.5, 1.0, 1.0):
             if delay:
                 await asyncio.sleep(delay)
             await self.runtime.transport.sync_device(self.device_id)
-            if self.state_data.get("selected_source_id") == selected.device_id:
+            if (
+                self._room_is_on()
+                and self.state_data.get("selected_source_id") == source_device_id
+            ):
                 break
 
     @property

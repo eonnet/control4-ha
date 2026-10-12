@@ -10,6 +10,7 @@ const FEEDBACK_TIMEOUT = 8000;
 const PRESET_LIST_COMMAND = `${CONTROL4_PLATFORM}/group_presets/list`;
 const PRESET_SAVE_COMMAND = `${CONTROL4_PLATFORM}/group_presets/save`;
 const PRESET_DELETE_COMMAND = `${CONTROL4_PLATFORM}/group_presets/delete`;
+const PRESET_REORDER_COMMAND = `${CONTROL4_PLATFORM}/group_presets/reorder`;
 
 const supportsFeature = (state, feature) =>
   Boolean((Number(state?.attributes?.supported_features) || 0) & feature);
@@ -66,6 +67,7 @@ class Control4MediaGroupDialog extends HTMLElement {
     this._presetMessage = "";
     this._presetError = "";
     this._presetDraftName = "";
+    this._presetEditingId = undefined;
     this._refreshTimer = undefined;
     this._onKeyDown = (event) => {
       if (event.key === "Escape" && !this._submitting) {
@@ -309,17 +311,20 @@ class Control4MediaGroupDialog extends HTMLElement {
         </div>`;
     } else {
       content = `<div class="preset-list">${this._presets
-        .map((preset) => {
+        .map((preset, index) => {
           const resolved = this._resolvePreset(preset);
           const unavailable = !resolved.leader || resolved.missing.length > 0;
           const leaderName = resolved.leader
             ? stateName(resolved.leader)
             : "Leader unavailable";
-          const detail = unavailable
+          const groupDetail = unavailable
             ? `${resolved.members.length}/${preset.members.length} players available`
             : `${resolved.members.length} player${
                 resolved.members.length === 1 ? "" : "s"
               } · ${leaderName} leader`;
+          const detail = preset.media?.title
+            ? `${groupDetail} · ${preset.media.title}`
+            : groupDetail;
           return `
             <article class="preset-card ${unavailable ? "unavailable" : ""}">
               <button
@@ -335,14 +340,42 @@ class Control4MediaGroupDialog extends HTMLElement {
                   <small>${escapeHtml(detail)}</small>
                 </span>
               </button>
-              <button
-                type="button"
-                class="preset-delete"
-                data-delete-preset-id="${escapeHtml(preset.id)}"
-                aria-label="Delete ${escapeHtml(preset.name)} group preset"
-                title="Delete preset"
-                ${this._submitting || this._presetBusy ? "disabled" : ""}
-              ><ha-icon icon="mdi:delete-outline"></ha-icon></button>
+              <div class="preset-actions">
+                <button
+                  type="button"
+                  class="preset-action"
+                  data-edit-preset-id="${escapeHtml(preset.id)}"
+                  aria-label="Edit ${escapeHtml(preset.name)} group preset"
+                  title="Rename or update preset"
+                  ${this._submitting || this._presetBusy ? "disabled" : ""}
+                ><ha-icon icon="mdi:pencil-outline"></ha-icon></button>
+                <button
+                  type="button"
+                  class="preset-action"
+                  data-move-preset-id="${escapeHtml(preset.id)}"
+                  data-move-direction="-1"
+                  aria-label="Move ${escapeHtml(preset.name)} up"
+                  title="Move up"
+                  ${index === 0 || this._submitting || this._presetBusy ? "disabled" : ""}
+                ><ha-icon icon="mdi:arrow-up"></ha-icon></button>
+                <button
+                  type="button"
+                  class="preset-action"
+                  data-move-preset-id="${escapeHtml(preset.id)}"
+                  data-move-direction="1"
+                  aria-label="Move ${escapeHtml(preset.name)} down"
+                  title="Move down"
+                  ${index === this._presets.length - 1 || this._submitting || this._presetBusy ? "disabled" : ""}
+                ><ha-icon icon="mdi:arrow-down"></ha-icon></button>
+                <button
+                  type="button"
+                  class="preset-action preset-delete"
+                  data-delete-preset-id="${escapeHtml(preset.id)}"
+                  aria-label="Delete ${escapeHtml(preset.name)} group preset"
+                  title="Delete preset"
+                  ${this._submitting || this._presetBusy ? "disabled" : ""}
+                ><ha-icon icon="mdi:delete-outline"></ha-icon></button>
+              </div>
             </article>`;
         })
         .join("")}</div>`;
@@ -352,7 +385,7 @@ class Control4MediaGroupDialog extends HTMLElement {
         <div class="preset-heading">
           <div>
             <h3>Group presets</h3>
-            <p>Recall rooms and individual volume settings</p>
+            <p>Recall source, rooms, volume, and mute settings</p>
           </div>
           <button
             type="button"
@@ -387,7 +420,16 @@ class Control4MediaGroupDialog extends HTMLElement {
                 />
                 <button type="submit" class="preset-save" ${
                   this._presetBusy ? "disabled" : ""
-                }>Save</button>
+                } data-preset-action="${
+                  this._presetEditingId ? "rename" : "create"
+                }">${this._presetEditingId ? "Rename" : "Save"}</button>
+                ${
+                  this._presetEditingId
+                    ? `<button type="submit" class="preset-update" data-preset-action="update" ${
+                        this._presetBusy ? "disabled" : ""
+                      }>Update current</button>`
+                    : ""
+                }
                 <button type="button" class="preset-cancel" ${
                   this._presetBusy ? "disabled" : ""
                 }>Cancel</button>
@@ -673,6 +715,7 @@ class Control4MediaGroupDialog extends HTMLElement {
       .querySelector(".save-current-preset")
       ?.addEventListener("click", () => {
         this._presetEditorOpen = true;
+        this._presetEditingId = undefined;
         this._presetDraftName = "";
         this._presetMessage = "";
         this._presetError = "";
@@ -692,6 +735,7 @@ class Control4MediaGroupDialog extends HTMLElement {
       .querySelector(".preset-cancel")
       ?.addEventListener("click", () => {
         this._presetEditorOpen = false;
+        this._presetEditingId = undefined;
         this._presetDraftName = "";
         this._presetError = "";
         this._refreshPresetSection();
@@ -699,6 +743,37 @@ class Control4MediaGroupDialog extends HTMLElement {
     for (const button of this.shadowRoot.querySelectorAll("[data-preset-id]")) {
       button.addEventListener("click", (event) =>
         this._activatePreset(event.currentTarget.dataset.presetId)
+      );
+    }
+    for (const button of this.shadowRoot.querySelectorAll(
+      "[data-edit-preset-id]"
+    )) {
+      button.addEventListener("click", (event) => {
+        const preset = this._presets.find(
+          (item) => item.id === event.currentTarget.dataset.editPresetId
+        );
+        if (!preset) {
+          return;
+        }
+        this._presetEditorOpen = true;
+        this._presetEditingId = preset.id;
+        this._presetDraftName = preset.name;
+        this._presetMessage = "";
+        this._presetError = "";
+        this._refreshPresetSection();
+        requestAnimationFrame(() =>
+          this.shadowRoot.querySelector("[data-preset-name]")?.focus()
+        );
+      });
+    }
+    for (const button of this.shadowRoot.querySelectorAll(
+      "[data-move-preset-id]"
+    )) {
+      button.addEventListener("click", (event) =>
+        this._movePreset(
+          event.currentTarget.dataset.movePresetId,
+          Number(event.currentTarget.dataset.moveDirection)
+        )
       );
     }
     for (const button of this.shadowRoot.querySelectorAll(
@@ -758,14 +833,42 @@ class Control4MediaGroupDialog extends HTMLElement {
     });
   }
 
+  _currentPresetMedia(leader) {
+    const contentType = leader?.attributes?.control4_media_content_type;
+    const contentId = leader?.attributes?.control4_media_content_id;
+    const title = leader?.attributes?.control4_media_title;
+    if (
+      typeof contentType !== "string" ||
+      typeof contentId !== "string" ||
+      typeof title !== "string"
+    ) {
+      return null;
+    }
+    return {
+      content_type: contentType,
+      content_id: contentId,
+      title,
+    };
+  }
+
   async _savePreset(event) {
     event.preventDefault();
     if (this._presetBusy) {
       return;
     }
     const name = this._presetDraftName.trim();
-    const leader = this._hass.states[this._entityId];
-    const leaderRoomId = Number(leader?.attributes?.control4_room_id);
+    const action = event.submitter?.dataset.presetAction || "create";
+    const existing = this._presetEditingId
+      ? this._presets.find((preset) => preset.id === this._presetEditingId)
+      : undefined;
+    const useCurrent = action !== "rename";
+    const currentLeader = this._hass.states[this._entityId];
+    const leader = useCurrent ? currentLeader : this._resolvePreset(existing || {}).leader;
+    const leaderRoomId = Number(
+      useCurrent
+        ? leader?.attributes?.control4_room_id
+        : existing?.leader_room_id
+    );
     if (!name || !Number.isInteger(leaderRoomId)) {
       this._presetError = !name
         ? "Enter a name for the preset."
@@ -779,12 +882,22 @@ class Control4MediaGroupDialog extends HTMLElement {
     this._presetMessage = "";
     this._refreshPresetSection();
     try {
+      const members = useCurrent
+        ? this._currentPresetMembers()
+        : existing.members.map((member) => ({ ...member }));
+      const media = useCurrent
+        ? this._currentPresetMedia(leader)
+        : existing.media || null;
       const response = await this._sendPresetMessage({
         type: PRESET_SAVE_COMMAND,
+        ...(existing ? { preset_id: existing.id } : {}),
         name,
-        leader_entity_id: leader.entity_id,
+        leader_entity_id: useCurrent
+          ? leader.entity_id
+          : existing.leader_entity_id,
         leader_room_id: leaderRoomId,
-        members: this._currentPresetMembers(),
+        members,
+        media,
       });
       const saved = response?.preset;
       if (!saved?.id) {
@@ -797,10 +910,49 @@ class Control4MediaGroupDialog extends HTMLElement {
         this._presets[index] = saved;
       }
       this._presetEditorOpen = false;
+      this._presetEditingId = undefined;
       this._presetDraftName = "";
-      this._presetMessage = `${saved.name} saved`;
+      this._presetMessage = `${saved.name} ${
+        action === "rename" ? "renamed" : action === "update" ? "updated" : "saved"
+      }`;
     } catch (error) {
       this._presetError = `Could not save preset: ${
+        error?.message || String(error)
+      }`;
+    } finally {
+      this._presetBusy = false;
+      if (this.isConnected) {
+        this._refreshPresetSection();
+      }
+    }
+  }
+
+  async _movePreset(presetId, direction) {
+    if (this._presetBusy || ![-1, 1].includes(direction)) {
+      return;
+    }
+    const index = this._presets.findIndex((preset) => preset.id === presetId);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= this._presets.length) {
+      return;
+    }
+    const reordered = [...this._presets];
+    [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+    this._presetBusy = true;
+    this._presetError = "";
+    this._presetMessage = "";
+    this._refreshPresetSection();
+    try {
+      const response = await this._sendPresetMessage({
+        type: PRESET_REORDER_COMMAND,
+        preset_ids: reordered.map((preset) => preset.id),
+      });
+      this._presets = Array.isArray(response?.presets)
+        ? response.presets
+        : reordered;
+      this._presetMessage = "Preset order saved";
+    } catch (error) {
+      this._presetError = `Could not reorder presets: ${
         error?.message || String(error)
       }`;
     } finally {
@@ -873,6 +1025,17 @@ class Control4MediaGroupDialog extends HTMLElement {
     this._render();
 
     try {
+      if (preset.media) {
+        await this._hass.callService(
+          "media_player",
+          "play_media",
+          {
+            media_content_type: preset.media.content_type,
+            media_content_id: preset.media.content_id,
+          },
+          { entity_id: leaderId }
+        );
+      }
       await this._hass.callService(
         "media_player",
         "join",
@@ -1511,7 +1674,7 @@ class Control4MediaGroupDialog extends HTMLElement {
     }
     .preset-card {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 42px;
+      grid-template-columns: minmax(0, 1fr) auto;
       min-height: 54px;
       overflow: hidden;
       border: 1px solid var(--divider-color, #555);
@@ -1546,17 +1709,29 @@ class Control4MediaGroupDialog extends HTMLElement {
       color: var(--secondary-text-color, #aaa);
       font-size: 11px;
     }
-    .preset-delete {
+    .preset-actions {
+      display: grid;
+      grid-template-columns: repeat(2, 34px);
+      border-left: 1px solid var(--divider-color, #444);
+    }
+    .preset-action {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 42px;
+      width: 34px;
+      min-height: 27px;
       border: 0;
-      border-left: 1px solid var(--divider-color, #444);
       color: var(--secondary-text-color, #aaa);
       background: transparent;
     }
-    .preset-delete ha-icon { width: 20px; }
+    .preset-action:nth-child(odd) {
+      border-right: 1px solid var(--divider-color, #444);
+    }
+    .preset-action:nth-child(-n + 2) {
+      border-bottom: 1px solid var(--divider-color, #444);
+    }
+    .preset-action ha-icon { width: 18px; }
+    .preset-delete { color: var(--error-color, #db4437); }
     .preset-empty {
       padding: 10px 2px 2px;
       color: var(--secondary-text-color, #aaa);
@@ -1580,11 +1755,13 @@ class Control4MediaGroupDialog extends HTMLElement {
       font: inherit;
     }
     .preset-save,
+    .preset-update,
     .preset-cancel {
       padding: 8px 12px;
       border-radius: 18px;
     }
-    .preset-save {
+    .preset-save,
+    .preset-update {
       border: 0;
       color: var(--text-primary-color, #fff);
       background: var(--primary-color, #03a9f4);
