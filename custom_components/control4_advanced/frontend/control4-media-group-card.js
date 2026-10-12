@@ -1,6 +1,8 @@
 const CARD_TAG = "control4-media-group-card";
 const EDITOR_TAG = "control4-media-group-card-editor";
 const PLAYER_CARD_TAG = "control4-media-player-card";
+const PRESET_CARD_TAG = "control4-media-preset-card";
+const PRESET_EDITOR_TAG = "control4-media-preset-card-editor";
 const DIALOG_TAG = "control4-media-group-dialog";
 const CONTROL4_PLATFORM = "control4_advanced";
 const FEATURE_VOLUME_SET = 4;
@@ -11,6 +13,7 @@ const PRESET_LIST_COMMAND = `${CONTROL4_PLATFORM}/group_presets/list`;
 const PRESET_SAVE_COMMAND = `${CONTROL4_PLATFORM}/group_presets/save`;
 const PRESET_DELETE_COMMAND = `${CONTROL4_PLATFORM}/group_presets/delete`;
 const PRESET_REORDER_COMMAND = `${CONTROL4_PLATFORM}/group_presets/reorder`;
+const PRESET_ACTIVATE_COMMAND = `${CONTROL4_PLATFORM}/group_presets/activate`;
 
 const supportsFeature = (state, feature) =>
   Boolean((Number(state?.attributes?.supported_features) || 0) & feature);
@@ -1011,13 +1014,8 @@ class Control4MediaGroupDialog extends HTMLElement {
 
     const leaderId = resolved.leader.entity_id;
     const memberIds = resolved.members.map((member) => member.state.entity_id);
-    const targetIds = new Set(memberIds);
-    const previousMembers = (
-      resolved.leader.attributes.group_members || [leaderId]
-    ).filter((entityId) => entityId !== leaderId);
     this._entityId = leaderId;
     this._selected = new Set(memberIds.filter((entityId) => entityId !== leaderId));
-    this._originalMembers = previousMembers;
     this._submitting = true;
     this._presetBusy = true;
     this._error = "";
@@ -1025,73 +1023,10 @@ class Control4MediaGroupDialog extends HTMLElement {
     this._render();
 
     try {
-      if (preset.media) {
-        await this._hass.callService(
-          "media_player",
-          "play_media",
-          {
-            media_content_type: preset.media.content_type,
-            media_content_id: preset.media.content_id,
-          },
-          { entity_id: leaderId }
-        );
-      }
-      await this._hass.callService(
-        "media_player",
-        "join",
-        { group_members: [...this._selected] },
-        { entity_id: leaderId }
-      );
-      await Promise.all(
-        previousMembers
-          .filter((entityId) => !targetIds.has(entityId))
-          .map((entityId) =>
-            this._hass.callService(
-              "media_player",
-              "unjoin",
-              {},
-              { entity_id: entityId }
-            )
-          )
-      );
-      const latestHass =
-        document.querySelector("home-assistant")?.hass || this._hass;
-      const liveMembers = resolved.members.map((member) => ({
-        ...member,
-        state: latestHass.states[member.state.entity_id] || member.state,
-      }));
-      await Promise.all(
-        liveMembers
-          .filter(
-            (member) =>
-              typeof member.volume_level === "number" &&
-              supportsFeature(member.state, FEATURE_VOLUME_SET)
-          )
-          .map((member) =>
-            this._hass.callService(
-              "media_player",
-              "volume_set",
-              { volume_level: member.volume_level },
-              { entity_id: member.state.entity_id }
-            )
-          )
-      );
-      await Promise.all(
-        liveMembers
-          .filter(
-            (member) =>
-              typeof member.is_volume_muted === "boolean" &&
-              supportsFeature(member.state, FEATURE_VOLUME_MUTE)
-          )
-          .map((member) =>
-            this._hass.callService(
-              "media_player",
-              "volume_mute",
-              { is_volume_muted: member.is_volume_muted },
-              { entity_id: member.state.entity_id }
-            )
-          )
-      );
+      await this._sendPresetMessage({
+        type: PRESET_ACTIVATE_COMMAND,
+        preset_id: preset.id,
+      });
       this.close();
     } catch (error) {
       this._submitting = false;
@@ -2257,6 +2192,375 @@ class Control4MediaPlayerCard extends HTMLElement {
   }
 }
 
+class Control4MediaPresetCard extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._config = undefined;
+    this._hass = undefined;
+    this._presets = [];
+    this._loaded = false;
+    this._loading = false;
+    this._busy = false;
+    this._status = "";
+    this._error = "";
+    this._statusTimer = undefined;
+  }
+
+  static getConfigElement() {
+    return document.createElement(PRESET_EDITOR_TAG);
+  }
+
+  static getStubConfig() {
+    return { preset_id: "" };
+  }
+
+  setConfig(config) {
+    if (!config || typeof config.preset_id !== "string") {
+      throw new Error("Select a Control4 group preset");
+    }
+    this._config = { ...config };
+    this._render();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+    if (!this._loaded && !this._loading) {
+      void this._loadPresets();
+    }
+  }
+
+  connectedCallback() {
+    if (this._hass && !this._loaded && !this._loading) {
+      void this._loadPresets();
+    }
+  }
+
+  disconnectedCallback() {
+    window.clearTimeout(this._statusTimer);
+    this._statusTimer = undefined;
+  }
+
+  getCardSize() {
+    return 1;
+  }
+
+  getGridOptions() {
+    return { rows: 2, columns: 6, min_rows: 2, min_columns: 3 };
+  }
+
+  _sendPresetMessage(message) {
+    const send = this._hass?.connection?.sendMessagePromise;
+    if (typeof send !== "function") {
+      throw new Error("Home Assistant WebSocket connection is unavailable");
+    }
+    return send.call(this._hass.connection, message);
+  }
+
+  async _loadPresets() {
+    this._loading = true;
+    this._render();
+    try {
+      const response = await this._sendPresetMessage({
+        type: PRESET_LIST_COMMAND,
+      });
+      this._presets = Array.isArray(response?.presets) ? response.presets : [];
+      this._error = "";
+    } catch (error) {
+      this._error = error?.message || String(error);
+    } finally {
+      this._loading = false;
+      this._loaded = true;
+      if (this.isConnected) {
+        this._render();
+      }
+    }
+  }
+
+  _leader(preset) {
+    const exact = this._hass?.states?.[preset.leader_entity_id];
+    if (
+      exact &&
+      Number(exact.attributes.control4_room_id) === Number(preset.leader_room_id)
+    ) {
+      return exact;
+    }
+    return Object.values(this._hass?.states || {}).find(
+      (state) =>
+        state.entity_id.startsWith("media_player.") &&
+        Number(state.attributes.control4_room_id) === Number(preset.leader_room_id)
+    );
+  }
+
+  _render() {
+    if (!this._config || !this._hass) {
+      return;
+    }
+    const preset = this._presets.find(
+      (item) => item.id === this._config.preset_id
+    );
+    const leader = preset ? this._leader(preset) : undefined;
+    const title = this._config.name || preset?.name || "Control4 group preset";
+    const count = preset?.members?.length || 0;
+    const groupDetail = preset
+      ? `${count} room${count === 1 ? "" : "s"} · ${
+          leader ? stateName(leader) : "leader unavailable"
+        } leader`
+      : this._loading
+        ? "Loading saved preset…"
+        : this._config.preset_id
+          ? "Saved preset not found"
+          : "Choose a saved preset in card settings";
+    const mediaDetail = preset?.media?.title || "Saved source and room settings";
+    const unavailable = Boolean(preset && !leader);
+    const disabled = !preset || unavailable || this._busy;
+    const icon = this._busy ? "mdi:loading" : "mdi:play-circle-outline";
+    const action = this._busy ? "Activating…" : "Activate";
+    this.shadowRoot.innerHTML = `
+      <style>
+        :host { display: block; }
+        ha-card { overflow: hidden; }
+        button {
+          display: grid;
+          grid-template-columns: 40px minmax(0, 1fr) auto;
+          gap: 12px;
+          align-items: center;
+          width: 100%;
+          min-height: 82px;
+          padding: 12px 16px;
+          border: 0;
+          color: var(--primary-text-color);
+          text-align: start;
+          background: transparent;
+          cursor: pointer;
+        }
+        button:disabled { cursor: default; opacity: 0.62; }
+        .icon {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
+          color: var(--primary-color);
+          background: color-mix(in srgb, var(--primary-color) 14%, transparent);
+        }
+        .icon.busy ha-icon { animation: spin 1s linear infinite; }
+        .details { min-width: 0; }
+        .title, .summary, .media, .notice {
+          display: block;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .title { font-size: 16px; font-weight: 500; }
+        .summary, .media, .notice {
+          margin-top: 2px;
+          color: var(--secondary-text-color);
+          font-size: 12px;
+        }
+        .notice { color: var(--primary-color); }
+        .notice.error { color: var(--error-color); }
+        .action { color: var(--primary-color); font-weight: 500; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+      </style>
+      <ha-card>
+        <button
+          aria-label="Activate ${escapeHtml(title)} group preset"
+          aria-busy="${this._busy ? "true" : "false"}"
+          ${disabled ? "disabled" : ""}
+        >
+          <span class="icon ${this._busy ? "busy" : ""}">
+            <ha-icon icon="${icon}"></ha-icon>
+          </span>
+          <span class="details">
+            <span class="title">${escapeHtml(title)}</span>
+            <span class="summary">${escapeHtml(groupDetail)}</span>
+            <span class="media">${escapeHtml(mediaDetail)}</span>
+            ${
+              this._error
+                ? `<span class="notice error">${escapeHtml(this._error)}</span>`
+                : this._status
+                  ? `<span class="notice">${escapeHtml(this._status)}</span>`
+                  : ""
+            }
+          </span>
+          <span class="action">${action}</span>
+        </button>
+      </ha-card>`;
+    this.shadowRoot.querySelector("button")?.addEventListener("click", () =>
+      this._activate()
+    );
+  }
+
+  async _activate() {
+    if (this._busy || !this._config?.preset_id) {
+      return;
+    }
+    const preset = this._presets.find(
+      (item) => item.id === this._config.preset_id
+    );
+    if (!preset) {
+      return;
+    }
+    window.clearTimeout(this._statusTimer);
+    this._busy = true;
+    this._error = "";
+    this._status = `Activating ${preset.name}…`;
+    this._render();
+    try {
+      await this._sendPresetMessage({
+        type: PRESET_ACTIVATE_COMMAND,
+        preset_id: preset.id,
+      });
+      this._status = `${preset.name} activated`;
+      this._statusTimer = window.setTimeout(() => {
+        this._status = "";
+        if (this.isConnected) {
+          this._render();
+        }
+      }, 4000);
+    } catch (error) {
+      this._status = "";
+      this._error = error?.message || String(error);
+    } finally {
+      this._busy = false;
+      if (this.isConnected) {
+        this._render();
+      }
+    }
+  }
+}
+
+class Control4MediaPresetCardEditor extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._hass = undefined;
+    this._config = { preset_id: "" };
+    this._presets = [];
+    this._loaded = false;
+    this._loading = false;
+    this._error = "";
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+    if (!this._loaded && !this._loading) {
+      void this._loadPresets();
+    }
+  }
+
+  setConfig(config) {
+    this._config = { preset_id: "", ...config };
+    this._render();
+  }
+
+  _changed(updates) {
+    const config = { ...this._config, ...updates };
+    if (!config.name) {
+      delete config.name;
+    }
+    this._config = config;
+    this.dispatchEvent(
+      new CustomEvent("config-changed", {
+        detail: { config },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
+  async _loadPresets() {
+    this._loading = true;
+    this._render();
+    try {
+      const send = this._hass?.connection?.sendMessagePromise;
+      if (typeof send !== "function") {
+        throw new Error("Home Assistant WebSocket connection is unavailable");
+      }
+      const response = await send.call(this._hass.connection, {
+        type: PRESET_LIST_COMMAND,
+      });
+      this._presets = Array.isArray(response?.presets) ? response.presets : [];
+      this._error = "";
+    } catch (error) {
+      this._error = error?.message || String(error);
+    } finally {
+      this._loading = false;
+      this._loaded = true;
+      if (this.isConnected) {
+        this._render();
+      }
+    }
+  }
+
+  _render() {
+    if (!this._hass) {
+      return;
+    }
+    const missingSelection =
+      this._config.preset_id &&
+      !this._presets.some((preset) => preset.id === this._config.preset_id);
+    this.shadowRoot.innerHTML = `
+      <style>
+        :host { display: block; }
+        label { display: block; margin: 16px 0; color: var(--primary-text-color); }
+        select, input {
+          width: 100%;
+          margin-top: 8px;
+          padding: 12px;
+          border: 1px solid var(--divider-color);
+          border-radius: 8px;
+          color: var(--primary-text-color);
+          background: var(--card-background-color);
+          font: inherit;
+        }
+        .message { color: var(--secondary-text-color); font-size: 13px; }
+        .error { color: var(--error-color); }
+      </style>
+      <label>
+        Group preset
+        <select ${this._loading ? "disabled" : ""}>
+          <option value="">${
+            this._loading ? "Loading saved presets…" : "Select a saved preset"
+          }</option>
+          ${
+            missingSelection
+              ? `<option value="${escapeHtml(this._config.preset_id)}" selected>Saved preset not found</option>`
+              : ""
+          }
+          ${this._presets
+            .map(
+              (preset) => `<option value="${escapeHtml(preset.id)}" ${
+                preset.id === this._config.preset_id ? "selected" : ""
+              }>${escapeHtml(preset.name)}</option>`
+            )
+            .join("")}
+        </select>
+      </label>
+      <label>
+        Card title (optional)
+        <input type="text" value="${escapeHtml(this._config.name || "")}" />
+      </label>
+      ${
+        this._error
+          ? `<div class="message error">${escapeHtml(this._error)}</div>`
+          : !this._loading && !this._presets.length
+            ? '<div class="message">Create a preset from the Control4 media group popup first.</div>'
+            : ""
+      }`;
+    this.shadowRoot.querySelector("select")?.addEventListener("change", (event) =>
+      this._changed({ preset_id: event.currentTarget.value })
+    );
+    this.shadowRoot.querySelector("input")?.addEventListener("change", (event) =>
+      this._changed({ name: event.currentTarget.value.trim() })
+    );
+  }
+}
+
 class Control4MediaGroupCardEditor extends HTMLElement {
   constructor() {
     super();
@@ -2348,6 +2652,12 @@ const registerCard = () => {
   if (!customElements.get(PLAYER_CARD_TAG)) {
     customElements.define(PLAYER_CARD_TAG, Control4MediaPlayerCard);
   }
+  if (!customElements.get(PRESET_EDITOR_TAG)) {
+    customElements.define(PRESET_EDITOR_TAG, Control4MediaPresetCardEditor);
+  }
+  if (!customElements.get(PRESET_CARD_TAG)) {
+    customElements.define(PRESET_CARD_TAG, Control4MediaPresetCard);
+  }
   window.customCards = window.customCards || [];
   if (!window.customCards.some((card) => card.type === CARD_TAG)) {
     window.customCards.push({
@@ -2365,6 +2675,15 @@ const registerCard = () => {
       description: "Native media controls with Control4 room grouping and independent volume",
       preview: true,
       documentationURL: "https://github.com/eonnet/control4-ha#control4-media-player-card",
+    });
+  }
+  if (!window.customCards.some((card) => card.type === PRESET_CARD_TAG)) {
+    window.customCards.push({
+      type: PRESET_CARD_TAG,
+      name: "Control4 Media Preset",
+      description: "One-tap Control4 source, room group, volume, and mute recall",
+      preview: true,
+      documentationURL: "https://github.com/eonnet/control4-ha#control4-media-preset-card",
     });
   }
 };

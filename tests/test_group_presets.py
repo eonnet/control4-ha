@@ -9,7 +9,9 @@ import unittest
 from unittest.mock import patch
 
 from custom_components.control4_advanced.group_presets import (
+    GroupPresetActivationError,
     GroupPresetStorage,
+    SERVICE_ACTIVATE_GROUP_PRESET,
     async_register_group_presets,
 )
 
@@ -25,6 +27,62 @@ class FakeStore:
     async def async_save(self, data):
         self.data = deepcopy(data)
         self.saved.append(deepcopy(data))
+
+
+class FakeState:
+    def __init__(
+        self,
+        entity_id: str,
+        room_id: int,
+        *,
+        supported_features: int = 12,
+        group_members: list[str] | None = None,
+    ):
+        self.entity_id = entity_id
+        self.attributes = {
+            "control4_room_id": room_id,
+            "supported_features": supported_features,
+            "group_members": group_members or [entity_id],
+        }
+
+
+class FakeStates:
+    def __init__(self, states: list[FakeState]):
+        self._states = {state.entity_id: state for state in states}
+
+    def get(self, entity_id):
+        return self._states.get(entity_id)
+
+    def async_all(self, domain=None):
+        states = list(self._states.values())
+        if domain is None:
+            return states
+        return [
+            state for state in states if state.entity_id.startswith(f"{domain}.")
+        ]
+
+
+class FakeServices:
+    def __init__(self):
+        self.calls = []
+        self.registered = {}
+
+    async def async_call(
+        self, domain, service, service_data, *, blocking, context, target
+    ):
+        self.calls.append(
+            {
+                "domain": domain,
+                "service": service,
+                "service_data": deepcopy(service_data),
+                "blocking": blocking,
+                "context": context,
+                "target": deepcopy(target),
+            }
+        )
+
+    def async_register(self, domain, service, handler, *, schema):
+        self.registered[(domain, service)] = (handler, schema)
 
 
 def member(
@@ -186,6 +244,92 @@ class GroupPresetStorageTests(unittest.IsolatedAsyncioTestCase):
                 media={"content_type": "channel", "content_id": "missing title"},
             )
 
+    async def test_activate_resolves_renamed_rooms_and_runs_backend_sequence(self):
+        saved = preset()
+        saved["media"] = media()
+        storage = GroupPresetStorage(FakeStore({"presets": [saved]}))
+        await storage.async_load()
+        services = FakeServices()
+        hass = SimpleNamespace(
+            states=FakeStates(
+                [
+                    FakeState(
+                        "media_player.kitchen_renamed",
+                        22,
+                        group_members=[
+                            "media_player.kitchen_renamed",
+                            "media_player.living",
+                            "media_player.bedroom",
+                        ],
+                    ),
+                    FakeState("media_player.living", 23, supported_features=4),
+                    FakeState("media_player.bedroom", 24),
+                ]
+            ),
+            services=services,
+        )
+
+        result = await storage.async_activate(
+            hass, preset_id="whole", context="test-context"
+        )
+
+        self.assertEqual(result["leader_entity_id"], "media_player.kitchen_renamed")
+        self.assertEqual(
+            result["member_entity_ids"],
+            ["media_player.kitchen_renamed", "media_player.living"],
+        )
+        self.assertEqual(
+            [call["service"] for call in services.calls],
+            [
+                "play_media",
+                "join",
+                "unjoin",
+                "volume_set",
+                "volume_set",
+                "volume_mute",
+            ],
+        )
+        self.assertEqual(
+            services.calls[0]["service_data"],
+            {
+                "media_content_type": "channel",
+                "media_content_id": (
+                    "control4_advanced:tunein:22:station:92:Station/s25028"
+                ),
+            },
+        )
+        self.assertEqual(
+            services.calls[1]["service_data"],
+            {"group_members": ["media_player.living"]},
+        )
+        self.assertEqual(
+            services.calls[2]["target"],
+            {"entity_id": ["media_player.bedroom"]},
+        )
+        self.assertTrue(all(call["blocking"] for call in services.calls))
+        self.assertTrue(
+            all(call["context"] == "test-context" for call in services.calls)
+        )
+
+    async def test_activate_validates_selector_and_missing_players(self):
+        storage = GroupPresetStorage(FakeStore({"presets": [preset()]}))
+        await storage.async_load()
+        hass = SimpleNamespace(
+            states=FakeStates([FakeState("media_player.kitchen", 22)]),
+            services=FakeServices(),
+        )
+
+        with self.assertRaisesRegex(GroupPresetActivationError, "exactly one"):
+            await storage.async_activate(hass)
+        with self.assertRaisesRegex(GroupPresetActivationError, "exactly one"):
+            await storage.async_activate(
+                hass, preset_id="whole", name="Whole House"
+            )
+        with self.assertRaisesRegex(GroupPresetActivationError, "not found"):
+            await storage.async_activate(hass, name="Missing")
+        with self.assertRaisesRegex(GroupPresetActivationError, "unavailable"):
+            await storage.async_activate(hass, name="whole house")
+
     async def test_websocket_commands_register_once_and_round_trip(self):
         voluptuous = ModuleType("voluptuous")
         voluptuous.Required = lambda key: key
@@ -195,6 +339,7 @@ class GroupPresetStorageTests(unittest.IsolatedAsyncioTestCase):
         voluptuous.Coerce = lambda value_type: value_type
         voluptuous.Range = lambda **limits: limits
         voluptuous.Length = lambda **limits: limits
+        voluptuous.Schema = lambda schema: schema
 
         registered = []
         websocket_api = ModuleType("homeassistant.components.websocket_api")
@@ -229,9 +374,16 @@ class GroupPresetStorageTests(unittest.IsolatedAsyncioTestCase):
                 super().__init__()
 
         storage_module.Store = HomeAssistantStore
+        exceptions = ModuleType("homeassistant.exceptions")
+
+        class HomeAssistantError(Exception):
+            pass
+
+        exceptions.HomeAssistantError = HomeAssistantError
         homeassistant = ModuleType("homeassistant")
         homeassistant.__path__ = []
-        hass = SimpleNamespace(data={})
+        services = FakeServices()
+        hass = SimpleNamespace(data={}, services=services)
 
         class Connection:
             def __init__(self):
@@ -251,6 +403,7 @@ class GroupPresetStorageTests(unittest.IsolatedAsyncioTestCase):
                 "homeassistant": homeassistant,
                 "homeassistant.components": components,
                 "homeassistant.components.websocket_api": websocket_api,
+                "homeassistant.exceptions": exceptions,
                 "homeassistant.helpers": helpers,
                 "homeassistant.helpers.config_validation": config_validation,
                 "homeassistant.helpers.storage": storage_module,
@@ -259,7 +412,11 @@ class GroupPresetStorageTests(unittest.IsolatedAsyncioTestCase):
             manager = await async_register_group_presets(hass)
             self.assertIs(await async_register_group_presets(hass), manager)
 
-        self.assertEqual(len(registered), 4)
+        self.assertEqual(len(registered), 5)
+        self.assertIn(
+            ("control4_advanced", SERVICE_ACTIVATE_GROUP_PRESET),
+            services.registered,
+        )
         handlers = {handler._ws_command: handler for handler in registered}
         connection = Connection()
         await handlers["control4_advanced/group_presets/save"](

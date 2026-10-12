@@ -423,6 +423,31 @@ entity: media_player.kitchen
 The smaller **Control4 Media Group** card remains available when only the
 membership/volume popup is wanted.
 
+## Control4 Media Preset card
+
+Version 0.1.54 adds a compact **Control4 Media Preset** dashboard card. Select
+any saved group preset in its visual editor and one tap will restore its media
+source, group membership, individual volume levels, and mute states without
+opening the group popup. The card shows the saved source, room count, current
+leader, and activation progress.
+
+Preset activation now runs as one serialized integration-side operation, shared
+by both the popup and dashboard card. It resolves renamed entities through their
+stable Control4 room IDs and exposes the same operation to automations, scripts,
+voice assistants, and NFC tags through the
+`control4_advanced.activate_group_preset` action. An automation can activate a
+preset by its case-insensitive name:
+
+```yaml
+action: control4_advanced.activate_group_preset
+data:
+  name: Whole House
+```
+
+In dashboard edit mode choose **Add card**, search for **Control4 Media
+Preset**, and select a preset. The visual editor stores its stable ID so later
+renaming the preset does not break the card.
+
 ## Control4 Media Group card
 
 Version 0.1.36 adds a packaged **Control4 Media Group** dashboard card. Its

@@ -206,6 +206,7 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("PRESET_SAVE_COMMAND", javascript)
         self.assertIn("PRESET_DELETE_COMMAND", javascript)
         self.assertIn("PRESET_REORDER_COMMAND", javascript)
+        self.assertIn("PRESET_ACTIVATE_COMMAND", javascript)
         self.assertIn(
             "${this._renderPlayerSections(players)}\n"
             "            ${this._renderPresetSection()}",
@@ -215,22 +216,38 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("async _activatePreset(presetId)", javascript)
         self.assertIn("_currentPresetMedia(leader)", javascript)
         self.assertIn("control4_media_content_id", javascript)
-        self.assertIn('"media_player",\n          "play_media"', javascript)
         self.assertIn("leader_room_id: leaderRoomId", javascript)
         self.assertIn("room_id: Number(state.attributes.control4_room_id)", javascript)
         self.assertIn('`${resolved.members.length} player${', javascript)
-        self.assertIn("const liveMembers = resolved.members.map", javascript)
-        self.assertIn(
-            "supportsFeature(member.state, FEATURE_VOLUME_SET)", javascript
-        )
-        self.assertIn(
-            "supportsFeature(member.state, FEATURE_VOLUME_MUTE)", javascript
-        )
+        self.assertIn("preset_id: preset.id", javascript)
         self.assertIn("data-edit-preset-id", javascript)
         self.assertIn("data-move-preset-id", javascript)
         self.assertIn('data-preset-action="update"', javascript)
         self.assertIn("async _movePreset(presetId, direction)", javascript)
-        self.assertIn('"media_player",\n              "volume_mute"', javascript)
+
+    def test_preset_dashboard_card_has_editor_and_backend_activation(self) -> None:
+        javascript = Path(FRONTEND_FILE).read_text(encoding="utf-8")
+        self.assertIn(
+            'const PRESET_CARD_TAG = "control4-media-preset-card"', javascript
+        )
+        self.assertIn(
+            'const PRESET_EDITOR_TAG = "control4-media-preset-card-editor"',
+            javascript,
+        )
+        self.assertIn("class Control4MediaPresetCard extends HTMLElement", javascript)
+        self.assertIn(
+            "class Control4MediaPresetCardEditor extends HTMLElement", javascript
+        )
+        self.assertIn('name: "Control4 Media Preset"', javascript)
+        self.assertIn('aria-busy="${this._busy ? "true" : "false"}"', javascript)
+        self.assertIn("Saved source and room settings", javascript)
+        self.assertIn("Activating ${preset.name}…", javascript)
+
+        services = Path(FRONTEND_FILE).parent.parent / "services.yaml"
+        service_text = services.read_text(encoding="utf-8")
+        self.assertIn("activate_group_preset:", service_text)
+        self.assertIn("preset_id:", service_text)
+        self.assertIn("name:", service_text)
 
     def test_manifest_declares_hassfest_runtime_dependencies(self) -> None:
         manifest = json.loads(
@@ -238,10 +255,10 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
                 encoding="utf-8"
             )
         )
-        self.assertEqual(manifest["version"], "0.1.53")
+        self.assertEqual(manifest["version"], "0.1.54")
         self.assertIn("http", manifest["dependencies"])
         self.assertEqual(manifest["requirements"], ["pyControl4>=2.0.2"])
-        self.assertTrue(FRONTEND_URL.endswith("?v=0.1.53"))
+        self.assertTrue(FRONTEND_URL.endswith("?v=0.1.54"))
 
     def test_official_control4_brand_assets_are_packaged(self) -> None:
         brand = Path(FRONTEND_FILE).parent.parent / "brand"

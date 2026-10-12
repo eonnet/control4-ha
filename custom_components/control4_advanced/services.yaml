@@ -1,0 +1,18 @@
+activate_group_preset:
+  name: Activate group preset
+  description: Restores a saved Control4 source, room group, volume levels, and mute states.
+  fields:
+    preset_id:
+      name: Preset ID
+      description: Stable preset ID shown in the preset dashboard card configuration. Use either this field or Preset name.
+      required: false
+      example: 45f1c0df55cb4fe29e2088c4341cf66f
+      selector:
+        text:
+    name:
+      name: Preset name
+      description: Case-insensitive saved preset name. Use either this field or Preset ID.
+      required: false
+      example: Whole House
+      selector:
+        text:
