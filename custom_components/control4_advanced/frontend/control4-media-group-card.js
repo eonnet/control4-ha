@@ -7,6 +7,9 @@ const FEATURE_VOLUME_SET = 4;
 const FEATURE_VOLUME_MUTE = 8;
 const FEATURE_GROUPING = 524288;
 const FEEDBACK_TIMEOUT = 8000;
+const PRESET_LIST_COMMAND = `${CONTROL4_PLATFORM}/group_presets/list`;
+const PRESET_SAVE_COMMAND = `${CONTROL4_PLATFORM}/group_presets/save`;
+const PRESET_DELETE_COMMAND = `${CONTROL4_PLATFORM}/group_presets/delete`;
 
 const supportsFeature = (state, feature) =>
   Boolean((Number(state?.attributes?.supported_features) || 0) & feature);
@@ -50,6 +53,13 @@ class Control4MediaGroupDialog extends HTMLElement {
     this._error = "";
     this._pendingMutes = new Map();
     this._groupVolumeBaseline = undefined;
+    this._presets = [];
+    this._presetsLoaded = false;
+    this._presetEditorOpen = false;
+    this._presetBusy = false;
+    this._presetMessage = "";
+    this._presetError = "";
+    this._presetDraftName = "";
     this._refreshTimer = undefined;
     this._onKeyDown = (event) => {
       if (event.key === "Escape" && !this._submitting) {
@@ -67,6 +77,7 @@ class Control4MediaGroupDialog extends HTMLElement {
     );
     this._selected = new Set(this._originalMembers);
     this._render();
+    void this._loadPresets();
     document.addEventListener("keydown", this._onKeyDown);
     this._refreshTimer = window.setInterval(() => {
       const currentHass = document.querySelector("home-assistant")?.hass;
@@ -238,6 +249,148 @@ class Control4MediaGroupDialog extends HTMLElement {
       </section>`;
   }
 
+  _resolvePresetState(entityId, roomId, players = this._players()) {
+    const exact = players.find(
+      (state) =>
+        state.entity_id === entityId &&
+        Number(state.attributes.control4_room_id) === Number(roomId)
+    );
+    return (
+      exact ||
+      players.find(
+        (state) =>
+          Number(state.attributes.control4_room_id) === Number(roomId)
+      )
+    );
+  }
+
+  _resolvePreset(preset) {
+    const players = this._players();
+    const leader = this._resolvePresetState(
+      preset.leader_entity_id,
+      preset.leader_room_id,
+      players
+    );
+    const members = [];
+    const missing = [];
+    const seen = new Set();
+    for (const member of preset.members || []) {
+      const state = this._resolvePresetState(
+        member.entity_id,
+        member.room_id,
+        players
+      );
+      if (!state || seen.has(state.entity_id)) {
+        missing.push(member);
+        continue;
+      }
+      seen.add(state.entity_id);
+      members.push({ ...member, state });
+    }
+    return { leader, members, missing };
+  }
+
+  _renderPresetSection() {
+    let content;
+    if (!this._presetsLoaded) {
+      content = `<div class="preset-empty">Loading saved groups…</div>`;
+    } else if (!this._presets.length) {
+      content = `
+        <div class="preset-empty">
+          Save the selected rooms, their volume levels, and mute states for
+          one-tap recall.
+        </div>`;
+    } else {
+      content = `<div class="preset-list">${this._presets
+        .map((preset) => {
+          const resolved = this._resolvePreset(preset);
+          const unavailable = !resolved.leader || resolved.missing.length > 0;
+          const leaderName = resolved.leader
+            ? stateName(resolved.leader)
+            : "Leader unavailable";
+          const detail = unavailable
+            ? `${resolved.members.length}/${preset.members.length} players available`
+            : `${resolved.members.length} player${
+                resolved.members.length === 1 ? "" : "s"
+              } · ${leaderName} leader`;
+          return `
+            <article class="preset-card ${unavailable ? "unavailable" : ""}">
+              <button
+                type="button"
+                class="preset-activate"
+                data-preset-id="${escapeHtml(preset.id)}"
+                aria-label="Activate ${escapeHtml(preset.name)} group preset"
+                ${unavailable || this._submitting || this._presetBusy ? "disabled" : ""}
+              >
+                <ha-icon icon="mdi:play-circle-outline"></ha-icon>
+                <span>
+                  <strong>${escapeHtml(preset.name)}</strong>
+                  <small>${escapeHtml(detail)}</small>
+                </span>
+              </button>
+              <button
+                type="button"
+                class="preset-delete"
+                data-delete-preset-id="${escapeHtml(preset.id)}"
+                aria-label="Delete ${escapeHtml(preset.name)} group preset"
+                title="Delete preset"
+                ${this._submitting || this._presetBusy ? "disabled" : ""}
+              ><ha-icon icon="mdi:delete-outline"></ha-icon></button>
+            </article>`;
+        })
+        .join("")}</div>`;
+    }
+    return `
+      <section class="preset-section" data-presets>
+        <div class="preset-heading">
+          <div>
+            <h3>Group presets</h3>
+            <p>Recall rooms and individual volume settings</p>
+          </div>
+          <button
+            type="button"
+            class="save-current-preset"
+            ${
+              !this._presetsLoaded ||
+              this._presetEditorOpen ||
+              this._submitting ||
+              this._presetBusy
+                ? "disabled"
+                : ""
+            }
+          ><ha-icon icon="mdi:plus"></ha-icon>Save current</button>
+        </div>
+        <div class="preset-notice preset-error" ${
+          this._presetError ? "" : "hidden"
+        }>${escapeHtml(this._presetError)}</div>
+        <div class="preset-notice preset-success" ${
+          this._presetMessage ? "" : "hidden"
+        }>${escapeHtml(this._presetMessage)}</div>
+        ${
+          this._presetEditorOpen
+            ? `<form class="preset-editor">
+                <input
+                  type="text"
+                  maxlength="40"
+                  data-preset-name
+                  placeholder="Preset name, for example Whole House"
+                  value="${escapeHtml(this._presetDraftName)}"
+                  aria-label="Group preset name"
+                  required
+                />
+                <button type="submit" class="preset-save" ${
+                  this._presetBusy ? "disabled" : ""
+                }>Save</button>
+                <button type="button" class="preset-cancel" ${
+                  this._presetBusy ? "disabled" : ""
+                }>Cancel</button>
+              </form>`
+            : ""
+        }
+        ${content}
+      </section>`;
+  }
+
   _renderPlayerSections(players) {
     const grouped = players.filter(
       (state) =>
@@ -376,7 +529,10 @@ class Control4MediaGroupDialog extends HTMLElement {
             this._error
           )}</div>
           ${this._renderGroupControls()}
-          <main>${this._renderPlayerSections(players)}</main>
+          <main>
+            ${this._renderPresetSection()}
+            ${this._renderPlayerSections(players)}
+          </main>
           <footer>
             <button class="text-button cancel" ${this._submitting ? "disabled" : ""}>
               ${escapeHtml(localize("ui.common.cancel", "Cancel"))}
@@ -425,6 +581,7 @@ class Control4MediaGroupDialog extends HTMLElement {
       );
       this._render();
     });
+    this._bindPresetEvents();
     for (const checkbox of this.shadowRoot.querySelectorAll("[data-member-id]")) {
       checkbox.addEventListener("change", (event) => {
         const entityId = event.currentTarget.dataset.memberId;
@@ -480,6 +637,280 @@ class Control4MediaGroupDialog extends HTMLElement {
     this.shadowRoot.querySelector(".apply").addEventListener("click", () =>
       this._applyGroup()
     );
+  }
+
+  _sendPresetMessage(message) {
+    const send = this._hass?.connection?.sendMessagePromise;
+    if (typeof send !== "function") {
+      throw new Error("Home Assistant WebSocket connection is unavailable");
+    }
+    return send.call(this._hass.connection, message);
+  }
+
+  _refreshPresetSection() {
+    const current = this.shadowRoot.querySelector("[data-presets]");
+    if (!current) {
+      return;
+    }
+    const template = document.createElement("template");
+    template.innerHTML = this._renderPresetSection().trim();
+    current.replaceWith(template.content.firstElementChild);
+    this._bindPresetEvents();
+  }
+
+  _bindPresetEvents() {
+    this.shadowRoot
+      .querySelector(".save-current-preset")
+      ?.addEventListener("click", () => {
+        this._presetEditorOpen = true;
+        this._presetDraftName = "";
+        this._presetMessage = "";
+        this._presetError = "";
+        this._refreshPresetSection();
+        requestAnimationFrame(() =>
+          this.shadowRoot.querySelector("[data-preset-name]")?.focus()
+        );
+      });
+    const nameInput = this.shadowRoot.querySelector("[data-preset-name]");
+    nameInput?.addEventListener("input", (event) => {
+      this._presetDraftName = event.currentTarget.value;
+    });
+    this.shadowRoot
+      .querySelector(".preset-editor")
+      ?.addEventListener("submit", (event) => this._savePreset(event));
+    this.shadowRoot
+      .querySelector(".preset-cancel")
+      ?.addEventListener("click", () => {
+        this._presetEditorOpen = false;
+        this._presetDraftName = "";
+        this._presetError = "";
+        this._refreshPresetSection();
+      });
+    for (const button of this.shadowRoot.querySelectorAll("[data-preset-id]")) {
+      button.addEventListener("click", (event) =>
+        this._activatePreset(event.currentTarget.dataset.presetId)
+      );
+    }
+    for (const button of this.shadowRoot.querySelectorAll(
+      "[data-delete-preset-id]"
+    )) {
+      button.addEventListener("click", (event) =>
+        this._deletePreset(event.currentTarget.dataset.deletePresetId)
+      );
+    }
+  }
+
+  async _loadPresets() {
+    try {
+      const response = await this._sendPresetMessage({
+        type: PRESET_LIST_COMMAND,
+      });
+      this._presets = Array.isArray(response?.presets) ? response.presets : [];
+      this._presetError = "";
+    } catch (error) {
+      this._presetError = `Could not load group presets: ${
+        error?.message || String(error)
+      }`;
+    } finally {
+      this._presetsLoaded = true;
+      if (this.isConnected) {
+        this._refreshPresetSection();
+      }
+    }
+  }
+
+  _currentPresetMembers() {
+    return this._groupStates().map((state) => {
+      const slider = this.shadowRoot.querySelector(
+        `[data-volume-id="${CSS.escape(state.entity_id)}"]`
+      );
+      const rawVolume = state.attributes.volume_level;
+      const hasVolume = typeof rawVolume === "number" && Number.isFinite(rawVolume);
+      const displayedVolume = hasVolume && slider
+        ? Number(slider.value) / 100
+        : Number.NaN;
+      const volumeLevel = Number.isFinite(displayedVolume)
+        ? Math.max(0, Math.min(1, displayedVolume))
+        : hasVolume
+          ? Math.max(0, Math.min(1, rawVolume))
+          : null;
+      const muted = this._displayedMuted(state);
+      return {
+        entity_id: state.entity_id,
+        room_id: Number(state.attributes.control4_room_id),
+        volume_level: volumeLevel,
+        is_volume_muted: typeof muted === "boolean" ? muted : null,
+      };
+    });
+  }
+
+  async _savePreset(event) {
+    event.preventDefault();
+    if (this._presetBusy) {
+      return;
+    }
+    const name = this._presetDraftName.trim();
+    const leader = this._hass.states[this._entityId];
+    const leaderRoomId = Number(leader?.attributes?.control4_room_id);
+    if (!name || !Number.isInteger(leaderRoomId)) {
+      this._presetError = !name
+        ? "Enter a name for the preset."
+        : "The Control4 group leader is unavailable.";
+      this._refreshPresetSection();
+      return;
+    }
+
+    this._presetBusy = true;
+    this._presetError = "";
+    this._presetMessage = "";
+    this._refreshPresetSection();
+    try {
+      const response = await this._sendPresetMessage({
+        type: PRESET_SAVE_COMMAND,
+        name,
+        leader_entity_id: leader.entity_id,
+        leader_room_id: leaderRoomId,
+        members: this._currentPresetMembers(),
+      });
+      const saved = response?.preset;
+      if (!saved?.id) {
+        throw new Error("Home Assistant returned an invalid preset");
+      }
+      const index = this._presets.findIndex((preset) => preset.id === saved.id);
+      if (index === -1) {
+        this._presets.push(saved);
+      } else {
+        this._presets[index] = saved;
+      }
+      this._presetEditorOpen = false;
+      this._presetDraftName = "";
+      this._presetMessage = `${saved.name} saved`;
+    } catch (error) {
+      this._presetError = `Could not save preset: ${
+        error?.message || String(error)
+      }`;
+    } finally {
+      this._presetBusy = false;
+      if (this.isConnected) {
+        this._refreshPresetSection();
+      }
+    }
+  }
+
+  async _deletePreset(presetId) {
+    if (this._presetBusy) {
+      return;
+    }
+    const preset = this._presets.find((item) => item.id === presetId);
+    if (!preset || !window.confirm(`Delete the “${preset.name}” group preset?`)) {
+      return;
+    }
+    this._presetBusy = true;
+    this._presetError = "";
+    this._presetMessage = "";
+    this._refreshPresetSection();
+    try {
+      await this._sendPresetMessage({
+        type: PRESET_DELETE_COMMAND,
+        preset_id: presetId,
+      });
+      this._presets = this._presets.filter((item) => item.id !== presetId);
+      this._presetMessage = `${preset.name} deleted`;
+    } catch (error) {
+      this._presetError = `Could not delete preset: ${
+        error?.message || String(error)
+      }`;
+    } finally {
+      this._presetBusy = false;
+      if (this.isConnected) {
+        this._refreshPresetSection();
+      }
+    }
+  }
+
+  async _activatePreset(presetId) {
+    if (this._submitting || this._presetBusy) {
+      return;
+    }
+    const preset = this._presets.find((item) => item.id === presetId);
+    if (!preset) {
+      return;
+    }
+    const resolved = this._resolvePreset(preset);
+    if (!resolved.leader || resolved.missing.length) {
+      this._presetError = "This preset contains players that are no longer available.";
+      this._refreshPresetSection();
+      return;
+    }
+
+    const leaderId = resolved.leader.entity_id;
+    const memberIds = resolved.members.map((member) => member.state.entity_id);
+    const targetIds = new Set(memberIds);
+    const previousMembers = (
+      resolved.leader.attributes.group_members || [leaderId]
+    ).filter((entityId) => entityId !== leaderId);
+    this._entityId = leaderId;
+    this._selected = new Set(memberIds.filter((entityId) => entityId !== leaderId));
+    this._originalMembers = previousMembers;
+    this._submitting = true;
+    this._presetBusy = true;
+    this._error = "";
+    this._presetMessage = `Activating ${preset.name}…`;
+    this._render();
+
+    try {
+      await this._hass.callService(
+        "media_player",
+        "join",
+        { group_members: [...this._selected] },
+        { entity_id: leaderId }
+      );
+      await Promise.all(
+        previousMembers
+          .filter((entityId) => !targetIds.has(entityId))
+          .map((entityId) =>
+            this._hass.callService(
+              "media_player",
+              "unjoin",
+              {},
+              { entity_id: entityId }
+            )
+          )
+      );
+      await Promise.all(
+        resolved.members
+          .filter((member) => typeof member.volume_level === "number")
+          .map((member) =>
+            this._hass.callService(
+              "media_player",
+              "volume_set",
+              { volume_level: member.volume_level },
+              { entity_id: member.state.entity_id }
+            )
+          )
+      );
+      await Promise.all(
+        resolved.members
+          .filter((member) => typeof member.is_volume_muted === "boolean")
+          .map((member) =>
+            this._hass.callService(
+              "media_player",
+              "volume_mute",
+              { is_volume_muted: member.is_volume_muted },
+              { entity_id: member.state.entity_id }
+            )
+          )
+      );
+      this.close();
+    } catch (error) {
+      this._submitting = false;
+      this._presetBusy = false;
+      this._presetMessage = "";
+      this._error = `Could not activate ${preset.name}: ${
+        error?.message || String(error)
+      }`;
+      this._render();
+    }
   }
 
   _updateLiveValues() {
@@ -960,6 +1391,148 @@ class Control4MediaGroupDialog extends HTMLElement {
       background: color-mix(in srgb, var(--primary-color, #03a9f4) 16%, transparent);
     }
     main { min-height: 0; overflow-y: auto; padding: 14px 20px 20px; }
+    .preset-section {
+      margin-bottom: 20px;
+      padding: 14px;
+      border: 1px solid var(--divider-color, #444);
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--primary-text-color, #fff) 3%, transparent);
+    }
+    .preset-heading {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .preset-heading h3 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 500;
+    }
+    .preset-heading p {
+      margin: 3px 0 0;
+      color: var(--secondary-text-color, #aaa);
+      font-size: 12px;
+    }
+    .save-current-preset {
+      display: inline-flex;
+      flex: 0 0 auto;
+      align-items: center;
+      gap: 4px;
+      min-height: 36px;
+      padding: 7px 10px;
+      border: 1px solid var(--primary-color, #03a9f4);
+      border-radius: 18px;
+      color: var(--primary-color, #03a9f4);
+      background: transparent;
+    }
+    .save-current-preset ha-icon { width: 18px; }
+    .preset-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 8px;
+    }
+    .preset-card {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 42px;
+      min-height: 62px;
+      overflow: hidden;
+      border: 1px solid var(--divider-color, #555);
+      border-radius: 10px;
+      background: var(--card-background-color, #1c1c1c);
+    }
+    .preset-card.unavailable { opacity: 0.58; }
+    .preset-activate {
+      display: grid;
+      grid-template-columns: 32px minmax(0, 1fr);
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      padding: 9px 8px 9px 10px;
+      border: 0;
+      color: var(--primary-text-color, #fff);
+      text-align: start;
+      background: transparent;
+    }
+    .preset-activate ha-icon { color: var(--primary-color, #03a9f4); }
+    .preset-activate span { min-width: 0; }
+    .preset-activate strong,
+    .preset-activate small {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .preset-activate strong { font-size: 14px; font-weight: 500; }
+    .preset-activate small {
+      margin-top: 3px;
+      color: var(--secondary-text-color, #aaa);
+      font-size: 11px;
+    }
+    .preset-delete {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 42px;
+      border: 0;
+      border-left: 1px solid var(--divider-color, #444);
+      color: var(--secondary-text-color, #aaa);
+      background: transparent;
+    }
+    .preset-delete ha-icon { width: 20px; }
+    .preset-empty {
+      padding: 10px 2px 2px;
+      color: var(--secondary-text-color, #aaa);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    .preset-editor {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .preset-editor input {
+      flex: 1 1 190px;
+      min-width: 0;
+      padding: 9px 11px;
+      border: 1px solid var(--divider-color, #555);
+      border-radius: 8px;
+      color: var(--primary-text-color, #fff);
+      background: var(--card-background-color, #1c1c1c);
+      font: inherit;
+    }
+    .preset-save,
+    .preset-cancel {
+      padding: 8px 12px;
+      border-radius: 18px;
+    }
+    .preset-save {
+      border: 0;
+      color: var(--text-primary-color, #fff);
+      background: var(--primary-color, #03a9f4);
+    }
+    .preset-cancel {
+      border: 1px solid var(--divider-color, #555);
+      color: var(--primary-text-color, #fff);
+      background: transparent;
+    }
+    .preset-notice {
+      margin-bottom: 10px;
+      padding: 8px 10px;
+      border-radius: 7px;
+      font-size: 12px;
+    }
+    .preset-notice[hidden] { display: none; }
+    .preset-error {
+      color: var(--error-color, #db4437);
+      background: color-mix(in srgb, var(--error-color, #db4437) 12%, transparent);
+    }
+    .preset-success {
+      color: var(--primary-color, #03a9f4);
+      background: color-mix(in srgb, var(--primary-color, #03a9f4) 12%, transparent);
+    }
     .player-section + .player-section {
       margin-top: 20px;
       padding-top: 14px;

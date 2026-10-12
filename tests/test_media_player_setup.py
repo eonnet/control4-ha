@@ -187,6 +187,7 @@ class MediaPlayerSetupTests(unittest.IsolatedAsyncioTestCase):
         session = FakeSession()
         forwarded = []
         register_frontend = AsyncMock()
+        register_group_presets = AsyncMock()
 
         async def forward(entry, platforms):
             forwarded.extend(platforms)
@@ -225,9 +226,13 @@ class MediaPlayerSetupTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 integration, "_async_register_frontend", register_frontend
             ),
+            patch.object(
+                integration, "_async_register_group_presets", register_group_presets
+            ),
         ):
             self.assertTrue(await integration.async_setup_entry(hass, entry))
             register_frontend.assert_awaited_once_with(hass)
+            register_group_presets.assert_awaited_once_with(hass)
             self.assertIn("media_player", forwarded)
             self.assertIn("button", forwarded)
             self.assertNotIn("number", forwarded)

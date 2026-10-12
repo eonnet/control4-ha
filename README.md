@@ -488,6 +488,16 @@ unselected rooms appear separately under **Available players**. Toggling a
 room immediately moves its row between the two sections; **Apply** still sends
 the membership change to Control4.
 
+Version 0.1.49 adds persistent **Group presets** at the top of the grouping
+popup. **Save current** records the selected rooms, group leader, individual
+volume levels, and mute states in Home Assistant. Each saved preset is shown as
+a clearly labelled one-tap card with its player count and leader; tapping it
+restores the group and then applies every stored room volume and mute setting.
+Presets are shared across browsers and the mobile app, survive entity-ID
+recreation by retaining Control4 room IDs, and can be deleted from the same
+panel. The saved leader must already have an active source before a preset can
+start a Control4 session.
+
 Version 0.1.37 registers the dashboard cards as versioned Lovelace resources
 instead of relying on Home Assistant's early extra-module loader. This avoids
 the scoped custom-element registry race that could show **Custom element not
