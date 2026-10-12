@@ -234,6 +234,28 @@ def _thermostat_changes(data: Mapping[str, Any]) -> dict[str, Any]:
     if fan_mode:
         changes["fan_mode"] = fan_mode
 
+    humidity_mode = _label(_first(data, "humidity_mode", "HUMIDITY_MODE"))
+    if humidity_mode:
+        changes["humidity_mode"] = humidity_mode
+    humidity_state = _label(_first(data, "humidity_state", "HUMIDITY_STATE"))
+    if humidity_state:
+        changes["humidity_state"] = humidity_state
+
+    for output_name, keys in (
+        ("current_humidity", ("humidity", "current_humidity", "HUMIDITY")),
+        (
+            "humidify_setpoint",
+            ("humidify_setpoint", "setpoint_humidify", "HUMIDIFY_SETPOINT"),
+        ),
+        (
+            "dehumidify_setpoint",
+            ("dehumidify_setpoint", "setpoint_dehumidify", "DEHUMIDIFY_SETPOINT"),
+        ),
+    ):
+        value = _number(_first(data, *keys))
+        if value is not None and 0 <= value <= 100:
+            changes[output_name] = value
+
     mode = _mode(_first(data, "hvac_mode", "hvacmode") or _first(settings, "hvacmode"))
     if mode:
         changes["hvac_mode"] = mode
@@ -384,6 +406,20 @@ def normalize_rest_variables(
         fan_mode = _label(_first(by_name, "FAN_MODE"))
         if fan_mode:
             changes["fan_mode"] = fan_mode
+        humidity_mode = _label(by_name.get("HUMIDITY_MODE"))
+        if humidity_mode:
+            changes["humidity_mode"] = humidity_mode
+        humidity_state = _label(by_name.get("HUMIDITY_STATE"))
+        if humidity_state:
+            changes["humidity_state"] = humidity_state
+        for output_name, variable_name in (
+            ("current_humidity", "HUMIDITY"),
+            ("humidify_setpoint", "HUMIDIFY_SETPOINT"),
+            ("dehumidify_setpoint", "DEHUMIDIFY_SETPOINT"),
+        ):
+            value = _number(by_name.get(variable_name))
+            if value is not None and 0 <= value <= 100:
+                changes[output_name] = value
         mode = _mode(_first(by_name, "HVAC_MODE", "V1 HVACMODE", "ANA_HVACMODE"))
         if mode:
             changes["hvac_mode"] = mode

@@ -449,6 +449,25 @@ class DeviceCommandClient:
             raise UnsupportedCommand("Director did not advertise fan-mode choices")
         return await self.send(device_id, "SET_MODE_FAN", {"MODE": mode})
 
+    async def humidity_mode(self, device_id: int, mode: str) -> Any:
+        """Set only a humidity mode explicitly listed in thermostat metadata."""
+        if not self.choices(device_id, "SET_MODE_HUMIDITY", "MODE"):
+            raise UnsupportedCommand("Director did not advertise humidity-mode choices")
+        return await self.send(device_id, "SET_MODE_HUMIDITY", {"MODE": mode})
+
+    async def humidity_step(
+        self, device_id: int, kind: str, *, increase: bool
+    ) -> Any:
+        """Move one advertised humidify/dehumidify setpoint by one percent."""
+        if kind not in {"HUMIDIFY", "DEHUMIDIFY"} or type(increase) is not bool:
+            raise UnsupportedCommand("unsupported humidity setpoint adjustment")
+        command = f"{'INC' if increase else 'DEC'}_SETPOINT_{kind}"
+        if not self.supports_parameterless(device_id, command):
+            raise UnsupportedCommand(
+                "Director did not advertise a parameterless humidity adjustment"
+            )
+        return await self.send(device_id, command)
+
     async def preset(self, device_id: int, name: str) -> Any:
         """Apply only a named preset explicitly listed in this device's metadata."""
         if not self.choices(device_id, "SET_PRESET", "NAME"):
