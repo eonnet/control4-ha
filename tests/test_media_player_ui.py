@@ -43,7 +43,11 @@ class FakeEntity:
 
 
 class FakeMediaPlayerEntity(FakeEntity):
-    pass
+    def get_browse_image_url(
+        self, media_content_type, media_content_id, media_image_id=None
+    ):
+        suffix = f"?media_image_id={media_image_id}" if media_image_id else ""
+        return f"/browse-image/{media_content_type}/{media_content_id}{suffix}"
 
 
 class FakeBrowseError(Exception):
@@ -566,6 +570,8 @@ class MediaPlayerUITests(unittest.IsolatedAsyncioTestCase):
 
         root = await entity.async_browse_media()
         self.assertEqual([child.title for child in root.children], ["Watch", "Listen"])
+        self.assertTrue(root.children[0].thumbnail.endswith("/watch"))
+        self.assertTrue(root.children[1].thumbnail.endswith("/listen"))
         watch = await entity.async_browse_media(
             self.media_player.SOURCE_GROUP_TYPE,
             root.children[0].media_content_id,
@@ -576,6 +582,8 @@ class MediaPlayerUITests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual([child.title for child in watch.children], ["Plex"])
         self.assertEqual([child.title for child in listen.children], ["Wiim"])
+        self.assertTrue(watch.children[0].thumbnail.endswith("/plex"))
+        self.assertTrue(listen.children[0].thumbnail.endswith("/wiim"))
         source_item = listen.children[0]
         self.assertEqual(source_item.media_class, FakeMediaClass.APP)
         self.assertEqual(source_item.media_content_type, self.media_player.SOURCE_TYPE)
@@ -613,6 +621,31 @@ class MediaPlayerUITests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(entity.source)
         self.assertEqual(entity.supported_features, 0)
         self.assertFalse(entity.available)
+
+    async def test_source_logo_proxy_serves_only_packaged_assets(self):
+        entity = self.media_player.Control4RoomMediaPlayer(
+            self.runtime, self.items[22]
+        )
+
+        async def executor(function, *args):
+            return function(*args)
+
+        entity.hass = SimpleNamespace(async_add_executor_job=executor)
+        content, content_type = await entity.async_get_browse_image(
+            self.media_player.SOURCE_LOGO_TYPE, "netflix"
+        )
+        self.assertTrue(content.startswith(b"<svg"))
+        self.assertEqual(content_type, "image/svg+xml")
+        self.assertEqual(
+            await entity.async_get_browse_image(
+                self.media_player.SOURCE_LOGO_TYPE, "../../secrets"
+            ),
+            (None, None),
+        )
+        self.assertEqual(
+            await entity.async_get_browse_image("unrelated", "netflix"),
+            (None, None),
+        )
 
     async def test_native_join_exposes_confirmed_group_members(self):
         self.items[23] = {

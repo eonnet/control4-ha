@@ -21,6 +21,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import Control4Runtime
 from .entity import Control4Entity
+from .source_logos import SOURCE_LOGO_TYPE, source_logo_bytes, source_logo_key
 from .transport.commands import UnsupportedCommand
 from .transport.events import normalize_rest_variables
 from .transport.favorites import RoomTuneInCatalog, TuneInFavorite
@@ -111,6 +112,15 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
         return (
             f"{self._browser_root_id()}:source:"
             f"{source.experience}:{source.device_id}"
+        )
+
+    def _logo_thumbnail(self, key: str) -> str:
+        return self.get_browse_image_url(SOURCE_LOGO_TYPE, key)
+
+    def _source_thumbnail(self, source: RoomSource) -> str:
+        item = self.runtime.transport.inventory.items.get(source.device_id)
+        return self._logo_thumbnail(
+            source_logo_key(source.name, source.experience, item)
         )
 
     @staticmethod
@@ -236,6 +246,7 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
                     media_content_type=SOURCE_GROUP_TYPE,
                     can_play=False,
                     can_expand=True,
+                    thumbnail=self._logo_thumbnail(experience),
                     children_media_class=MediaClass.APP,
                 )
                 for experience in ("watch", "listen")
@@ -250,6 +261,7 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
                         media_content_type=TIDAL_ROOT_TYPE,
                         can_play=False,
                         can_expand=True,
+                        thumbnail=self._logo_thumbnail("tidal"),
                         children_media_class=MediaClass.DIRECTORY,
                     )
                 )
@@ -262,6 +274,7 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
                         media_content_type=TUNEIN_ROOT_TYPE,
                         can_play=False,
                         can_expand=True,
+                        thumbnail=self._logo_thumbnail("tunein"),
                         children_media_class=MediaClass.DIRECTORY,
                     )
                 )
@@ -293,6 +306,7 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
                         media_content_type=SOURCE_TYPE,
                         can_play=True,
                         can_expand=False,
+                        thumbnail=self._source_thumbnail(source),
                     )
                     for source in sources
                     if source.experience == source_group
@@ -316,6 +330,7 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
                         media_content_type=TIDAL_ACCOUNT_TYPE,
                         can_play=False,
                         can_expand=True,
+                        thumbnail=self._logo_thumbnail("tidal"),
                         children_media_class=MediaClass.PLAYLIST,
                     )
                     for catalog in catalogs
@@ -339,6 +354,7 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
                         media_content_type=TUNEIN_SOURCE_TYPE,
                         can_play=False,
                         can_expand=True,
+                        thumbnail=self._logo_thumbnail("tunein"),
                         children_media_class=MediaClass.CHANNEL,
                     )
                     for catalog in tunein_catalogs
@@ -394,6 +410,20 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
             ],
             children_media_class=MediaClass.PLAYLIST,
         )
+
+    async def async_get_browse_image(
+        self,
+        media_content_type: str,
+        media_content_id: str,
+        media_image_id: str | None = None,
+    ) -> tuple[bytes | None, str | None]:
+        """Serve only packaged, allowlisted source logos through HA's proxy."""
+        if media_content_type != SOURCE_LOGO_TYPE or media_image_id is not None:
+            return None, None
+        content = await self.hass.async_add_executor_job(
+            source_logo_bytes, media_content_id
+        )
+        return (content, "image/svg+xml") if content is not None else (None, None)
 
     async def async_play_media(
         self, media_type: MediaType | str, media_id: str, **kwargs: Any

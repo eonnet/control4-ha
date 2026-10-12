@@ -221,6 +221,11 @@ REST does not return the dynamic item choices. The integration therefore
 stores only user-configured favorite labels and station IDs, validates the
 exact command schema at startup, and sends an allowlisted station only to its
 registered room.
+Version 0.1.31 adds local SVG thumbnails to the Watch and Listen source
+browser. The integration maps validated inventory/source metadata to a fixed
+logo allowlist, uses generic Watch or Listen artwork for unknown names, and
+serves the files through `MediaPlayerEntity.async_get_browse_image`. The image
+handler cannot resolve arbitrary paths or remote URLs.
 At version 0.1.12, media-player discovery still required a supported volume
 binding at integration startup. Version 0.1.13 retains an already registered
 room while its off-state binding is zero; new source-only or unproven rooms

@@ -45,6 +45,11 @@ only `source | name | Station/s...` records. Catalog construction joins each
 record to a visible inventory-backed TuneIn source, and playback requires the
 live `Play Item(Item, Room)` metadata plus the registered room/station
 allowlist.
+Version 0.1.31 adds packaged SVG thumbnails to the Watch and Listen browser
+folders and their source tiles. Brand matching uses only the already validated
+source name and inventory metadata, falls back to generic experience artwork,
+and serves only allowlisted files through Home Assistant's signed media-player
+image proxy.
 
 The config flow accepts a local Director hostname/IP and Control4 account
 credentials. The account service issues a Director JWT; a separate local
