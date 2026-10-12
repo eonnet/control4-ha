@@ -83,9 +83,9 @@ def supported_media_room_ids(
 ) -> list[int]:
     """Expose proven rooms, retaining an already registered room while off.
 
-    The bound ``aswitch`` OutputStatus stream is proven for Living/Wiim. A
-    room with another volume-device proxy may still have useful REST state,
-    but its normal push feedback has not yet been established.
+    Any inventory-backed volume binding with complete room REST state is
+    supported. ``aswitch`` bindings additionally provide push feedback;
+    other TV/AV bindings are confirmed through short room REST reads.
     """
     known = set(known_room_ids)
     result: list[int] = []
@@ -98,7 +98,6 @@ def supported_media_room_ids(
         volume = state.get("volume_percent")
         supported_on = (
             bound is not None
-            and bound.get("proxy") == "aswitch"
             and isinstance(state.get("is_on"), bool)
             and isinstance(state.get("is_muted"), bool)
             and type(volume) in (int, float)

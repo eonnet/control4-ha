@@ -80,7 +80,7 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(supported_binary_sensor_ids(items, items), [335, 377, 378])
         self.assertEqual(command_metadata_ids(items, {335, 377, 378, 431}), [431])
 
-    def test_media_rooms_require_complete_room_state_and_bound_aswitch(self) -> None:
+    def test_media_rooms_require_complete_state_and_inventory_volume_binding(self) -> None:
         items = {
             22: {"id": 22, "typeName": "room", "proxy": "roomdevice"},
             23: {"id": 23, "typeName": "room", "proxy": "roomdevice"},
@@ -96,7 +96,7 @@ class SelectionTests(unittest.TestCase):
             23: {**valid, "volume_device_id": 1227},
             24: {**valid, "is_muted": None},
             25: valid,
-        }), [22])
+        }), [22, 23])
         self.assertEqual(supported_media_room_ids(items, {22: {**valid, "volume_percent": True}}), [])
 
         off = {"is_on": False, "selected_source_id": 0, "volume_device_id": 0}

@@ -498,6 +498,12 @@ recreation by retaining Control4 room IDs, and can be deleted from the same
 panel. The saved leader must already have an active source before a preset can
 start a Control4 session.
 
+Version 0.1.50 exposes native Home Assistant volume and mute controls for
+rooms whose Control4 volume path is bound through an inventory-backed TV or AV
+device, not only an audio switch. These rooms use short, authoritative Director
+REST reads after a volume or mute command because their bound device does not
+provide the proven audio-switch push feedback path.
+
 Version 0.1.37 registers the dashboard cards as versioned Lovelace resources
 instead of relying on Home Assistant's early extra-module loader. This avoids
 the scoped custom-element registry race that could show **Custom element not

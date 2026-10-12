@@ -818,10 +818,35 @@ class MediaPlayerUITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(entity.group_members, ["media_player.living"])
         self.assertEqual(entity.state, FakeMediaPlayerState.OFF)
 
-    async def test_unknown_binding_and_incomplete_state_are_unavailable(self):
+    async def test_tv_binding_exposes_volume_and_incomplete_state_is_unavailable(self):
         entity = self.media_player.Control4RoomMediaPlayer(self.runtime, self.items[22])
         self.state[22]["volume_device_id"] = 1227
-        self.assertFalse(entity.available)
+        self.assertTrue(entity.available)
+        self.assertTrue(
+            entity.supported_features & FakeMediaPlayerFeature.VOLUME_SET
+        )
+        self.assertTrue(
+            entity.supported_features & FakeMediaPlayerFeature.VOLUME_MUTE
+        )
+
+        async def settle(room_id):
+            self.assertEqual(room_id, 22)
+            self.state[22]["volume_percent"] = 25
+            await entity._on_event(NormalizedEvent(22, "rest", "snapshot", {
+                "volume_percent": 25,
+            }, "2026-10-12T00:00:00Z", True, {}))
+
+        self.runtime.transport.sync_device.side_effect = settle
+        with patch.object(self.media_player.asyncio, "sleep", AsyncMock()):
+            await entity.async_set_volume_level(0.25)
+            confirmation_task = entity._volume_confirmation_task
+            self.assertIsNotNone(confirmation_task)
+            await confirmation_task
+        self.commands.room_volume.assert_awaited_once_with(22, 25)
+        self.runtime.transport.sync_device.assert_awaited_once_with(22)
+        self.assertEqual(entity.volume_level, 0.25)
+        self.assertIsNone(entity._pending_volume_level)
+
         self.state[22]["volume_device_id"] = 623
         self.state[22]["is_on"] = False
         self.assertEqual(entity.state, FakeMediaPlayerState.OFF)
