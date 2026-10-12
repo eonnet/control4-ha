@@ -5,6 +5,8 @@ const PRESET_CARD_TAG = "control4-media-preset-card";
 const PRESET_EDITOR_TAG = "control4-media-preset-card-editor";
 const FAVORITES_CARD_TAG = "control4-media-favorites-card";
 const FAVORITES_EDITOR_TAG = "control4-media-favorites-card-editor";
+const ROOM_DASHBOARD_CARD_TAG = "control4-room-dashboard-card";
+const ROOM_DASHBOARD_EDITOR_TAG = "control4-room-dashboard-card-editor";
 const DIALOG_TAG = "control4-media-group-dialog";
 const CONTROL4_PLATFORM = "control4_advanced";
 const FEATURE_VOLUME_SET = 4;
@@ -64,6 +66,25 @@ const control4BrowsePlayers = (hass) =>
         supportsFeature(state, FEATURE_BROWSE_MEDIA)
     )
     .sort((left, right) => stateName(left).localeCompare(stateName(right)));
+
+const entityAreaId = (hass, entityId) => {
+  const entry = hass?.entities?.[entityId];
+  if (entry?.area_id) {
+    return entry.area_id;
+  }
+  return entry?.device_id ? hass?.devices?.[entry.device_id]?.area_id : undefined;
+};
+
+const entitiesInArea = (hass, areaId, domain) =>
+  !areaId
+    ? []
+    : Object.values(hass?.states || {})
+        .filter(
+          (state) =>
+            state.entity_id.startsWith(`${domain}.`) &&
+            entityAreaId(hass, state.entity_id) === areaId
+        )
+        .sort((left, right) => stateName(left).localeCompare(stateName(right)));
 
 const browseControl4Media = (hass, entityId, item) => {
   if (typeof hass?.callWS !== "function") {
@@ -2785,6 +2806,1362 @@ class Control4MediaFavoritesCard extends HTMLElement {
   }
 }
 
+class Control4RoomDashboardCard extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._config = undefined;
+    this._hass = undefined;
+    this._sections = [];
+    this._loadedEntity = undefined;
+    this._loading = false;
+    this._drawerOpen = false;
+    this._view = "home";
+    this._lightTab = "lights";
+    this._error = "";
+    this._status = "";
+    this._busyId = undefined;
+    this._loadSequence = 0;
+    this._statusTimer = undefined;
+    this._pendingLightLevels = new Map();
+  }
+
+  static getConfigElement() {
+    return document.createElement(ROOM_DASHBOARD_EDITOR_TAG);
+  }
+
+  static getStubConfig(hass) {
+    const entity = control4BrowsePlayers(hass)[0]?.entity_id || "";
+    const areaId = entityAreaId(hass, entity);
+    return {
+      entity,
+      ...(areaId ? { area_id: areaId } : {}),
+    };
+  }
+
+  setConfig(config) {
+    if (!config?.entity || !String(config.entity).startsWith("media_player.")) {
+      throw new Error("Select a Control4 media player entity");
+    }
+    const entityChanged = config.entity !== this._config?.entity;
+    this._config = { ...config };
+    if (entityChanged) {
+      this._loadSequence += 1;
+      this._sections = [];
+      this._loadedEntity = undefined;
+      this._loading = false;
+      this._error = "";
+    }
+    this._render();
+    this._maybeLoad();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    for (const [entityId, pending] of this._pendingLightLevels) {
+      const state = hass?.states?.[entityId];
+      const reported =
+        typeof state?.attributes?.brightness === "number"
+          ? Math.round((state.attributes.brightness / 255) * 100)
+          : state?.state === "on"
+            ? 100
+            : 0;
+      if (
+        Math.abs(reported - pending.value) <= 1 ||
+        Date.now() >= pending.expires
+      ) {
+        this._pendingLightLevels.delete(entityId);
+      }
+    }
+    this._render();
+    this._maybeLoad();
+  }
+
+  connectedCallback() {
+    this._maybeLoad();
+  }
+
+  disconnectedCallback() {
+    this._loadSequence += 1;
+    this._loading = false;
+    this._loadedEntity = undefined;
+    window.clearTimeout(this._statusTimer);
+    this._statusTimer = undefined;
+  }
+
+  getCardSize() {
+    return 12;
+  }
+
+  getGridOptions() {
+    return { rows: 12, columns: 12, min_rows: 6, min_columns: 6 };
+  }
+
+  _areaId() {
+    return (
+      this._config?.area_id ||
+      entityAreaId(this._hass, this._config?.entity)
+    );
+  }
+
+  _areaName() {
+    const area = this._hass?.areas?.[this._areaId()];
+    return this._config?.name || area?.name || stateName(
+      this._hass?.states?.[this._config?.entity]
+    );
+  }
+
+  _background() {
+    return (
+      this._config?.background ||
+      this._hass?.areas?.[this._areaId()]?.picture ||
+      ""
+    );
+  }
+
+  _areaEntities(domain) {
+    return entitiesInArea(this._hass, this._areaId(), domain);
+  }
+
+  _items(sectionKeys) {
+    const keys = new Set(sectionKeys);
+    return this._sections
+      .filter((section) => keys.has(section.key))
+      .flatMap((section) => section.items);
+  }
+
+  _maybeLoad() {
+    if (
+      !this.isConnected ||
+      !this._hass ||
+      !this._config ||
+      this._loading ||
+      this._loadedEntity === this._config.entity
+    ) {
+      return;
+    }
+    void this._loadMedia();
+  }
+
+  async _loadMedia() {
+    const entityId = this._config.entity;
+    const sequence = ++this._loadSequence;
+    this._loading = true;
+    this._error = "";
+    this._render();
+    try {
+      const loaded = await loadControl4MediaSections(this._hass, entityId);
+      if (sequence !== this._loadSequence || !this.isConnected) {
+        return;
+      }
+      this._sections = loaded.sections;
+      this._error = loaded.errors.length
+        ? this._sections.length
+          ? "Some Control4 media could not be loaded."
+          : loaded.errors[0]?.message || String(loaded.errors[0])
+        : "";
+      this._loadedEntity = entityId;
+    } catch (error) {
+      if (sequence !== this._loadSequence || !this.isConnected) {
+        return;
+      }
+      this._sections = [];
+      this._error = error?.message || String(error);
+      this._loadedEntity = entityId;
+    } finally {
+      if (sequence === this._loadSequence) {
+        this._loading = false;
+        if (this.isConnected) {
+          this._render();
+        }
+      }
+    }
+  }
+
+  _mediaArtwork(item, className = "") {
+    const fallback = `<ha-icon icon="${escapeHtml(
+      item.icon || "mdi:play-circle-outline"
+    )}"></ha-icon>`;
+    if (!item.thumbnail) {
+      return `<span class="c4-art fallback ${className}">${fallback}</span>`;
+    }
+    return `<span class="c4-art ${className}"><img src="${escapeHtml(
+      item.thumbnail
+    )}" alt="" loading="lazy" />${fallback}</span>`;
+  }
+
+  _renderMediaTile(item, compact = false) {
+    const state = this._hass.states[this._config.entity];
+    const active =
+      state?.attributes?.control4_media_content_id === item.media_content_id;
+    const busy = this._busyId === item.key;
+    return `
+      <button
+        type="button"
+        class="c4-media-tile ${compact ? "compact" : ""} ${
+          active ? "active" : ""
+        }"
+        data-c4-media-key="${escapeHtml(item.key)}"
+        aria-label="Play ${escapeHtml(item.title)}"
+        aria-busy="${busy ? "true" : "false"}"
+        ${this._busyId ? "disabled" : ""}
+      >
+        ${this._mediaArtwork(item)}
+        <span class="c4-media-title">${escapeHtml(item.title)}</span>
+        ${
+          item.subtitle
+            ? `<span class="c4-media-detail">${escapeHtml(item.subtitle)}</span>`
+            : ""
+        }
+        ${
+          busy
+            ? '<ha-icon class="tile-busy" icon="mdi:loading"></ha-icon>'
+            : ""
+        }
+      </button>`;
+  }
+
+  _renderClimateSummary() {
+    const climates = this._areaEntities("climate").slice(0, 2);
+    if (!climates.length) {
+      return "";
+    }
+    return `
+      <div class="climate-summary">
+        ${climates
+          .map((state) => {
+            const current = state.attributes.current_temperature;
+            const target = state.attributes.temperature;
+            const value =
+              typeof current === "number"
+                ? current
+                : typeof target === "number"
+                  ? target
+                  : "—";
+            return `
+              <button
+                type="button"
+                class="climate-orb"
+                data-more-info="${escapeHtml(state.entity_id)}"
+              >
+                <span class="orb-value">${escapeHtml(value)}</span>
+                <span class="orb-unit">${escapeHtml(
+                  state.attributes.temperature_unit || "°"
+                )}</span>
+                <span class="orb-name">${escapeHtml(stateName(state))}</span>
+              </button>`;
+          })
+          .join("")}
+      </div>`;
+  }
+
+  _renderLauncher(view, icon, label) {
+    return `
+      <button type="button" class="launcher" data-c4-view="${view}">
+        <ha-icon icon="${icon}"></ha-icon>
+        <span>${label}</span>
+      </button>`;
+  }
+
+  _renderHome() {
+    const favorites = this._items(["watch", "listen", "tidal", "tunein"]).slice(
+      0,
+      12
+    );
+    return `
+      <div class="c4-view home-view">
+        ${this._renderClimateSummary()}
+        <div class="launcher-grid">
+          ${this._renderLauncher("watch", "mdi:television-classic", "Watch")}
+          ${this._renderLauncher("listen", "mdi:speaker-wireless", "Listen")}
+          ${this._renderLauncher("lighting", "mdi:lightbulb", "Lighting")}
+        </div>
+        ${
+          this._loading && !favorites.length
+            ? '<div class="view-message"><ha-icon class="spin" icon="mdi:loading"></ha-icon> Loading media…</div>'
+            : favorites.length
+              ? `<div class="home-media-grid">${favorites
+                  .map((item) => this._renderMediaTile(item, true))
+                  .join("")}</div>`
+              : '<div class="view-message">No room favorites are available.</div>'
+        }
+      </div>`;
+  }
+
+  _renderMediaView(kind) {
+    const isWatch = kind === "watch";
+    const keys = isWatch ? ["watch"] : ["listen", "tidal", "tunein"];
+    const sections = this._sections.filter((section) => keys.includes(section.key));
+    const player = this._hass.states[this._config.entity];
+    const recentTitle =
+      player?.attributes?.media_title ||
+      player?.attributes?.control4_media_title ||
+      player?.attributes?.source;
+    return `
+      <div class="c4-view media-view">
+        ${
+          !isWatch && recentTitle
+            ? `
+              <section class="recent-section">
+                <h3>Recently Played</h3>
+                <button
+                  type="button"
+                  class="recent-media"
+                  data-more-info="${escapeHtml(player.entity_id)}"
+                >
+                  ${
+                    player.attributes.entity_picture
+                      ? `<img src="${escapeHtml(
+                          player.attributes.entity_picture
+                        )}" alt="" />`
+                      : '<ha-icon icon="mdi:music-circle"></ha-icon>'
+                  }
+                  <span>
+                    <strong>${escapeHtml(recentTitle)}</strong>
+                    <small>${escapeHtml(
+                      player.attributes.media_artist || "Now playing"
+                    )}</small>
+                  </span>
+                </button>
+              </section>`
+            : ""
+        }
+        ${
+          this._loading && !sections.length
+            ? '<div class="view-message"><ha-icon class="spin" icon="mdi:loading"></ha-icon> Loading media…</div>'
+            : sections.length
+              ? sections
+                  .map(
+                    (section) => `
+                      <section class="media-section">
+                        <h3>${
+                          isWatch ? "" : escapeHtml(section.title)
+                        }</h3>
+                        <div class="large-media-grid">
+                          ${section.items
+                            .map((item) => this._renderMediaTile(item))
+                            .join("")}
+                        </div>
+                      </section>`
+                  )
+                  .join("")
+              : `<div class="view-message">No ${
+                  isWatch ? "Watch sources" : "Listen sources"
+                } are available.</div>`
+        }
+      </div>`;
+  }
+
+  _renderLightRow(state) {
+    const on = state.state === "on";
+    const reportedBrightness =
+      typeof state.attributes.brightness === "number"
+        ? Math.round((state.attributes.brightness / 255) * 100)
+        : on
+          ? 100
+          : 0;
+    const pending = this._pendingLightLevels.get(state.entity_id);
+    if (pending && Date.now() >= pending.expires) {
+      this._pendingLightLevels.delete(state.entity_id);
+    }
+    const brightness =
+      pending && Date.now() < pending.expires
+        ? pending.value
+        : reportedBrightness;
+    const dimmable =
+      typeof state.attributes.brightness === "number" ||
+      (state.attributes.supported_color_modes || []).includes("brightness");
+    return `
+      <article class="light-row ${on ? "on" : ""}">
+        <button
+          type="button"
+          class="light-toggle"
+          data-light-toggle="${escapeHtml(state.entity_id)}"
+          aria-label="Toggle ${escapeHtml(stateName(state))}"
+        >
+          <ha-icon icon="${on ? "mdi:lightbulb" : "mdi:lightbulb-outline"}"></ha-icon>
+        </button>
+        <div class="light-details">
+          <button
+            type="button"
+            class="entity-name"
+            data-more-info="${escapeHtml(state.entity_id)}"
+          >${escapeHtml(stateName(state))}</button>
+          ${
+            dimmable
+              ? `
+                <div class="light-level">
+                  <output data-light-output="${escapeHtml(state.entity_id)}">${brightness}</output>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value="${brightness}"
+                    data-light-slider="${escapeHtml(state.entity_id)}"
+                    aria-label="${escapeHtml(stateName(state))} brightness"
+                  />
+                </div>`
+              : `<span class="binary-state">${on ? "On" : "Off"}</span>`
+          }
+        </div>
+        <button
+          type="button"
+          class="row-more"
+          data-more-info="${escapeHtml(state.entity_id)}"
+          aria-label="Open ${escapeHtml(stateName(state))}"
+        ><ha-icon icon="mdi:chevron-right"></ha-icon></button>
+      </article>`;
+  }
+
+  _renderLighting() {
+    const lights = this._areaEntities("light");
+    const scenes = this._areaEntities("scene");
+    const content =
+      this._lightTab === "scenes"
+        ? scenes.length
+          ? `<div class="scene-grid">${scenes
+              .map(
+                (state) => `
+                  <button
+                    type="button"
+                    class="scene-tile"
+                    data-scene-id="${escapeHtml(state.entity_id)}"
+                  >
+                    <ha-icon icon="mdi:palette-outline"></ha-icon>
+                    <span>${escapeHtml(stateName(state))}</span>
+                  </button>`
+              )
+              .join("")}</div>`
+          : '<div class="view-message">No scenes are assigned to this area.</div>'
+        : lights.length
+          ? `<div class="light-list">${lights
+              .map((state) => this._renderLightRow(state))
+              .join("")}</div>`
+          : '<div class="view-message">No lights are assigned to this area.</div>';
+    return `
+      <div class="c4-view lighting-view">
+        <div class="lighting-tabs">
+          <button
+            type="button"
+            class="${this._lightTab === "lights" ? "selected" : ""}"
+            data-light-tab="lights"
+          >Lights</button>
+          <button
+            type="button"
+            class="${this._lightTab === "scenes" ? "selected" : ""}"
+            data-light-tab="scenes"
+          >Scenes</button>
+        </div>
+        <div class="area-label">${escapeHtml(this._areaName())}</div>
+        ${content}
+      </div>`;
+  }
+
+  _renderEntityView(domain, emptyMessage) {
+    const states = this._areaEntities(domain);
+    return states.length
+      ? `
+        <div class="c4-view entity-grid">
+          ${states
+            .map(
+              (state) => `
+                <button
+                  type="button"
+                  class="entity-tile"
+                  data-more-info="${escapeHtml(state.entity_id)}"
+                >
+                  <ha-icon icon="${
+                    domain === "climate"
+                      ? "mdi:thermostat"
+                      : "mdi:shield-home-outline"
+                  }"></ha-icon>
+                  <strong>${escapeHtml(stateName(state))}</strong>
+                  <span>${escapeHtml(
+                    state.attributes.current_temperature ??
+                      state.attributes.temperature ??
+                      state.state
+                  )}</span>
+                </button>`
+            )
+            .join("")}
+        </div>`
+      : `<div class="view-message full">${escapeHtml(emptyMessage)}</div>`;
+  }
+
+  _renderCurrentView() {
+    if (this._view === "watch") {
+      return this._renderMediaView("watch");
+    }
+    if (this._view === "listen") {
+      return this._renderMediaView("listen");
+    }
+    if (this._view === "lighting") {
+      return this._renderLighting();
+    }
+    if (this._view === "comfort") {
+      return this._renderEntityView(
+        "climate",
+        "No climate entities are assigned to this area."
+      );
+    }
+    if (this._view === "security") {
+      return this._renderEntityView(
+        "alarm_control_panel",
+        "No security panel is assigned to this area."
+      );
+    }
+    if (this._view === "intercom") {
+      return '<div class="view-message full">No Home Assistant intercom entity is configured for this room.</div>';
+    }
+    return this._renderHome();
+  }
+
+  _viewTitle() {
+    return (
+      {
+        home: this._areaName(),
+        watch: "Watch",
+        listen: "Listen",
+        lighting: "Lighting",
+        comfort: "Comfort",
+        security: "Security",
+        intercom: "Intercom",
+      }[this._view] || this._areaName()
+    );
+  }
+
+  _renderHeader() {
+    return `
+      <header class="c4-header ${this._view === "home" ? "home" : ""}">
+        <button
+          type="button"
+          class="header-action"
+          data-toggle-drawer
+          aria-label="Open Control4 navigation"
+        ><ha-icon icon="mdi:menu"></ha-icon></button>
+        ${
+          this._view !== "home"
+            ? '<button type="button" class="header-action" data-c4-back aria-label="Back"><ha-icon icon="mdi:chevron-left"></ha-icon></button>'
+            : ""
+        }
+        <div class="header-title">
+          <span class="page-dots">●○○○○○</span>
+          <strong>${escapeHtml(this._viewTitle())}</strong>
+        </div>
+        <button
+          type="button"
+          class="header-action"
+          data-c4-home
+          aria-label="Room home"
+        ><ha-icon icon="mdi:home-outline"></ha-icon></button>
+      </header>`;
+  }
+
+  _drawerItem(view, icon, title, extra = "") {
+    return `
+      <button type="button" class="drawer-item" data-c4-view="${view}">
+        <span class="drawer-icon"><ha-icon icon="${icon}"></ha-icon>${extra}</span>
+        <span>${title}</span>
+      </button>`;
+  }
+
+  _renderDrawer() {
+    if (!this._drawerOpen) {
+      return "";
+    }
+    return `
+      <div class="drawer-layer">
+        <button
+          type="button"
+          class="drawer-scrim"
+          data-close-drawer
+          aria-label="Close navigation"
+        ></button>
+        <nav class="c4-drawer" aria-label="Control4 room navigation">
+          ${this._drawerItem("watch", "mdi:television-classic", "Watch")}
+          ${this._drawerItem("listen", "mdi:music-box-outline", "Listen")}
+          ${this._drawerItem("lighting", "mdi:lightbulb-group", "Lighting")}
+          ${this._drawerItem("comfort", "mdi:snowflake-thermometer", "Comfort")}
+          ${this._drawerItem("security", "mdi:shield-home", "Security")}
+          ${this._drawerItem("intercom", "mdi:access-point", "Intercom")}
+          ${this._drawerItem("wake", "mdi:white-balance-sunny", "Wake")}
+          ${this._drawerItem("sleep", "mdi:weather-night", "Sleep")}
+          <div class="drawer-footer">
+            <ha-icon icon="mdi:lifebuoy"></ha-icon>
+            <ha-icon icon="mdi:email-outline"></ha-icon>
+            <ha-icon icon="mdi:headset"></ha-icon>
+          </div>
+        </nav>
+      </div>`;
+  }
+
+  _renderNowPlaying() {
+    const state = this._hass.states[this._config.entity];
+    const title =
+      state?.attributes?.media_title ||
+      state?.attributes?.control4_media_title ||
+      state?.attributes?.source;
+    if (!title) {
+      return "";
+    }
+    return `
+      <button
+        type="button"
+        class="now-playing"
+        data-more-info="${escapeHtml(state.entity_id)}"
+      >
+        ${
+          state.attributes.entity_picture
+            ? `<img src="${escapeHtml(state.attributes.entity_picture)}" alt="" />`
+            : '<ha-icon icon="mdi:play-circle"></ha-icon>'
+        }
+        <span>
+          <strong>${escapeHtml(title)}</strong>
+          <small>${escapeHtml(
+            state.attributes.media_artist || stateName(state)
+          )}</small>
+        </span>
+        <ha-icon icon="mdi:chevron-up"></ha-icon>
+      </button>`;
+  }
+
+  _render() {
+    if (!this._config || !this._hass) {
+      return;
+    }
+    const previousScroll =
+      this.shadowRoot.querySelector(".c4-content")?.scrollTop || 0;
+    this.shadowRoot.innerHTML = `
+      <style>
+        :host {
+          display: block;
+          color: #fff;
+          --c4-accent: var(--primary-color, #26a9e0);
+        }
+        * { box-sizing: border-box; }
+        ha-card {
+          height: calc(100dvh - var(--header-height, 56px) - 12px);
+          min-height: 620px;
+          overflow: hidden;
+          border: 0;
+          border-radius: var(--ha-card-border-radius, 12px);
+          background: #171717;
+        }
+        button { font: inherit; }
+        .dashboard {
+          position: relative;
+          display: grid;
+          grid-template-rows: 72px minmax(0, 1fr) auto;
+          width: 100%;
+          height: 100%;
+          overflow: hidden;
+          background-color: #26221f;
+          background-position: center;
+          background-size: cover;
+        }
+        .dashboard::before {
+          position: absolute;
+          inset: 0;
+          z-index: 0;
+          content: "";
+          background: rgba(0, 0, 0, 0.56);
+          pointer-events: none;
+        }
+        .c4-header, .c4-content, .now-playing { position: relative; z-index: 1; }
+        .c4-header {
+          display: grid;
+          grid-template-columns: 52px auto minmax(0, 1fr) 52px;
+          align-items: center;
+          min-height: 72px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.13);
+          background: rgba(0, 0, 0, 0.38);
+          backdrop-filter: blur(8px);
+        }
+        .c4-header.home { grid-template-columns: 52px minmax(0, 1fr) 52px; }
+        .header-action {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 52px;
+          height: 52px;
+          border: 0;
+          color: #fff;
+          background: transparent;
+          cursor: pointer;
+        }
+        .header-action ha-icon { --mdc-icon-size: 31px; }
+        .header-title {
+          min-width: 0;
+          text-align: center;
+        }
+        .header-title strong {
+          display: block;
+          overflow: hidden;
+          font-size: 23px;
+          font-weight: 300;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .page-dots {
+          display: block;
+          height: 13px;
+          color: rgba(255, 255, 255, 0.36);
+          font-size: 9px;
+          letter-spacing: 2px;
+        }
+        .c4-content {
+          min-height: 0;
+          overflow-x: hidden;
+          overflow-y: auto;
+          scrollbar-width: thin;
+        }
+        .c4-view { min-height: 100%; padding: 18px 14px 28px; }
+        .climate-summary {
+          display: flex;
+          justify-content: center;
+          gap: 48px;
+          padding: 8px 0 22px;
+        }
+        .climate-orb {
+          position: relative;
+          display: grid;
+          place-content: center;
+          width: 88px;
+          height: 88px;
+          border: 1px solid rgba(255, 255, 255, 0.23);
+          border-radius: 50%;
+          color: #fff;
+          background: radial-gradient(
+            circle at 40% 35%,
+            rgba(255, 255, 255, 0.18),
+            rgba(0, 0, 0, 0.54) 68%
+          );
+          box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+          cursor: pointer;
+        }
+        .orb-value { font-size: 25px; font-weight: 300; }
+        .orb-unit { position: absolute; top: 24px; right: 16px; font-size: 11px; }
+        .orb-name {
+          position: absolute;
+          top: calc(100% + 7px);
+          left: 50%;
+          width: 130px;
+          overflow: hidden;
+          color: rgba(255, 255, 255, 0.82);
+          font-size: 13px;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          transform: translateX(-50%);
+        }
+        .launcher-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          margin-top: 12px;
+          border-top: 1px solid rgba(255, 255, 255, 0.15);
+          border-left: 1px solid rgba(255, 255, 255, 0.15);
+        }
+        .launcher {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 10px;
+          min-height: 138px;
+          border: 0;
+          border-right: 1px solid rgba(255, 255, 255, 0.15);
+          border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+          color: #fff;
+          background: rgba(0, 0, 0, 0.14);
+          cursor: pointer;
+        }
+        .launcher ha-icon { color: #fff; --mdc-icon-size: 57px; }
+        .launcher span { font-size: 18px; font-weight: 300; }
+        .home-media-grid, .large-media-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          border-left: 1px solid rgba(255, 255, 255, 0.15);
+        }
+        .c4-media-tile {
+          position: relative;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 9px;
+          min-width: 0;
+          height: clamp(190px, 51vw, 238px);
+          padding: 16px 12px;
+          border: 0;
+          border-right: 1px solid rgba(255, 255, 255, 0.15);
+          border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+          color: #fff;
+          text-align: center;
+          background: rgba(0, 0, 0, 0.13);
+          cursor: pointer;
+        }
+        .c4-media-tile.compact { height: 148px; }
+        .c4-media-tile.active {
+          background: color-mix(in srgb, var(--c4-accent) 24%, rgba(0, 0, 0, 0.2));
+          box-shadow: inset 0 0 0 1px var(--c4-accent);
+        }
+        .c4-media-tile:disabled { opacity: 0.62; cursor: default; }
+        .c4-art {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 100px;
+          height: 100px;
+          overflow: hidden;
+          border-radius: 4px;
+          color: #fff;
+          background: rgba(0, 0, 0, 0.52);
+        }
+        .compact .c4-art { width: 66px; height: 66px; }
+        .c4-art img { width: 100%; height: 100%; object-fit: contain; }
+        .c4-art ha-icon { display: none; --mdc-icon-size: 54px; }
+        .c4-art.fallback img { display: none; }
+        .c4-art.fallback ha-icon { display: block; }
+        .c4-media-title {
+          display: -webkit-box;
+          max-width: 100%;
+          overflow: hidden;
+          font-size: 20px;
+          font-weight: 300;
+          line-height: 1.15;
+          text-overflow: ellipsis;
+          white-space: normal;
+          -webkit-box-orient: vertical;
+          -webkit-line-clamp: 2;
+        }
+        .compact .c4-media-title { font-size: 15px; }
+        .c4-media-detail {
+          max-width: 100%;
+          overflow: hidden;
+          color: rgba(255, 255, 255, 0.65);
+          font-size: 12px;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .tile-busy {
+          position: absolute;
+          top: 12px;
+          right: 12px;
+          color: var(--c4-accent);
+          animation: spin 1s linear infinite;
+        }
+        .media-section + .media-section { margin-top: 20px; }
+        .media-section h3, .recent-section h3 {
+          margin: 0;
+          padding: 0 0 10px;
+          color: rgba(255, 255, 255, 0.82);
+          font-size: 20px;
+          font-weight: 300;
+        }
+        .media-section h3:empty { display: none; }
+        .recent-section { margin-bottom: 20px; }
+        .recent-media {
+          display: grid;
+          grid-template-columns: 70px minmax(0, 1fr);
+          gap: 12px;
+          align-items: center;
+          width: 100%;
+          padding: 10px;
+          border: 1px solid rgba(255, 255, 255, 0.15);
+          color: #fff;
+          text-align: start;
+          background: rgba(0, 0, 0, 0.32);
+          cursor: pointer;
+        }
+        .recent-media img, .recent-media > ha-icon {
+          width: 70px;
+          height: 70px;
+          object-fit: cover;
+          --mdc-icon-size: 62px;
+        }
+        .recent-media strong, .recent-media small { display: block; }
+        .recent-media strong {
+          overflow: hidden;
+          font-size: 17px;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .recent-media small {
+          margin-top: 4px;
+          color: rgba(255, 255, 255, 0.62);
+        }
+        .lighting-view { padding: 0 0 28px; }
+        .lighting-tabs {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          background: rgba(0, 0, 0, 0.47);
+        }
+        .lighting-tabs button {
+          padding: 16px;
+          border: 0;
+          border-bottom: 3px solid transparent;
+          color: rgba(255, 255, 255, 0.65);
+          font-size: 21px;
+          background: transparent;
+          cursor: pointer;
+        }
+        .lighting-tabs button.selected {
+          border-bottom-color: #fff;
+          color: #fff;
+        }
+        .area-label {
+          padding: 12px 18px;
+          color: rgba(255, 255, 255, 0.62);
+          font-size: 15px;
+          text-transform: uppercase;
+          background: rgba(0, 0, 0, 0.36);
+        }
+        .light-row {
+          display: grid;
+          grid-template-columns: 74px minmax(0, 1fr) 48px;
+          align-items: center;
+          min-height: 112px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.17);
+          background: rgba(0, 0, 0, 0.18);
+        }
+        .light-toggle, .row-more, .entity-name {
+          border: 0;
+          color: #fff;
+          background: transparent;
+          cursor: pointer;
+        }
+        .light-toggle {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 74px;
+          height: 74px;
+        }
+        .light-toggle ha-icon { --mdc-icon-size: 42px; }
+        .light-row.on .light-toggle { color: #ffd06f; }
+        .light-details { min-width: 0; padding: 12px 0; }
+        .entity-name {
+          display: block;
+          width: 100%;
+          overflow: hidden;
+          padding: 0;
+          font-size: 21px;
+          font-weight: 300;
+          text-align: start;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .light-level {
+          display: grid;
+          grid-template-columns: 66px minmax(0, 1fr);
+          gap: 10px;
+          align-items: center;
+          margin-top: 7px;
+        }
+        .light-level output {
+          padding: 6px 12px;
+          border: 1px solid rgba(255, 255, 255, 0.82);
+          border-radius: 20px;
+          font-size: 17px;
+          text-align: center;
+        }
+        .light-level input { width: 100%; accent-color: #fff; }
+        .binary-state {
+          display: block;
+          margin-top: 7px;
+          color: rgba(255, 255, 255, 0.65);
+        }
+        .row-more {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 48px;
+          height: 64px;
+        }
+        .row-more ha-icon { --mdc-icon-size: 30px; }
+        .scene-grid, .entity-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 10px;
+          padding: 14px;
+        }
+        .scene-tile, .entity-tile {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 10px;
+          min-height: 132px;
+          padding: 12px;
+          border: 1px solid rgba(255, 255, 255, 0.18);
+          border-radius: 8px;
+          color: #fff;
+          background: rgba(0, 0, 0, 0.27);
+          cursor: pointer;
+        }
+        .scene-tile ha-icon, .entity-tile ha-icon { --mdc-icon-size: 42px; }
+        .entity-tile strong, .entity-tile span { text-align: center; }
+        .entity-tile span { color: rgba(255, 255, 255, 0.68); }
+        .view-message {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          min-height: 120px;
+          padding: 24px;
+          color: rgba(255, 255, 255, 0.68);
+          text-align: center;
+        }
+        .view-message.full { min-height: 100%; }
+        .spin { animation: spin 1s linear infinite; }
+        .now-playing {
+          display: grid;
+          grid-template-columns: 46px minmax(0, 1fr) 32px;
+          gap: 10px;
+          align-items: center;
+          width: 100%;
+          min-height: 64px;
+          padding: 8px 14px;
+          border: 0;
+          border-top: 1px solid rgba(255, 255, 255, 0.17);
+          color: #fff;
+          text-align: start;
+          background: rgba(0, 0, 0, 0.88);
+          cursor: pointer;
+        }
+        .now-playing img {
+          width: 46px;
+          height: 46px;
+          object-fit: cover;
+        }
+        .now-playing > ha-icon:first-child {
+          color: var(--c4-accent);
+          --mdc-icon-size: 42px;
+        }
+        .now-playing strong, .now-playing small {
+          display: block;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .now-playing small {
+          margin-top: 2px;
+          color: rgba(255, 255, 255, 0.6);
+        }
+        .drawer-layer {
+          position: absolute;
+          inset: 0;
+          z-index: 20;
+        }
+        .drawer-scrim {
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+          border: 0;
+          background: rgba(0, 0, 0, 0.5);
+        }
+        .c4-drawer {
+          position: absolute;
+          inset: 0 auto 0 0;
+          display: grid;
+          grid-template-rows: repeat(8, minmax(62px, 1fr)) 72px;
+          width: min(72%, 390px);
+          color: #fff;
+          background: rgba(0, 0, 0, 0.9);
+          backdrop-filter: blur(12px);
+          box-shadow: 10px 0 30px rgba(0, 0, 0, 0.42);
+        }
+        .drawer-item {
+          display: grid;
+          grid-template-columns: 72px minmax(0, 1fr);
+          gap: 10px;
+          align-items: center;
+          width: 100%;
+          padding: 0;
+          border: 0;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+          color: #fff;
+          font-size: 24px;
+          font-weight: 300;
+          text-align: start;
+          background: transparent;
+          cursor: pointer;
+        }
+        .drawer-icon {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .drawer-icon ha-icon { --mdc-icon-size: 39px; }
+        .drawer-item:nth-child(1) .drawer-icon { color: #3fd5ff; }
+        .drawer-item:nth-child(3) .drawer-icon { color: #ffbd72; }
+        .drawer-item:nth-child(5) .drawer-icon { color: #71dd43; }
+        .drawer-footer {
+          display: flex;
+          align-items: center;
+          justify-content: space-around;
+          border-top: 1px solid rgba(255, 255, 255, 0.17);
+        }
+        .drawer-footer ha-icon { --mdc-icon-size: 34px; }
+        .dashboard-notice {
+          position: absolute;
+          right: 14px;
+          bottom: 76px;
+          left: 14px;
+          z-index: 15;
+          padding: 9px 12px;
+          border-radius: 8px;
+          color: #fff;
+          text-align: center;
+          background: rgba(0, 0, 0, 0.82);
+        }
+        .dashboard-notice.error { color: #ff8b8b; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @media (min-width: 700px) {
+          .c4-view { padding-right: 24px; padding-left: 24px; }
+          .launcher-grid, .home-media-grid, .large-media-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+          }
+          .c4-media-tile { height: 220px; }
+          .c4-media-tile.compact { height: 165px; }
+        }
+      </style>
+      <ha-card>
+        <div class="dashboard">
+          ${this._renderHeader()}
+          <main class="c4-content">${this._renderCurrentView()}</main>
+          ${this._renderNowPlaying()}
+          ${this._renderDrawer()}
+          ${
+            this._error
+              ? `<div class="dashboard-notice error">${escapeHtml(
+                  this._error
+                )}</div>`
+              : this._status
+                ? `<div class="dashboard-notice">${escapeHtml(
+                    this._status
+                  )}</div>`
+                : ""
+          }
+        </div>
+      </ha-card>`;
+    const dashboard = this.shadowRoot.querySelector(".dashboard");
+    const background = this._background();
+    if (dashboard && background) {
+      dashboard.style.backgroundImage = `url(${JSON.stringify(background)})`;
+    }
+    requestAnimationFrame(() => {
+      const content = this.shadowRoot.querySelector(".c4-content");
+      if (content) {
+        content.scrollTop = previousScroll;
+      }
+    });
+    this._bindEvents();
+  }
+
+  _bindEvents() {
+    this.shadowRoot
+      .querySelector("[data-toggle-drawer]")
+      ?.addEventListener("click", () => {
+        this._drawerOpen = !this._drawerOpen;
+        this._render();
+      });
+    this.shadowRoot
+      .querySelector("[data-close-drawer]")
+      ?.addEventListener("click", () => {
+        this._drawerOpen = false;
+        this._render();
+      });
+    this.shadowRoot.querySelector("[data-c4-home]")?.addEventListener("click", () => {
+      this._view = "home";
+      this._drawerOpen = false;
+      this._render();
+    });
+    this.shadowRoot.querySelector("[data-c4-back]")?.addEventListener("click", () => {
+      this._view = "home";
+      this._render();
+    });
+    for (const button of this.shadowRoot.querySelectorAll("[data-c4-view]")) {
+      button.addEventListener("click", () =>
+        this._navigate(button.dataset.c4View)
+      );
+    }
+    for (const button of this.shadowRoot.querySelectorAll("[data-c4-media-key]")) {
+      button.addEventListener("click", () => {
+        const item = this._sections
+          .flatMap((section) => section.items)
+          .find((candidate) => candidate.key === button.dataset.c4MediaKey);
+        if (item) {
+          void this._playMedia(item);
+        }
+      });
+    }
+    for (const image of this.shadowRoot.querySelectorAll(".c4-art img")) {
+      image.addEventListener("error", () =>
+        image.parentElement?.classList.add("fallback")
+      );
+    }
+    for (const button of this.shadowRoot.querySelectorAll("[data-more-info]")) {
+      button.addEventListener("click", () =>
+        this._openMoreInfo(button.dataset.moreInfo)
+      );
+    }
+    for (const button of this.shadowRoot.querySelectorAll("[data-light-toggle]")) {
+      button.addEventListener("click", () =>
+        void this._toggleLight(button.dataset.lightToggle)
+      );
+    }
+    for (const slider of this.shadowRoot.querySelectorAll("[data-light-slider]")) {
+      slider.addEventListener("input", () => {
+        const output = this.shadowRoot.querySelector(
+          `[data-light-output="${CSS.escape(slider.dataset.lightSlider)}"]`
+        );
+        if (output) {
+          output.value = slider.value;
+          output.textContent = slider.value;
+        }
+      });
+      slider.addEventListener("change", () =>
+        void this._setLightLevel(
+          slider.dataset.lightSlider,
+          Number(slider.value)
+        )
+      );
+    }
+    for (const button of this.shadowRoot.querySelectorAll("[data-scene-id]")) {
+      button.addEventListener("click", () =>
+        void this._activateScene(button.dataset.sceneId)
+      );
+    }
+    for (const button of this.shadowRoot.querySelectorAll("[data-light-tab]")) {
+      button.addEventListener("click", () => {
+        this._lightTab = button.dataset.lightTab;
+        this._render();
+      });
+    }
+  }
+
+  _navigate(view) {
+    if (view === "wake" || view === "sleep") {
+      const scene = this._areaEntities("scene").find(
+        (state) => stateName(state).toLowerCase() === view
+      );
+      this._drawerOpen = false;
+      if (scene) {
+        void this._activateScene(scene.entity_id);
+      } else {
+        this._status = `No ${view} scene is assigned to this area.`;
+        this._render();
+      }
+      return;
+    }
+    this._view = view;
+    this._drawerOpen = false;
+    this._render();
+  }
+
+  _openMoreInfo(entityId) {
+    this.dispatchEvent(
+      new CustomEvent("hass-more-info", {
+        detail: { entityId },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
+  async _playMedia(item) {
+    if (this._busyId) {
+      return;
+    }
+    this._busyId = item.key;
+    this._error = "";
+    this._status = `Starting ${item.title}…`;
+    this._render();
+    try {
+      await this._hass.callService(
+        "media_player",
+        "play_media",
+        {
+          media_content_id: item.media_content_id,
+          media_content_type: item.media_content_type,
+        },
+        { entity_id: this._config.entity }
+      );
+      this._status = `${item.title} started`;
+      window.clearTimeout(this._statusTimer);
+      this._statusTimer = window.setTimeout(() => {
+        this._status = "";
+        if (this.isConnected) {
+          this._render();
+        }
+      }, 3500);
+    } catch (error) {
+      this._status = "";
+      this._error = error?.message || String(error);
+    } finally {
+      this._busyId = undefined;
+      if (this.isConnected) {
+        this._render();
+      }
+    }
+  }
+
+  async _toggleLight(entityId) {
+    const state = this._hass.states[entityId];
+    if (!state) {
+      return;
+    }
+    try {
+      await this._hass.callService(
+        "light",
+        state.state === "on" ? "turn_off" : "turn_on",
+        {},
+        { entity_id: entityId }
+      );
+    } catch (error) {
+      this._error = error?.message || String(error);
+      this._render();
+    }
+  }
+
+  async _setLightLevel(entityId, brightnessPct) {
+    this._pendingLightLevels.set(entityId, {
+      value: brightnessPct,
+      expires: Date.now() + FEEDBACK_TIMEOUT,
+    });
+    try {
+      await this._hass.callService(
+        "light",
+        "turn_on",
+        { brightness_pct: brightnessPct },
+        { entity_id: entityId }
+      );
+    } catch (error) {
+      this._pendingLightLevels.delete(entityId);
+      this._error = error?.message || String(error);
+      this._render();
+    }
+  }
+
+  async _activateScene(entityId) {
+    try {
+      await this._hass.callService(
+        "scene",
+        "turn_on",
+        {},
+        { entity_id: entityId }
+      );
+      this._status = `${stateName(this._hass.states[entityId])} activated`;
+      this._render();
+    } catch (error) {
+      this._error = error?.message || String(error);
+      this._render();
+    }
+  }
+}
+
 class Control4MediaPresetCard extends HTMLElement {
   constructor() {
     super();
@@ -3583,6 +4960,211 @@ class Control4MediaFavoritesCardEditor extends HTMLElement {
   }
 }
 
+class Control4RoomDashboardCardEditor extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._hass = undefined;
+    this._config = {};
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+  }
+
+  setConfig(config) {
+    this._config = { ...config };
+    this._render();
+  }
+
+  _changed(updates) {
+    const config = { ...this._config, ...updates };
+    for (const key of ["area_id", "name", "background"]) {
+      if (!config[key]) {
+        delete config[key];
+      }
+    }
+    this._config = config;
+    this._render();
+    this.dispatchEvent(
+      new CustomEvent("config-changed", {
+        detail: { config },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
+  _changeEntity(entityId) {
+    const updates = { entity: entityId };
+    const previousEntityArea = entityAreaId(
+      this._hass,
+      this._config.entity
+    );
+    if (!this._config.area_id || this._config.area_id === previousEntityArea) {
+      const areaId = entityAreaId(this._hass, entityId);
+      if (areaId) {
+        updates.area_id = areaId;
+      } else {
+        updates.area_id = "";
+      }
+    }
+    this._changed(updates);
+  }
+
+  _render() {
+    if (!this._hass) {
+      return;
+    }
+    const players = control4BrowsePlayers(this._hass);
+    const areas = Object.values(this._hass.areas || {}).sort((left, right) =>
+      String(left.name || left.area_id).localeCompare(
+        String(right.name || right.area_id)
+      )
+    );
+    const selectedArea = this._config.area_id || "";
+    const missingPlayer =
+      this._config.entity &&
+      !players.some((state) => state.entity_id === this._config.entity);
+    const missingArea =
+      selectedArea && !areas.some((area) => area.area_id === selectedArea);
+    this.shadowRoot.innerHTML = `
+      <style>
+        :host { display: block; }
+        * { box-sizing: border-box; }
+        .intro {
+          display: grid;
+          grid-template-columns: 34px minmax(0, 1fr);
+          gap: 10px;
+          align-items: start;
+          margin-bottom: 18px;
+          padding: 12px;
+          border-radius: 10px;
+          color: var(--secondary-text-color);
+          background: var(--secondary-background-color);
+          font-size: 13px;
+          line-height: 1.45;
+        }
+        .intro ha-icon {
+          color: var(--primary-color);
+          --mdc-icon-size: 27px;
+        }
+        label {
+          display: block;
+          margin: 16px 0;
+          color: var(--primary-text-color);
+        }
+        label span, label small { display: block; }
+        label small {
+          margin-top: 4px;
+          color: var(--secondary-text-color);
+          font-size: 12px;
+          line-height: 1.35;
+        }
+        select, input {
+          width: 100%;
+          margin-top: 8px;
+          padding: 12px;
+          border: 1px solid var(--divider-color);
+          border-radius: 8px;
+          color: var(--primary-text-color);
+          background: var(--card-background-color);
+          font: inherit;
+        }
+      </style>
+      <div class="intro">
+        <ha-icon icon="mdi:monitor-dashboard"></ha-icon>
+        <span>
+          Full-screen room interface with Home, Watch, Listen, Lighting,
+          Comfort, Security, and room media. For the closest app-style layout,
+          place this card in a Home Assistant Panel view.
+        </span>
+      </div>
+      <label>
+        <span>Control4 media player</span>
+        <select data-field="entity">
+          ${
+            missingPlayer
+              ? `<option value="${escapeHtml(
+                  this._config.entity
+                )}" selected>${escapeHtml(
+                  this._config.entity
+                )} (unavailable)</option>`
+              : ""
+          }
+          ${players
+            .map(
+              (state) => `<option value="${escapeHtml(state.entity_id)}" ${
+                state.entity_id === this._config.entity ? "selected" : ""
+              }>${escapeHtml(stateName(state))}</option>`
+            )
+            .join("")}
+        </select>
+        <small>Provides Watch, Listen, TIDAL, TuneIn, and now-playing data.</small>
+      </label>
+      <label>
+        <span>Home Assistant area</span>
+        <select data-field="area_id">
+          <option value="">Use the media player's area</option>
+          ${
+            missingArea
+              ? `<option value="${escapeHtml(
+                  selectedArea
+                )}" selected>${escapeHtml(selectedArea)} (unavailable)</option>`
+              : ""
+          }
+          ${areas
+            .map(
+              (area) => `<option value="${escapeHtml(area.area_id)}" ${
+                area.area_id === selectedArea ? "selected" : ""
+              }>${escapeHtml(area.name || area.area_id)}</option>`
+            )
+            .join("")}
+        </select>
+        <small>Lights, scenes, climate, and security entities come from this area.</small>
+      </label>
+      <label>
+        <span>Room title (optional)</span>
+        <input
+          type="text"
+          data-field="name"
+          value="${escapeHtml(this._config.name || "")}"
+          placeholder="Use the area name"
+        />
+      </label>
+      <label>
+        <span>Background image (optional)</span>
+        <input
+          type="text"
+          data-field="background"
+          value="${escapeHtml(this._config.background || "")}"
+          placeholder="/local/living-room.jpg"
+        />
+        <small>Leave empty to use the selected Home Assistant area's picture.</small>
+      </label>`;
+    this.shadowRoot
+      .querySelector('[data-field="entity"]')
+      ?.addEventListener("change", (event) =>
+        this._changeEntity(event.currentTarget.value)
+      );
+    this.shadowRoot
+      .querySelector('[data-field="area_id"]')
+      ?.addEventListener("change", (event) =>
+        this._changed({ area_id: event.currentTarget.value })
+      );
+    for (const field of this.shadowRoot.querySelectorAll(
+      '[data-field="name"], [data-field="background"]'
+    )) {
+      field.addEventListener("change", (event) =>
+        this._changed({
+          [event.currentTarget.dataset.field]: event.currentTarget.value.trim(),
+        })
+      );
+    }
+  }
+}
+
 class Control4MediaGroupCardEditor extends HTMLElement {
   constructor() {
     super();
@@ -3683,6 +5265,15 @@ const registerCard = () => {
   if (!customElements.get(FAVORITES_CARD_TAG)) {
     customElements.define(FAVORITES_CARD_TAG, Control4MediaFavoritesCard);
   }
+  if (!customElements.get(ROOM_DASHBOARD_EDITOR_TAG)) {
+    customElements.define(
+      ROOM_DASHBOARD_EDITOR_TAG,
+      Control4RoomDashboardCardEditor
+    );
+  }
+  if (!customElements.get(ROOM_DASHBOARD_CARD_TAG)) {
+    customElements.define(ROOM_DASHBOARD_CARD_TAG, Control4RoomDashboardCard);
+  }
   if (!customElements.get(PRESET_EDITOR_TAG)) {
     customElements.define(PRESET_EDITOR_TAG, Control4MediaPresetCardEditor);
   }
@@ -3715,6 +5306,15 @@ const registerCard = () => {
       description: "Selectable one-tap Watch, Listen, TIDAL, and TuneIn media",
       preview: true,
       documentationURL: "https://github.com/eonnet/control4-ha#control4-media-favorites-card",
+    });
+  }
+  if (!window.customCards.some((card) => card.type === ROOM_DASHBOARD_CARD_TAG)) {
+    window.customCards.push({
+      type: ROOM_DASHBOARD_CARD_TAG,
+      name: "Control4 Room Dashboard",
+      description: "Full-screen Control4-style room controls and media",
+      preview: true,
+      documentationURL: "https://github.com/eonnet/control4-ha#control4-room-dashboard-card",
     });
   }
   if (!window.customCards.some((card) => card.type === PRESET_CARD_TAG)) {
