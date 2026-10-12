@@ -67,12 +67,11 @@ class Control4Runtime:
     media_entity_ids: dict[int, str] = field(default_factory=dict)
 
 
-async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+async def _async_register_frontend(hass: HomeAssistant) -> None:
     """Register the optional Control4 dashboard card frontend."""
     from .frontend import async_register_frontend
 
     await async_register_frontend(hass)
-    return True
 
 
 async def _discover_media_room_ids(
@@ -110,6 +109,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
     from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
+    await _async_register_frontend(hass)
     host = entry.data[CONF_HOST]
     provider = AccountTokenProvider(entry.data[CONF_USERNAME], entry.data[CONF_PASSWORD])
     session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False))

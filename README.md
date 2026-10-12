@@ -461,6 +461,11 @@ placing it above Home Assistant's More Info window without closing that window.
 This avoids the Android dialog-history race that could close More Info without
 showing the custom player list. Closing the grouping popup returns to More Info.
 
+Version 0.1.45 prepares the repository for inclusion in the default HACS
+catalog. It adds the required Hassfest validation, declares the frontend HTTP
+dependency explicitly, keeps setup config-entry only, and allows
+Home Assistant to provide compatible `pyControl4` versions from 2.0.2 onward.
+
 Version 0.1.37 registers the dashboard cards as versioned Lovelace resources
 instead of relying on Home Assistant's early extra-module loader. This avoids
 the scoped custom-element registry race that could show **Custom element not
