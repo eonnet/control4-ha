@@ -70,7 +70,7 @@ def room_tidal_catalogs(
     inventory: Mapping[int, Mapping[str, Any]],
     playlists: Sequence[TidalPlaylist],
 ) -> dict[int, tuple[RoomTidalCatalog, ...]]:
-    """Join configured accounts to inventory-backed TIDAL room sources."""
+    """Discover TIDAL accounts and join any configured playlists to them."""
     by_source: dict[str, list[TidalPlaylist]] = {}
     for playlist in playlists:
         by_source.setdefault(playlist.source_name.casefold(), []).append(playlist)
@@ -92,11 +92,10 @@ def room_tidal_catalogs(
                 or type(protocol_id) is not int
                 or protocol_id <= 0
                 or not isinstance(source_name, str)
+                or not source_name.strip()
             ):
                 continue
-            account_playlists = by_source.get(source_name.strip().casefold())
-            if not account_playlists:
-                continue
+            account_playlists = by_source.get(source_name.strip().casefold(), [])
             catalogs.append(
                 RoomTidalCatalog(
                     room_id,

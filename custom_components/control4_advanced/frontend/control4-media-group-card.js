@@ -1,5 +1,6 @@
 const CARD_TAG = "control4-media-group-card";
 const EDITOR_TAG = "control4-media-group-card-editor";
+const PLAYER_CARD_TAG = "control4-media-player-card";
 const DIALOG_TAG = "control4-media-group-dialog";
 const CONTROL4_PLATFORM = "control4_advanced";
 const FEATURE_VOLUME_SET = 4;
@@ -563,6 +564,161 @@ class Control4MediaGroupCard extends HTMLElement {
   }
 }
 
+class Control4MediaPlayerCard extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._config = undefined;
+    this._hass = undefined;
+    this._nativeCard = undefined;
+    this._dialog = undefined;
+    this._loadSequence = 0;
+    this._handleNativeClick = (event) => {
+      const joinButton = event
+        .composedPath()
+        .find((element) => element?.classList?.contains("join-media"));
+      if (!joinButton) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      this._openDialog();
+    };
+  }
+
+  static getConfigElement() {
+    return document.createElement(EDITOR_TAG);
+  }
+
+  static getStubConfig(hass) {
+    return { entity: control4Players(hass)[0]?.entity_id || "" };
+  }
+
+  setConfig(config) {
+    if (!config?.entity || !String(config.entity).startsWith("media_player.")) {
+      throw new Error("Select a Control4 media player entity");
+    }
+    this._config = { ...config };
+    if (this._nativeCard) {
+      this._nativeCard.setConfig(this._nativeConfig());
+    } else {
+      this._showLoading();
+      void this._ensureNativeCard();
+    }
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    if (this._nativeCard) {
+      this._nativeCard.hass = hass;
+    }
+    if (this._dialog?.isConnected) {
+      this._dialog.updateHass(hass);
+    }
+    if (this._config && !this._nativeCard) {
+      void this._ensureNativeCard();
+    }
+  }
+
+  connectedCallback() {
+    if (this._config && !this._nativeCard) {
+      void this._ensureNativeCard();
+    }
+  }
+
+  disconnectedCallback() {
+    this._loadSequence += 1;
+  }
+
+  getCardSize() {
+    return this._nativeCard?.getCardSize?.() || 3;
+  }
+
+  getGridOptions() {
+    return (
+      this._nativeCard?.getGridOptions?.() || {
+        rows: 3,
+        columns: 6,
+        min_rows: 2,
+        min_columns: 3,
+      }
+    );
+  }
+
+  _nativeConfig() {
+    const nativeConfig = {
+      type: "media-control",
+      entity: this._config.entity,
+    };
+    for (const key of ["name", "theme"]) {
+      if (this._config[key] !== undefined) {
+        nativeConfig[key] = this._config[key];
+      }
+    }
+    return nativeConfig;
+  }
+
+  _showLoading() {
+    this.shadowRoot.innerHTML = `
+      <style>
+        .loading, .error {
+          padding: 20px;
+          border-radius: var(--ha-card-border-radius, 12px);
+          color: var(--secondary-text-color);
+          background: var(--ha-card-background, var(--card-background-color));
+        }
+        .error { color: var(--error-color); }
+      </style>
+      <div class="loading">Loading Control4 media player…</div>`;
+  }
+
+  async _ensureNativeCard() {
+    if (!this._config || this._nativeCard) {
+      return;
+    }
+    const sequence = ++this._loadSequence;
+    try {
+      const helpers = await window.loadCardHelpers();
+      const nativeCard = await helpers.createCardElement(this._nativeConfig());
+      if (sequence !== this._loadSequence || !this.isConnected) {
+        return;
+      }
+      nativeCard.addEventListener("click", this._handleNativeClick, true);
+      if (this._hass) {
+        nativeCard.hass = this._hass;
+      }
+      this._nativeCard = nativeCard;
+      this.shadowRoot.innerHTML = `
+        <style>
+          :host { display: block; }
+          hui-media-control-card { display: block; }
+        </style>`;
+      this.shadowRoot.appendChild(nativeCard);
+    } catch (error) {
+      if (sequence !== this._loadSequence) {
+        return;
+      }
+      this.shadowRoot.innerHTML = `<div class="error">${escapeHtml(
+        error?.message || "Could not load Home Assistant's media control card"
+      )}</div>`;
+    }
+  }
+
+  _openDialog() {
+    if (!this._hass || !this._config) {
+      return;
+    }
+    this._dialog?.remove();
+    this._dialog = document.createElement(DIALOG_TAG);
+    this._dialog.addEventListener("control4-dialog-closed", () => {
+      this._dialog = undefined;
+    });
+    document.body.appendChild(this._dialog);
+    this._dialog.show(this._hass, this._config.entity);
+  }
+}
+
 class Control4MediaGroupCardEditor extends HTMLElement {
   constructor() {
     super();
@@ -651,6 +807,9 @@ const registerCard = () => {
   if (!customElements.get(CARD_TAG)) {
     customElements.define(CARD_TAG, Control4MediaGroupCard);
   }
+  if (!customElements.get(PLAYER_CARD_TAG)) {
+    customElements.define(PLAYER_CARD_TAG, Control4MediaPlayerCard);
+  }
   window.customCards = window.customCards || [];
   if (!window.customCards.some((card) => card.type === CARD_TAG)) {
     window.customCards.push({
@@ -659,6 +818,15 @@ const registerCard = () => {
       description: "Control4 group membership with independent room volume controls",
       preview: true,
       documentationURL: "https://github.com/eonnet/control4-ha#control4-media-group-card",
+    });
+  }
+  if (!window.customCards.some((card) => card.type === PLAYER_CARD_TAG)) {
+    window.customCards.push({
+      type: PLAYER_CARD_TAG,
+      name: "Control4 Media Player",
+      description: "Native media controls with Control4 room grouping and independent volume",
+      preview: true,
+      documentationURL: "https://github.com/eonnet/control4-ha#control4-media-player-card",
     });
   }
 };

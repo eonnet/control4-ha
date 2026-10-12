@@ -45,10 +45,9 @@ async def async_setup_entry(
         if not isinstance(room, dict):
             continue
         selection = RoomTidalSelection(runtime, room_id, catalogs)
-        entities.extend((
-            Control4TidalAccountSelect(runtime, room, selection),
-            Control4TidalPlaylistSelect(runtime, room, selection),
-        ))
+        entities.append(Control4TidalAccountSelect(runtime, room, selection))
+        if any(catalog.playlists for catalog in catalogs):
+            entities.append(Control4TidalPlaylistSelect(runtime, room, selection))
     async_add_entities(entities)
 
 

@@ -7,7 +7,7 @@ runnable without installing Home Assistant.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import logging
 from typing import TYPE_CHECKING
 
@@ -223,6 +223,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 )
         tidal_catalogs: dict[int, tuple[RoomTidalCatalog, ...]] = {}
         raw_playlists = entry.options.get(CONF_TIDAL_PLAYLISTS, "")
+        configured_playlists = ()
         if raw_playlists:
             try:
                 configured_playlists = parse_tidal_playlists(raw_playlists)
@@ -230,36 +231,40 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 # Invalid stored options must not prevent the rest of Control4
                 # from loading. The options form prevents new invalid values.
                 _LOGGER.warning("Stored Control4 TIDAL playlist configuration is invalid")
-            else:
-                tidal_catalogs = room_tidal_catalogs(
-                    media_sources, transport.inventory.items, configured_playlists
-                )
-                protocol_ids = {
-                    catalog.protocol_id
-                    for catalogs in tidal_catalogs.values()
-                    for catalog in catalogs
-                }
-                if protocol_ids:
-                    try:
-                        await commands.refresh(protocol_ids)
-                    except DirectorRestError:
-                        tidal_catalogs = {}
-                    else:
-                        tidal_catalogs = {
-                            room_id: tuple(
-                                catalog
-                                for catalog in catalogs
-                                if commands.supports_tidal_playlist(catalog.protocol_id)
-                            )
-                            for room_id, catalogs in tidal_catalogs.items()
-                        }
-                        tidal_catalogs = {
-                            room_id: catalogs
-                            for room_id, catalogs in tidal_catalogs.items()
-                            if catalogs
-                        }
-                        for room_id, catalogs in tidal_catalogs.items():
-                            for catalog in catalogs:
+        tidal_catalogs = room_tidal_catalogs(
+            media_sources, transport.inventory.items, configured_playlists
+        )
+        if configured_playlists:
+            protocol_ids = {
+                catalog.protocol_id
+                for catalogs in tidal_catalogs.values()
+                for catalog in catalogs
+                if catalog.playlists
+            }
+            if protocol_ids:
+                try:
+                    await commands.refresh(protocol_ids)
+                except DirectorRestError:
+                    tidal_catalogs = {
+                        room_id: tuple(
+                            replace(catalog, playlists=()) for catalog in catalogs
+                        )
+                        for room_id, catalogs in tidal_catalogs.items()
+                    }
+                else:
+                    tidal_catalogs = {
+                        room_id: tuple(
+                            catalog
+                            if not catalog.playlists
+                            or commands.supports_tidal_playlist(catalog.protocol_id)
+                            else replace(catalog, playlists=())
+                            for catalog in catalogs
+                        )
+                        for room_id, catalogs in tidal_catalogs.items()
+                    }
+                    for room_id, catalogs in tidal_catalogs.items():
+                        for catalog in catalogs:
+                            if catalog.playlists:
                                 commands.register_tidal_playlists(
                                     catalog.protocol_id, room_id, catalog.playlists
                                 )

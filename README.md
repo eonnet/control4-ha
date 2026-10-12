@@ -1,112 +1,214 @@
-# Control4 Advanced for Home Assistant
+# Control4 Home Assistant integration
 
-An experimental, unofficial push-first Control4 integration. It uses Director
-REST for authentication, inventory, initial state, and commands, and the
-`/api/v1/items/datatoui` WebSocket for normal state updates. It does not
-require C4SOAP or the separate Control4 MCP project.
+Phase 1 established usable Director WebSocket push events on this Core3.
+Phase 2 provides a small Home Assistant-independent transport layer. Phase 3
+contains a custom-component slice for `light_v2`, Celsius `thermostatV2`, and
+opt-in relay switches. Version 0.1.4 adds read-only window and motion binary
+sensors from the two observed contact proxies. The user reports both Kid
+Window and Kid PIR working correctly in HA; the exact installed version and
+public-branch status were not independently verified. Version 0.1.2 has been
+field-tested in Home Assistant 2026.9.4: on/off lighting, climate, and one
+radiant-floor relay work in both directions, and stale device cleanup works
+after reload. A manual Control4
+Hallway dimmer change appears in HA about 3–4 seconds later; that interval has
+not been instrumented end-to-end. Version 0.1.3 adds the observed regular
+relay proxy; the user confirmed Sony Plug works in both directions in HA and
+subsequently reported that Vent and Boiler work too. Other regular relays have
+not been individually verified.
+Version 0.1.5 adds Living AC named presets to the climate selector and a
+companion hold-mode select for eligible thermostats. The user reports that
+the new thermostat controls work in both directions in HA. Individual choices
+and Kid AC hold were not identified separately in that report.
+Version 0.1.6 adds fan mode: both ACs advertise `Auto`,
+`Low`, `Medium`, and `High`, and Kid AC has direct fan-change push feedback.
+The user reports fan mode working in both directions in HA; the specific ACs
+and choices tested were not identified separately.
+Version 0.1.7 makes GREE's advertised fan and preset controls visible even
+when Director omits their active values from the initial REST snapshot. Their
+displayed values remain unknown until push feedback arrives; an empty GREE
+preset update clears the displayed preset. GREE does not advertise a hold
+command, so it has no writable hold selector. This change is offline-tested
+but has not yet been field-tested in HA.
+Version 0.1.8 detects GREE's single-setpoint REST signature and uses its
+`setpoint_single_c` push updates for the climate target in Heat and Cool.
+It sends the advertised `SET_SETPOINT_SINGLE` command for GREE while retaining
+the existing heat/cool command route for separate-setpoint thermostats.
+This is offline-tested, and the user subsequently confirmed GREE setpoint
+control and feedback working in both directions in HA.
 
-This is an early preview. In Home Assistant 2026.9.4, a user confirmed
-bidirectional light, climate, radiant-floor relay, and Sony Plug regular-relay
-operation; Vent and Boiler were also reported working. Removal of a deleted
-Director device after reload was confirmed. A manual Control4 dimmer change
-appeared in HA about 3–4 seconds later; that interval was not instrumented
-end-to-end. These are field reports, not automated HA integration tests. Test
-each device before using it in automations.
+## WebSocket probe
 
-## Install with HACS
+The probe is read-only: it obtains a short-lived Director token through the
+already-proven MCP token helper, reads `/api/v1/items` to identify inventory,
+then subscribes to Director's `datatoui` WebSocket feed. It never invokes a
+Control4 device command.
 
-1. In HACS, open the top-right menu and choose **Custom repositories**.
-2. Add `https://github.com/eonnet/control4-ha` with type **Integration**.
-3. Install **Control4 Advanced**, then restart Home Assistant.
-4. In **Settings → Devices & services**, add **Control4 Advanced**. Enter the
-   local Director hostname/IP and your Control4 account credentials in Home
-   Assistant's configuration flow. Do not post credentials in an issue.
+It deliberately does not read or copy any `.env` file. By default it invokes
+the existing trusted helper in `/opt/control4-mcp`; override those paths only
+with equivalent local tooling.
 
-The integration selects dimmable and on/off-only `light_v2` devices with
-advertised `ON`/`OFF` commands, Celsius `thermostatV2` devices with heat/cool
-capability, and `relaysingle_radiantfloor_c4` or `relaysingle_relay_c4`
-switches with advertised parameterless `OPEN`/`CLOSE` commands and a readable
-initial state. Version 0.1.4 also adds read-only `window` and `motion` binary
-sensors for the observed `contactsingle_windowcontactsensor_c4` and
-`contactsingle_motionsensor_c4` proxies. Their REST initial-state and settled
-WebSocket mappings were traced on a Core3, and the user reports both Kid
-Window and Kid PIR working correctly in HA. Version 0.1.5 adds the
-Director-advertised named presets to the climate selector for eligible
-thermostats, plus a companion hold-mode select for
-thermostats with a readable hold state. Living AC supplied the preset and
-hold push evidence; Kid AC advertised hold but no `SET_PRESET` command.
-The user reports that these new HA controls work in both directions, but did
-not identify every option tested or whether Kid AC hold was included. Version
-0.1.6 adds climate fan-mode choices from live Director metadata (`Auto`, `Low`,
-`Medium`, `High`) on both Living AC and Kid AC. Kid AC fan changes produced
-direct WebSocket feedback; Living AC fan labels were observed during preset
-changes. The user reports fan mode working in both directions in HA; the
-specific ACs and choices tested were not identified separately. Version
-0.1.7 exposes GREE's advertised fan and preset controls even though its
-initial active values are unavailable. The values remain unknown until
-Director feedback arrives, and an empty preset update clears the old value.
-GREE does not advertise a hold command, so it has no writable hold selector.
-This change has offline tests but still needs a GREE HA field test. All newly
-discovered relay switches are disabled by default:
-these proxies include heating, fans, and other loads. Enable only the intended
-entity under **Settings → Devices & services → Entities**, then verify feedback
-from a manual Control4 change before testing HA control. Other relay proxies,
-`uibutton`, color, and dedicated fan entities remain excluded.
+```bash
+python -m venv .venv
+.venv/bin/pip install -r requirements-probe.txt
+.venv/bin/python tools/websocket_probe.py --verbose
+```
 
-Version 0.1.8 reads GREE's active target from its single-setpoint Celsius
-field in Heat and Cool. When REST confirms the separate heat/cool fields are
-zero, HA uses the Director-advertised `SET_SETPOINT_SINGLE` command for that
-thermostat; other thermostats keep their existing setpoint behavior. This is
-offline-tested, and the user subsequently confirmed GREE setpoint operation
-in both directions.
+For the currently installed trusted environment, this is also suitable for a
+first run without installing new packages:
 
-Version 0.1.9 adds a read-only room media player for rooms whose REST power,
-volume, and mute state is complete and whose active volume device uses the
-observed `aswitch` push profile. Bound-device notifications trigger an
-immediate room REST refresh; the device notification itself does not set the
-room value. This first media slice advertises no volume, mute, playback,
-power, or source controls. Living/Wiim supplied the Director evidence, and
-the user confirmed volume and mute feedback in Home Assistant.
+```bash
+/opt/control4-mcp/.venv/bin/python tools/websocket_probe.py --duration 60 --verbose
+```
 
-Version 0.1.10 adds room volume and mute controls when Director advertises
-the exact integer 0–100 volume parameter and both parameterless mute
-commands. HA continues to display settled Director feedback rather than
-optimistically changing state. The user confirmed volume and mute operation
-in both directions. Playback and power controls remain unavailable.
+While it runs, manually change a light's power and level and Living AC's
+setpoint and HVAC mode. The probe prints JSON Lines with redacted payloads.
+Use `--force-reconnect-after 20` only to exercise a client-initiated local
+disconnect/reconnect; it does not command a Control4 device.
 
-Version 0.1.11 adds a Living room source selector from Director's
-`/api/v1/agents/ui_configuration` Watch/Listen catalog. Only entries mapped
-to supported inventory devices and a room-advertised source command appear;
-synthetic entries and UI buttons are excluded. The selector reads Director
-state after a command and does not optimistically claim a new source. The
-user confirmed HA-to-Control4 source selection but reported missing feedback
-for changes made in Control4. Version 0.1.12 adds a source-only REST fallback
-every 15 seconds for rooms with an advertised selector. It updates HA only
-when the selected source changes; volume and mute remain push-triggered. The
-media player at that version still required a supported volume binding at startup.
+For a focused, three-minute manual test of the currently identified entities:
 
-Version 0.1.13 also reconciles room power and volume-device binding in that
-15-second fallback. It restores volume/mute from Director only when the
-binding changes, and keeps an already registered media room available after
-a reload while its off-state binding is zero. A guarded Off control is shown
-when the room is on and Director advertises `ROOM_OFF`; HA confirms the result
-with a settled REST read. The user confirmed that selecting a source turns
-Living on. There is no generic On control because no source can be chosen
-without a user-defined rule. The user subsequently confirmed that Living
-turned off from HA, remained visible as Off after an integration reload,
-and turned back on through source selection with the previous volume and
-mute values. Both volume and mute feedback worked after that power cycle.
-These reports validate the current Living/Wiim binding, not other rooms.
+```bash
+/opt/control4-mcp/.venv/bin/python -u tools/websocket_probe.py \
+  --duration 180 --watch-ids 2646,2726,3177
+```
 
-Version 0.1.14 adds separate Play, Pause, and Stop button entities under an
-eligible Control4 room device. A button is created only if that room advertises
-the corresponding parameterless command. It is unavailable while the room is
-off or disconnected, and each press checks live room power over REST before
-sending its command. The buttons are stateless: the media player continues to
-show verified room On/Off without claiming Playing/Paused feedback. This
-version passed offline tests but its playback buttons still need an HA field
-test. Test each button with a noncritical source before using it in an
-automation.
+The IDs are Living AC, Lamp Table, and Hallway respectively. Record the UTC
+time of each manual change; the Director's `time` field has only whole-second
+precision, while `received_at` is the probe's millisecond timestamp. With
+`--watch-ids`, the probe also emits a separate `watched_inventory` record so
+the live REST ID, name, and proxy can be checked without sharing the full
+inventory sample.
+
+To list possible regular relay switches without opening a WebSocket or sending
+any device command:
+
+```bash
+/opt/control4-mcp/.venv/bin/python -u tools/websocket_probe.py --inventory-only
+```
+
+Look for the `relay_inventory` record. It lists up to 50 basic or wireless
+relay candidates, not automatically enabled HA switches. Gate relays and
+`uibutton` devices such as ID `319` Extract Fan are excluded. A separate Vent
+relay exists at ID `1846`. The radiant-floor proxy used by Kid Heating Panel
+is outside this basic-relay listing; its state and push behavior were tested
+separately.
+
+To identify a named switch or on/off-only light before a focused push trace:
+
+```bash
+/opt/control4-mcp/.venv/bin/python -u tools/websocket_probe.py --inventory-only \
+  --find-name 'Kid Heating Panel' --find-name 'Ceiling'
+```
+
+The bounded `matched_inventory` record contains IDs, proxies, and selected
+capability flags. It does not include credentials or tokens. Share that record,
+then use the confirmed IDs with `--watch-ids` while changing the devices
+manually in Control4; do not guess an ID from its display name.
+
+For confirmed IDs, `--inspect-ids` reads only the REST variable and command
+metadata. It emits variable/command names plus a small allowlist of simple
+state values; it never executes a command or prints arbitrary variable values:
+
+```bash
+/opt/control4-mcp/.venv/bin/python -u tools/websocket_probe.py \
+  --inventory-only --inspect-ids 1150,579
+```
+
+These IDs are Bathroom Ceiling and Kid Heating Panel. The latter has a
+specialized `relaysingle_radiantfloor_c4` proxy. Its live state and advertised
+commands have been observed. Once this local update is published and installed,
+the HA switch will be disabled by default until the user enables it.
+
+See `docs/websocket-protocol.md` for the observed/upstream-derived protocol
+model and an evidence checklist.
+
+## Transport layer (Phase 2)
+
+`control4_transport` contains a direct Control4 account token provider, an
+authenticated Director REST client, inventory and state caches, an event
+dispatcher, and a WebSocket connection supervisor. It reads the tracked items'
+REST variables on startup and after reconnection. Periodic reconciliation is
+optional (`reconciliation_seconds=None` disables it). Normal push updates come
+from WebSocket events.
+
+The account provider accepts credentials in memory from its caller and obtains
+a Director token through Control4's account API. It does not invoke the MCP
+project or read that project's `.env`. Local Director TLS verification is
+controlled by the caller's `aiohttp.ClientSession` connector; cloud account
+requests always use verified TLS.
+
+```python
+import aiohttp
+from control4_transport import AccountTokenProvider, Control4Transport, DirectorRestClient
+
+provider = AccountTokenProvider(username, password, controller_common_name=None)
+async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
+    rest = DirectorRestClient("192.168.0.24", provider, session)
+    transport = Control4Transport(rest, tracked_ids=[2646, 2726])
+    try:
+        transport.events.subscribe(async_callback)
+        await transport.start()
+        # Read state with transport.state.snapshot(2646).
+    finally:
+        await transport.stop()
+```
+
+The example assumes `username` and `password` were supplied securely by the
+caller; do not log them. `DirectorRestClient.post_json()` exists as a generic
+REST operation, but the transport itself sends no device command.
+
+Run the offline transport tests with:
+
+```bash
+/opt/control4-mcp/.venv/bin/python -m unittest discover -s tests -v
+```
+
+See [transport design](docs/transport.md) for field mappings and recovery rules.
+
+## First Home Assistant slice (Phase 3)
+
+See [component scope and verification status](docs/home-assistant-slice.md).
+The component is self-contained under `custom_components/control4_advanced/`
+and can be installed through HACS after these local changes are published.
+Light control and Control4-originated feedback have been reported working in
+Home Assistant; verify newly added device types separately before using them
+in automations.
+
+The [development backlog](docs/backlog.md) defers numeric sensors. The
+[thermostat hold/preset evidence](docs/thermostat-hold-presets.md) describes
+the read-only Director trace and the user-reported HA field test.
+Read-only [media-player discovery](docs/media-player-discovery.md) found
+Wiim output-volume push while Wiim was the Living room's bound volume device.
+Sony's matching volume events are a Control4 Programming mirror, not an
+independent room-volume source. The media-player platform uses
+bound-device push to trigger immediate room REST reads and displays the
+room's power, volume, and mute state. The user has confirmed volume and mute
+feedback in HA. Version 0.1.10 adds volume and mute controls only when the
+room advertises the exact validated command metadata. The user confirmed
+those controls work in both directions. Version 0.1.11 adds a source selector
+from the Director UI configuration, limited to inventory-backed media sources
+and advertised room commands. The user confirmed HA-to-Control4 source
+selection but reported that external Control4 source changes were not shown
+in HA. Version 0.1.12 reconciles only the selected room source from REST
+every 15 seconds when no source push route is known; volume and mute remain
+push-triggered. Version 0.1.13 adds room power and volume-binding feedback to
+that fallback and retains an already registered room after a reload while it
+is off. It adds a guarded Off control with Director readback. The user
+confirmed that selecting a source turns Living on; a generic On control is
+not offered because no source-selection rule has been established. The user
+subsequently confirmed that Living turned off from HA, remained visible as
+Off after an integration reload, and turned back on through source selection
+with the previous volume and mute values. Both volume and mute feedback
+worked after that power cycle. These reports validate the current
+Living/Wiim binding, not other rooms.
+
+The unpublished 0.1.14 candidate adds separate Play, Pause, and Stop button
+entities under each eligible Control4 room device, only for commands advertised
+without parameters by that room. They are unavailable while the room is off or
+disconnected, and each press checks live room power over REST before sending
+its command. These are stateless command buttons: the media player still
+reports verified room power as On/Off and does not claim Playing/Paused without
+feedback. Their live behavior has not yet been field-tested.
 
 Version 0.1.15 adds read-only door binary sensors for the observed
 `contactsingle_doorcontactsensor_c4` proxy. A live Main Door trace confirmed
@@ -115,24 +217,35 @@ the existing contact transport contract. The user subsequently confirmed the
 door entity in Home Assistant.
 
 Version 0.1.17 adds two linked selectors to each eligible Control4 room:
-**TIDAL account** and **TIDAL playlist**. Choosing an account selects that
-actual Control4 Listen source in the room, and the playlist dropdown then
-shows only playlists configured for that account. Director REST advertises
-the playlist command but omits
-the dynamic name/UUID choices shown by Composer, so enter them once under
-**Settings → Devices & services → Control4 Advanced → Configure**, one per
-line:
+**TIDAL account** and **TIDAL playlist**. Version 0.1.38 discovers the account
+selector options directly from the room's inventory-backed Listen sources,
+even when no playlists are configured. Choosing an account selects that actual
+Control4 Listen source in the room. The playlist selector is added only when
+at least one playlist is configured, and then shows the playlists for the
+selected account. Director's REST metadata
+advertises the playlist command
+but omits the dynamic playlist-name/UUID choices shown by Composer, so those
+choices are entered once under **Settings > Devices & services > Control4
+Advanced > Configure**. Use one line per playlist:
 
 ```text
 TIDAL source name | Playlist name | Playlist UUID
 ```
 
-The source name must match the Listen source shown by Control4 (for example
-`TIDAL`, `Juliane`, `Miki`, or `Jakob`). The integration adds the selectors only
-to rooms where that source is exposed. Selecting a playlist sends the live-
-validated `SelectPlaylist` command to the same room with Shuffle fixed to
-`Off`. The selector is stateless because Director does not report which
-playlist created the current queue.
+For example:
+
+```text
+TIDAL | Evening Mix | 01234567-89ab-cdef-0123-456789abcdef
+```
+
+The source name must match the automatically discovered Listen source shown by
+Control4 (for example `TIDAL`, `Juliane`, `Miki`, or `Jakob`). The integration
+joins that source to its TIDAL protocol driver and adds the account selector
+only to rooms where the source is exposed. Selecting a playlist sends
+Control4's advertised `SelectPlaylist`
+command to that same room with `Shuffle` fixed to `Off`. The selector remains
+stateless because Director does not report which playlist created the current
+queue.
 
 Version 0.1.18 also exposes each room's advertised Play, Pause, and Stop
 commands as native controls on the Home Assistant media-player dialog. Because
@@ -191,14 +304,14 @@ Version 0.1.27 accepts Home Assistant's empty preparatory join request when
 the last selected member is removed. This lets the dialog continue with its
 separate unjoin request, which removes and powers off the deselected room.
 
-Version 0.1.28 adds configured TIDAL accounts and playlists to Home
+Version 0.1.28 adds the configured TIDAL accounts and playlists to Home
 Assistant's native media browser on each eligible Control4 room player. The
 browse hierarchy is **TIDAL > account > playlist**. Selecting a playlist uses
 the same allowlisted `SelectPlaylist` command as the playlist selector and
-keeps shuffle off. Only playlists entered in the integration options are
-exposed; full TIDAL catalog browsing and search require a Control4-authorized
-MSP command channel that Director does not expose through its authenticated
-REST/WebSocket API.
+keeps shuffle off. This intentionally exposes only playlists entered in the
+integration options; full TIDAL catalog browsing and search require a
+Control4-authorized MSP command channel that Director does not expose through
+its authenticated REST/WebSocket API.
 
 Version 0.1.29 moves the room's validated Watch and Listen sources into the
 same native media browser. The top-level hierarchy is now
@@ -263,34 +376,43 @@ including disabled entities. The entities and registry records are retained;
 references to renamed IDs in dashboards, automations, scripts, and scenes must
 still be updated manually.
 
-Version 0.1.36 replaces the separate **Volume** number entities with a packaged
-**Control4 Media Group** dashboard card. Its popup combines group membership
-and independent volume controls for the individual Control4 room players.
+## Control4 Media Player card
 
-Version 0.1.37 registers the card as a versioned Lovelace dashboard resource
-instead of relying on Home Assistant's early extra-module loader. This avoids
-the scoped custom-element registry race that could display **Custom element not
-found**. YAML resource mode retains an automatic post-bootstrap fallback.
+Version 0.1.38 adds **Control4 Media Player**, a full dashboard card backed by
+Home Assistant's current native Media Control card. Artwork, title/artist,
+transport, progress, Browse Media, power, and More Info therefore keep native
+Home Assistant behavior. The card intercepts only the native **Join** action
+and opens the Control4 dialog, where every room has its own volume slider.
 
-State is initialized through REST, then updated from WebSocket events;
-entities do not poll when a usable push path has been proven. REST re-syncs
-after reconnect and on a slow reconciliation interval. Home Assistant device metadata includes the
-Control4 room as a suggested area. Diagnostics omit credentials, raw events,
-locations, and device names.
-On reload, registry entries for Director items deleted from inventory are
-removed only after two successful inventory reads. This cleanup has offline
-tests and has been confirmed for one previously deleted device in a live HA
-reload.
+After updating the integration, restart Home Assistant and refresh the browser
+or fully close and reopen the mobile app. In dashboard edit mode choose
+**Add card**, search for **Control4 Media Player**, and select the group leader.
+The equivalent manual configuration is:
 
-Authentication requires access to the Control4 account service. Once a
-Director token has been obtained, device communication is local. The local
-Director's self-signed TLS certificate is not verified; cloud authentication
-still uses normal TLS verification.
+```yaml
+type: custom:control4-media-player-card
+entity: media_player.kitchen
+```
+
+The smaller **Control4 Media Group** card remains available when only the
+membership/volume popup is wanted.
 
 ## Control4 Media Group card
 
-After updating to version 0.1.37, restart Home Assistant and refresh the
-browser or fully close and reopen the mobile app. In dashboard edit mode choose
+Version 0.1.36 adds a packaged **Control4 Media Group** dashboard card. Its
+popup combines group membership with an independent volume slider beneath
+every Control4 room player. Membership changes are sent when **Apply** is
+pressed; volume changes are sent immediately to the individual room whose
+slider was moved.
+
+Version 0.1.37 registers the dashboard cards as versioned Lovelace resources
+instead of relying on Home Assistant's early extra-module loader. This avoids
+the scoped custom-element registry race that could show **Custom element not
+found** in the card editor. YAML resource mode keeps an automatic fallback that
+re-registers the cards after Home Assistant completes its frontend bootstrap.
+
+After updating the integration, restart Home Assistant and refresh the browser
+or fully close and reopen the mobile app. In dashboard edit mode choose
 **Add card**, search for **Control4 Media Group**, and select the room that
 should lead the group. The equivalent manual configuration is:
 
@@ -299,14 +421,11 @@ type: custom:control4-media-group-card
 entity: media_player.kitchen
 ```
 
-The popup sends membership changes when **Apply** is pressed. Moving a volume
-slider sends the change immediately and only to that room. A slider is disabled
-while its room is off, unavailable, or does not advertise Control4's validated
-room-volume command; join an off room first, then reopen the card. The old
-Volume number entities are removed during the first successful integration
-reload after the update.
-
-Issues and test reports: [GitHub Issues](https://github.com/eonnet/control4-ha/issues).
+A volume slider is disabled while that room is off, unavailable, or does not
+advertise Control4's validated room-volume command. Join the room first, then
+open the card again if it was previously off. The separate **Volume** number
+entities introduced in 0.1.34 are removed as redundant during the first
+successful integration reload after this update.
 
 ## License
 
