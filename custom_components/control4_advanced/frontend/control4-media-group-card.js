@@ -2923,6 +2923,12 @@ class Control4RoomDashboardCard extends HTMLElement {
     return entitiesInArea(this._hass, this._areaId(), domain);
   }
 
+  _domainEntities(domain) {
+    return Object.values(this._hass?.states || {})
+      .filter((state) => state.entity_id.startsWith(`${domain}.`))
+      .sort((left, right) => stateName(left).localeCompare(stateName(right)));
+  }
+
   _items(sectionKeys) {
     const keys = new Set(sectionKeys);
     return this._sections
@@ -3258,35 +3264,316 @@ class Control4RoomDashboardCard extends HTMLElement {
       </div>`;
   }
 
-  _renderEntityView(domain, emptyMessage) {
-    const states = this._areaEntities(domain);
-    return states.length
-      ? `
-        <div class="c4-view entity-grid">
-          ${states
+  _renderComfort() {
+    const climates = this._domainEntities("climate");
+    if (!climates.length) {
+      return '<div class="view-message full">No climate entities are available.</div>';
+    }
+    return `
+      <div class="c4-view feature-view comfort-view">
+        <div class="feature-grid">
+          ${climates
+            .map((state) => {
+              const value =
+                state.attributes.current_temperature ??
+                state.attributes.temperature ??
+                "—";
+              const action = state.attributes.hvac_action || state.state;
+              const activeClass =
+                action === "heating"
+                  ? "heating"
+                  : action === "cooling"
+                    ? "cooling"
+                    : "";
+              return `
+                <button
+                  type="button"
+                  class="feature-tile comfort-tile ${activeClass}"
+                  data-more-info="${escapeHtml(state.entity_id)}"
+                >
+                  <span class="comfort-dial">
+                    <span class="comfort-value">${escapeHtml(value)}</span>
+                    <span class="comfort-unit">${escapeHtml(
+                      state.attributes.temperature_unit || "°"
+                    )}</span>
+                    ${
+                      activeClass
+                        ? `<ha-icon icon="${
+                            activeClass === "heating"
+                              ? "mdi:fire"
+                              : "mdi:snowflake"
+                          }"></ha-icon>`
+                        : ""
+                    }
+                  </span>
+                  <span class="feature-name">${escapeHtml(
+                    stateName(state)
+                  )}</span>
+                  <span class="feature-state">${escapeHtml(
+                    state.state === "unavailable" ? "Unavailable" : action
+                  )}</span>
+                </button>`;
+            })
+            .join("")}
+        </div>
+      </div>`;
+  }
+
+  _securityIcon(state) {
+    if (state.attributes.icon) {
+      return state.attributes.icon;
+    }
+    const domain = state.entity_id.split(".", 1)[0];
+    const deviceClass = state.attributes.device_class;
+    if (domain === "alarm_control_panel") {
+      return state.state === "disarmed"
+        ? "mdi:shield-off-outline"
+        : "mdi:shield-home";
+    }
+    if (domain === "lock") {
+      return state.state === "locked" ? "mdi:lock" : "mdi:lock-open-variant";
+    }
+    if (domain === "camera") {
+      return "mdi:cctv";
+    }
+    if (domain === "siren") {
+      return "mdi:alarm-light";
+    }
+    if (domain === "cover") {
+      return ["garage", "gate"].includes(deviceClass)
+        ? "mdi:garage"
+        : "mdi:door";
+    }
+    return {
+      door: "mdi:door-closed",
+      garage_door: "mdi:garage",
+      gas: "mdi:gas-cylinder",
+      lock: "mdi:lock",
+      moisture: "mdi:water-alert",
+      motion: "mdi:motion-sensor",
+      occupancy: "mdi:home-account",
+      opening: "mdi:door-open",
+      safety: "mdi:shield-alert",
+      smoke: "mdi:smoke-detector-alert",
+      tamper: "mdi:shield-lock-open",
+      window: "mdi:window-closed-variant",
+    }[deviceClass] || "mdi:shield-outline";
+  }
+
+  _securityEntities() {
+    const securityBinaryClasses = new Set([
+      "door",
+      "garage_door",
+      "gas",
+      "lock",
+      "moisture",
+      "motion",
+      "occupancy",
+      "opening",
+      "safety",
+      "smoke",
+      "tamper",
+      "window",
+    ]);
+    const covers = this._domainEntities("cover").filter((state) =>
+      ["door", "garage", "gate"].includes(state.attributes.device_class)
+    );
+    const binarySensors = this._domainEntities("binary_sensor").filter((state) =>
+      securityBinaryClasses.has(state.attributes.device_class)
+    );
+    return [
+      ...this._domainEntities("alarm_control_panel"),
+      ...this._domainEntities("lock"),
+      ...covers,
+      ...this._domainEntities("camera"),
+      ...this._domainEntities("siren"),
+      ...binarySensors,
+    ];
+  }
+
+  _renderSecurity() {
+    const entities = this._securityEntities();
+    if (!entities.length) {
+      return '<div class="view-message full">No security entities are available.</div>';
+    }
+    return `
+      <div class="c4-view feature-view security-view">
+        <div class="feature-grid">
+          ${entities
             .map(
               (state) => `
                 <button
                   type="button"
-                  class="entity-tile"
+                  class="feature-tile security-tile ${
+                    ["on", "open", "unlocked", "triggered"].includes(state.state)
+                      ? "attention"
+                      : ""
+                  }"
                   data-more-info="${escapeHtml(state.entity_id)}"
                 >
-                  <ha-icon icon="${
-                    domain === "climate"
-                      ? "mdi:thermostat"
-                      : "mdi:shield-home-outline"
-                  }"></ha-icon>
-                  <strong>${escapeHtml(stateName(state))}</strong>
-                  <span>${escapeHtml(
-                    state.attributes.current_temperature ??
-                      state.attributes.temperature ??
-                      state.state
+                  <span class="security-icon">
+                    <ha-icon icon="${escapeHtml(
+                      this._securityIcon(state)
+                    )}"></ha-icon>
+                  </span>
+                  <span class="feature-name">${escapeHtml(
+                    stateName(state)
                   )}</span>
+                  <span class="feature-state">${escapeHtml(state.state)}</span>
                 </button>`
             )
             .join("")}
-        </div>`
-      : `<div class="view-message full">${escapeHtml(emptyMessage)}</div>`;
+        </div>
+      </div>`;
+  }
+
+  _intercomEntities() {
+    const direct = this._domainEntities("assist_satellite");
+    const related = Object.values(this._hass?.states || {}).filter((state) => {
+      if (!["binary_sensor", "button", "camera"].includes(
+        state.entity_id.split(".", 1)[0]
+      )) {
+        return false;
+      }
+      const text = `${state.entity_id} ${stateName(state)}`.toLowerCase();
+      return text.includes("intercom") || text.includes("doorbell");
+    });
+    return [...direct, ...related].filter(
+      (state, index, states) =>
+        states.findIndex((candidate) => candidate.entity_id === state.entity_id) ===
+        index
+    );
+  }
+
+  _renderIntercom() {
+    const entities = this._intercomEntities();
+    return `
+      <div class="c4-view intercom-view">
+        <div class="intercom-heading">All</div>
+        ${
+          entities.length
+            ? `<div class="intercom-list">${entities
+                .map(
+                  (state) => `
+                    <button
+                      type="button"
+                      class="intercom-row"
+                      data-more-info="${escapeHtml(state.entity_id)}"
+                    >
+                      <ha-icon icon="${escapeHtml(
+                        state.attributes.icon || "mdi:account-voice"
+                      )}"></ha-icon>
+                      <span>${escapeHtml(stateName(state))}</span>
+                      <small>${escapeHtml(state.state)}</small>
+                    </button>`
+                )
+                .join("")}</div>`
+            : '<div class="view-message">No Assist satellite, intercom, or doorbell entities are available.</div>'
+        }
+      </div>`;
+  }
+
+  _routineEntity(kind) {
+    const areaMatches = [...this._areaEntities("scene"), ...this._areaEntities("script")];
+    const allMatches = [...this._domainEntities("scene"), ...this._domainEntities("script")];
+    const matches = (state) =>
+      stateName(state).toLowerCase().includes(kind) ||
+      state.entity_id.toLowerCase().includes(kind);
+    return areaMatches.find(matches) || allMatches.find(matches);
+  }
+
+  _routineHelper(kind) {
+    const domains = kind === "wake" ? ["input_datetime"] : ["timer"];
+    const matches = (state) => {
+      const text = `${state.entity_id} ${stateName(state)}`.toLowerCase();
+      return text.includes(kind) || text.includes(kind === "wake" ? "alarm" : "bed");
+    };
+    const areaStates = domains.flatMap((domain) => this._areaEntities(domain));
+    const allStates = domains.flatMap((domain) => this._domainEntities(domain));
+    return areaStates.find(matches) || allStates.find(matches);
+  }
+
+  _routineDisplay(kind, helper) {
+    if (!helper) {
+      return kind === "wake"
+        ? { value: "—", suffix: "", frequency: "DAILY" }
+        : { value: "—", suffix: "MIN", frequency: "" };
+    }
+    if (kind === "wake") {
+      let date;
+      if (helper.attributes.timestamp) {
+        date = new Date(helper.attributes.timestamp * 1000);
+      } else if (/^\d{1,2}:\d{2}/.test(helper.state)) {
+        const [hours, minutes] = helper.state.split(":").map(Number);
+        date = new Date();
+        date.setHours(hours, minutes, 0, 0);
+      }
+      const time = date
+        ? date.toLocaleTimeString(this._hass?.locale?.language || undefined, {
+            hour: "numeric",
+            minute: "2-digit",
+          })
+        : helper.state;
+      const match = String(time || "").match(/^(.*?)(?:\s+([AP]M))?$/i);
+      return {
+        value: match?.[1] || "—",
+        suffix: match?.[2] || "",
+        frequency: "DAILY",
+      };
+    }
+    const remaining = helper.attributes.remaining || helper.state;
+    const parts = String(remaining || "").split(":").map(Number);
+    const minutes = parts.length === 3
+      ? Math.ceil(parts[0] * 60 + parts[1] + parts[2] / 60)
+      : remaining;
+    return { value: minutes || "—", suffix: "MIN", frequency: "" };
+  }
+
+  _renderRoutine(kind) {
+    const routine = this._routineEntity(kind);
+    const helper = this._routineHelper(kind);
+    const display = this._routineDisplay(kind, helper);
+    const title = kind === "wake" ? "Wake" : "Sleep";
+    const description =
+      routine?.attributes?.description ||
+      (routine
+        ? `${title} routine for ${this._areaName()}`
+        : `Create a ${title} scene or script to enable this routine.`);
+    return `
+      <div class="c4-view routine-view ${kind}">
+        <p class="routine-description">${escapeHtml(description)}</p>
+        <div class="routine-dial">
+          <div class="routine-dial-inner">
+            <span class="routine-frequency">${escapeHtml(
+              display.frequency
+            )}</span>
+            <strong>${escapeHtml(display.value)}</strong>
+            <small>${escapeHtml(display.suffix)}</small>
+          </div>
+        </div>
+        <div class="routine-actions">
+          <button
+            type="button"
+            data-routine-options="${escapeHtml(
+              helper?.entity_id || routine?.entity_id || ""
+            )}"
+            ${helper || routine ? "" : "disabled"}
+          >
+            <ha-icon icon="mdi:tune-variant"></ha-icon>
+            <span>Options</span>
+          </button>
+          <button
+            type="button"
+            data-routine-start="${escapeHtml(routine?.entity_id || "")}"
+            ${routine ? "" : "disabled"}
+          >
+            <ha-icon icon="${
+              kind === "wake" ? "mdi:weather-sunset-up" : "mdi:timer-play-outline"
+            }"></ha-icon>
+            <span>${kind === "wake" ? "Activate" : "Start"}</span>
+          </button>
+        </div>
+      </div>`;
   }
 
   _renderCurrentView() {
@@ -3300,19 +3587,16 @@ class Control4RoomDashboardCard extends HTMLElement {
       return this._renderLighting();
     }
     if (this._view === "comfort") {
-      return this._renderEntityView(
-        "climate",
-        "No climate entities are assigned to this area."
-      );
+      return this._renderComfort();
     }
     if (this._view === "security") {
-      return this._renderEntityView(
-        "alarm_control_panel",
-        "No security panel is assigned to this area."
-      );
+      return this._renderSecurity();
     }
     if (this._view === "intercom") {
-      return '<div class="view-message full">No Home Assistant intercom entity is configured for this room.</div>';
+      return this._renderIntercom();
+    }
+    if (this._view === "wake" || this._view === "sleep") {
+      return this._renderRoutine(this._view);
     }
     return this._renderHome();
   }
@@ -3327,6 +3611,8 @@ class Control4RoomDashboardCard extends HTMLElement {
         comfort: "Comfort",
         security: "Security",
         intercom: "Intercom",
+        wake: "Wake",
+        sleep: "Sleep",
       }[this._view] || this._areaName()
     );
   }
@@ -3337,9 +3623,13 @@ class Control4RoomDashboardCard extends HTMLElement {
         <button
           type="button"
           class="header-action"
-          data-toggle-drawer
-          aria-label="Open Control4 navigation"
-        ><ha-icon icon="mdi:menu"></ha-icon></button>
+          ${this._view === "home" ? "data-toggle-drawer" : "data-c4-home"}
+          aria-label="${
+            this._view === "home" ? "Open Control4 navigation" : "Room home"
+          }"
+        ><ha-icon icon="${
+          this._view === "home" ? "mdi:menu" : "mdi:home-outline"
+        }"></ha-icon></button>
         ${
           this._view !== "home"
             ? '<button type="button" class="header-action" data-c4-back aria-label="Back"><ha-icon icon="mdi:chevron-left"></ha-icon></button>'
@@ -3349,12 +3639,11 @@ class Control4RoomDashboardCard extends HTMLElement {
           <span class="page-dots">●○○○○○</span>
           <strong>${escapeHtml(this._viewTitle())}</strong>
         </div>
-        <button
-          type="button"
-          class="header-action"
-          data-c4-home
-          aria-label="Room home"
-        ><ha-icon icon="mdi:home-outline"></ha-icon></button>
+        ${
+          this._view === "home"
+            ? '<button type="button" class="header-action" data-c4-home aria-label="Room home"><ha-icon icon="mdi:home-outline"></ha-icon></button>'
+            : '<span class="header-spacer"></span>'
+        }
       </header>`;
   }
 
@@ -3397,6 +3686,9 @@ class Control4RoomDashboardCard extends HTMLElement {
   }
 
   _renderNowPlaying() {
+    if (!["home", "watch", "listen"].includes(this._view)) {
+      return "";
+    }
     const state = this._hass.states[this._config.entity];
     const title =
       state?.attributes?.media_title ||
@@ -3802,6 +4094,213 @@ class Control4RoomDashboardCard extends HTMLElement {
         .scene-tile ha-icon, .entity-tile ha-icon { --mdc-icon-size: 42px; }
         .entity-tile strong, .entity-tile span { text-align: center; }
         .entity-tile span { color: rgba(255, 255, 255, 0.68); }
+        .feature-view { padding: 0 0 28px; }
+        .feature-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          border-top: 1px solid rgba(255, 255, 255, 0.15);
+          border-left: 1px solid rgba(255, 255, 255, 0.15);
+        }
+        .feature-tile {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          min-width: 0;
+          min-height: clamp(210px, 52vw, 252px);
+          padding: 16px 10px;
+          border: 0;
+          border-right: 1px solid rgba(255, 255, 255, 0.15);
+          border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+          color: #fff;
+          background: rgba(0, 0, 0, 0.13);
+          cursor: pointer;
+        }
+        .feature-name, .feature-state {
+          display: block;
+          width: 100%;
+          overflow: hidden;
+          text-align: center;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .feature-name { font-size: 20px; font-weight: 300; }
+        .feature-state {
+          color: rgba(255, 255, 255, 0.61);
+          font-size: 12px;
+          text-transform: capitalize;
+        }
+        .comfort-dial {
+          position: relative;
+          display: grid;
+          place-content: center;
+          width: 112px;
+          height: 112px;
+          border: 2px solid rgba(255, 255, 255, 0.28);
+          border-radius: 50%;
+          background: radial-gradient(
+            circle at 42% 35%,
+            #444,
+            #242424 66%,
+            #171717
+          );
+          box-shadow: 0 7px 14px rgba(0, 0, 0, 0.45);
+        }
+        .comfort-tile.heating .comfort-dial {
+          border-color: #e07132;
+          box-shadow: 0 0 0 3px rgba(224, 113, 50, 0.24),
+            0 7px 14px rgba(0, 0, 0, 0.45);
+        }
+        .comfort-tile.cooling .comfort-dial {
+          border-color: #4fc4ee;
+          box-shadow: 0 0 0 3px rgba(79, 196, 238, 0.22),
+            0 7px 14px rgba(0, 0, 0, 0.45);
+        }
+        .comfort-value { font-size: 38px; font-weight: 300; }
+        .comfort-unit {
+          position: absolute;
+          right: 21px;
+          bottom: 18px;
+          color: rgba(255, 255, 255, 0.72);
+          font-size: 18px;
+        }
+        .comfort-dial ha-icon {
+          position: absolute;
+          top: 10px;
+          left: 50%;
+          color: #f17430;
+          transform: translateX(-50%);
+          --mdc-icon-size: 18px;
+        }
+        .comfort-tile.cooling .comfort-dial ha-icon { color: #61cdf2; }
+        .security-icon {
+          position: relative;
+          display: grid;
+          place-content: center;
+          width: 108px;
+          height: 108px;
+          border: 1px solid rgba(255, 255, 255, 0.23);
+          border-radius: 24px;
+          color: #f4f4f4;
+          background: linear-gradient(145deg, #f0f0f0 0 18%, #8f9294 19% 100%);
+          box-shadow: 0 7px 15px rgba(0, 0, 0, 0.35);
+        }
+        .security-icon::before {
+          position: absolute;
+          inset: 7px;
+          border-radius: 18px;
+          content: "";
+          background: rgba(18, 18, 18, 0.76);
+        }
+        .security-icon ha-icon { position: relative; --mdc-icon-size: 65px; }
+        .security-tile.attention .security-icon { color: #ff5c52; }
+        .intercom-view { padding: 0 0 28px; }
+        .intercom-heading {
+          padding: 22px 22%;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+          color: rgba(255, 255, 255, 0.84);
+          font-size: 24px;
+          font-weight: 300;
+          background: rgba(0, 0, 0, 0.25);
+        }
+        .intercom-row {
+          display: grid;
+          grid-template-columns: 56px minmax(0, 1fr) auto;
+          gap: 14px;
+          align-items: center;
+          width: 100%;
+          min-height: 96px;
+          padding: 12px 22px;
+          border: 0;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+          color: #fff;
+          text-align: start;
+          background: rgba(0, 0, 0, 0.2);
+          cursor: pointer;
+        }
+        .intercom-row ha-icon { --mdc-icon-size: 38px; }
+        .intercom-row span { font-size: 22px; font-weight: 300; }
+        .intercom-row small {
+          color: rgba(255, 255, 255, 0.58);
+          text-transform: capitalize;
+        }
+        .routine-view {
+          display: grid;
+          grid-template-rows: auto minmax(300px, 1fr) auto;
+          place-items: center;
+          min-height: 100%;
+          padding: 54px 24px 38px;
+          background: rgba(0, 0, 0, 0.35);
+        }
+        .routine-description {
+          max-width: 430px;
+          margin: 0;
+          color: rgba(255, 255, 255, 0.62);
+          font-size: 21px;
+          font-weight: 300;
+          line-height: 1.35;
+          text-align: center;
+        }
+        .routine-dial {
+          display: grid;
+          place-content: center;
+          width: min(72vw, 310px);
+          height: min(72vw, 310px);
+          border-radius: 50%;
+          background: conic-gradient(
+            from 215deg,
+            #61266f,
+            #8d184d,
+            #9a4b19,
+            #4d1d72,
+            #61266f
+          );
+          box-shadow: 0 12px 30px rgba(0, 0, 0, 0.48);
+        }
+        .routine-dial-inner {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          width: calc(min(72vw, 310px) - 16px);
+          height: calc(min(72vw, 310px) - 16px);
+          border: 32px solid rgba(0, 0, 0, 0.35);
+          border-radius: 50%;
+          background: rgba(62, 62, 62, 0.76);
+        }
+        .routine-frequency {
+          min-height: 24px;
+          color: rgba(255, 255, 255, 0.78);
+          font-size: 17px;
+        }
+        .routine-dial strong { font-size: 62px; font-weight: 200; }
+        .routine-dial small {
+          min-height: 26px;
+          color: rgba(255, 255, 255, 0.78);
+          font-size: 18px;
+        }
+        .routine-actions { display: flex; gap: 56px; }
+        .routine-actions button {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 8px;
+          border: 0;
+          color: #fff;
+          background: transparent;
+          cursor: pointer;
+        }
+        .routine-actions button:disabled { opacity: 0.36; cursor: default; }
+        .routine-actions ha-icon {
+          width: 68px;
+          height: 68px;
+          padding: 16px;
+          border-radius: 50%;
+          background: rgba(65, 65, 65, 0.82);
+          --mdc-icon-size: 36px;
+        }
+        .routine-actions span { font-size: 18px; font-weight: 300; }
         .view-message {
           display: flex;
           align-items: center;
@@ -4040,22 +4539,27 @@ class Control4RoomDashboardCard extends HTMLElement {
         this._render();
       });
     }
+    for (const button of this.shadowRoot.querySelectorAll(
+      "[data-routine-options]"
+    )) {
+      button.addEventListener("click", () => {
+        if (button.dataset.routineOptions) {
+          this._openMoreInfo(button.dataset.routineOptions);
+        }
+      });
+    }
+    for (const button of this.shadowRoot.querySelectorAll(
+      "[data-routine-start]"
+    )) {
+      button.addEventListener("click", () => {
+        if (button.dataset.routineStart) {
+          void this._activateRoutine(button.dataset.routineStart);
+        }
+      });
+    }
   }
 
   _navigate(view) {
-    if (view === "wake" || view === "sleep") {
-      const scene = this._areaEntities("scene").find(
-        (state) => stateName(state).toLowerCase() === view
-      );
-      this._drawerOpen = false;
-      if (scene) {
-        void this._activateScene(scene.entity_id);
-      } else {
-        this._status = `No ${view} scene is assigned to this area.`;
-        this._render();
-      }
-      return;
-    }
     this._view = view;
     this._drawerOpen = false;
     this._render();
@@ -4156,6 +4660,37 @@ class Control4RoomDashboardCard extends HTMLElement {
       this._status = `${stateName(this._hass.states[entityId])} activated`;
       this._render();
     } catch (error) {
+      this._error = error?.message || String(error);
+      this._render();
+    }
+  }
+
+  async _activateRoutine(entityId) {
+    const state = this._hass.states[entityId];
+    if (!state) {
+      return;
+    }
+    const domain = entityId.split(".", 1)[0];
+    this._status = `Activating ${stateName(state)}…`;
+    this._error = "";
+    this._render();
+    try {
+      await this._hass.callService(
+        domain,
+        "turn_on",
+        {},
+        { entity_id: entityId }
+      );
+      this._status = `${stateName(state)} activated`;
+      window.clearTimeout(this._statusTimer);
+      this._statusTimer = window.setTimeout(() => {
+        this._status = "";
+        if (this.isConnected) {
+          this._render();
+        }
+      }, 3500);
+    } catch (error) {
+      this._status = "";
       this._error = error?.message || String(error);
       this._render();
     }
@@ -5077,8 +5612,9 @@ class Control4RoomDashboardCardEditor extends HTMLElement {
         <ha-icon icon="mdi:monitor-dashboard"></ha-icon>
         <span>
           Full-screen room interface with Home, Watch, Listen, Lighting,
-          Comfort, Security, and room media. For the closest app-style layout,
-          place this card in a Home Assistant Panel view.
+          Comfort, Security, Intercom, Wake, Sleep, and room media. For the
+          closest app-style layout, place this card in a Home Assistant Panel
+          view.
         </span>
       </div>
       <label>

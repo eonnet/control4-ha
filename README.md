@@ -181,10 +181,16 @@ Assistant area to provide:
   artwork.
 - A Lighting screen with Lights and Scenes tabs, direct on/off control, and
   brightness sliders.
-- Comfort and Security entity views.
+- A global Comfort screen with live climate status and a Security screen for
+  alarm panels, locks, garage/gate covers, cameras, sirens, and relevant
+  security sensors.
+- An Intercom list that automatically finds Home Assistant Assist satellites,
+  intercom entities, and doorbell entities.
 - A slide-out room menu with Watch, Listen, Lighting, Comfort, Security,
-  Intercom, Wake, and Sleep entries. Wake and Sleep activate same-named scenes
-  assigned to the selected area when available.
+  Intercom, Wake, and Sleep entries.
+- Dedicated Wake and Sleep screens. They automatically use same-named Home
+  Assistant scenes or scripts, prefer entities assigned to the selected area,
+  and display a matching `input_datetime` or `timer` helper when available.
 
 Its visual editor selects the Control4 media player, Home Assistant area,
 optional room title, and optional background image. When no background is
