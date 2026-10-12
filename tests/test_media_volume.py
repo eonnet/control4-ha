@@ -189,6 +189,7 @@ class RoomVolumeCoordinatorTests(unittest.IsolatedAsyncioTestCase):
             "value": {"mediainfo": {
                 "title": "Tender Surrender", "artist": "Steve Vai",
                 "album": "Alien Love Secrets",
+                "img": "https://media.example.test/alien-love-secrets.jpg",
             }},
         }]
         await self.transport.sync_room_source(22)
@@ -197,10 +198,12 @@ class RoomVolumeCoordinatorTests(unittest.IsolatedAsyncioTestCase):
             "volume_device_id": 623,
             "media_title": "Tender Surrender", "media_artist": "Steve Vai",
             "media_album_name": "Alien Love Secrets",
+            "media_image_url": "https://media.example.test/alien-love-secrets.jpg",
         })
         self.assertEqual(seen[-1].changes, {
             "media_title": "Tender Surrender", "media_artist": "Steve Vai",
             "media_album_name": "Alien Love Secrets",
+            "media_image_url": "https://media.example.test/alien-love-secrets.jpg",
         })
 
         self.rest.variables_by_id[22] = room_variables(41, 0, 623) + [
@@ -211,6 +214,7 @@ class RoomVolumeCoordinatorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(seen[-1].changes, {
             "is_on": False,
             "media_title": None, "media_artist": None, "media_album_name": None,
+            "media_image_url": None,
         })
 
     async def test_room_fallback_reconciles_power_and_changed_binding(self) -> None:

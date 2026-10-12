@@ -98,8 +98,8 @@ class EventNormalizationTests(unittest.TestCase):
             "media_title": "Tender Surrender",
             "media_artist": "Steve Vai",
             "media_album_name": "The Infinite Steve Vai: An Anthology",
+            "media_image_url": "https://private.invalid/art",
         })
-        self.assertNotIn("media_image_url", playing.changes)
 
         malformed = normalize_rest_variables(22, "roomdevice", [
             {"varName": "CURRENT MEDIA INFO", "value": "private-title"},
@@ -113,7 +113,28 @@ class EventNormalizationTests(unittest.TestCase):
         ])
         self.assertEqual(bounded.changes, {
             "media_title": None, "media_artist": None, "media_album_name": None,
+            "media_image_url": None,
         })
+
+        for image_url in (
+            "/art.jpg",
+            "data:image/png;base64,private",
+            "file:///private/art.jpg",
+            "https://user:password@private.invalid/art",
+            "https://private.invalid:invalid/art",
+            "https://private.invalid/" + "x" * 2049,
+        ):
+            with self.subTest(image_url=image_url[:80]):
+                invalid_artwork = normalize_rest_variables(22, "roomdevice", [{
+                    "varName": "CURRENT MEDIA INFO",
+                    "value": {"mediainfo": {"img": image_url}},
+                }])
+                self.assertEqual(invalid_artwork.changes, {
+                    "media_title": None,
+                    "media_artist": None,
+                    "media_album_name": None,
+                    "media_image_url": None,
+                })
 
         stopped = normalize_rest_variables(22, "roomdevice", [
             {"varName": "POWER_STATE", "value": 0},
@@ -122,6 +143,7 @@ class EventNormalizationTests(unittest.TestCase):
         self.assertEqual(stopped.changes, {
             "is_on": False,
             "media_title": None, "media_artist": None, "media_album_name": None,
+            "media_image_url": None,
         })
 
     def test_programming_mirror_is_not_room_volume_and_binding_can_change(self) -> None:

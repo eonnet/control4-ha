@@ -43,6 +43,10 @@ class FakeEntity:
 
 
 class FakeMediaPlayerEntity(FakeEntity):
+    @property
+    def media_image_remotely_accessible(self):
+        return False
+
     def get_browse_image_url(
         self, media_content_type, media_content_id, media_image_id=None
     ):
@@ -517,7 +521,7 @@ class MediaPlayerUITests(unittest.IsolatedAsyncioTestCase):
             await entity.async_media_pause()
         self.assertEqual(self.get_variables.await_count, 6)
 
-    async def test_current_media_labels_are_exposed_without_raw_media_fields(self):
+    async def test_current_media_labels_and_proxied_artwork_are_exposed(self):
         self.state[22].update({
             "media_title": "Tender Surrender",
             "media_artist": "Steve Vai",
@@ -528,7 +532,8 @@ class MediaPlayerUITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(entity.media_title, "Tender Surrender")
         self.assertEqual(entity.media_artist, "Steve Vai")
         self.assertEqual(entity.media_album_name, "Alien Love Secrets")
-        self.assertFalse(hasattr(entity, "media_image_url"))
+        self.assertEqual(entity.media_image_url, "https://private.invalid/art")
+        self.assertFalse(entity.media_image_remotely_accessible)
 
     async def test_selected_source_is_title_fallback_when_media_info_is_empty(self):
         apple_tv = RoomSource(

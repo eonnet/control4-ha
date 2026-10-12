@@ -50,6 +50,11 @@ folders and their source tiles. Brand matching uses only the already validated
 source name and inventory metadata, falls back to generic experience artwork,
 and serves only allowlisted files through Home Assistant's signed media-player
 image proxy.
+Version 0.1.32 maps the observed `mediainfo.img` field from Director's
+structured `CURRENT MEDIA INFO` into the room media player's current artwork.
+The value must be a bounded absolute HTTP(S) URL, remains marked as not
+remotely accessible so Home Assistant serves it through its signed proxy, and
+is cleared with the other current-media fields when the room turns off.
 
 The config flow accepts a local Director hostname/IP and Control4 account
 credentials. The account service issues a Director JWT; a separate local

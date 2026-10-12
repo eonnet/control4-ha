@@ -226,6 +226,12 @@ browser. The integration maps validated inventory/source metadata to a fixed
 logo allowlist, uses generic Watch or Listen artwork for unknown names, and
 serves the files through `MediaPlayerEntity.async_get_browse_image`. The image
 handler cannot resolve arbitrary paths or remote URLs.
+Version 0.1.32 additionally maps the observed `mediainfo.img` value from
+`CURRENT MEDIA INFO` to the room entity's current artwork. The normalizer
+accepts only bounded absolute HTTP(S) URLs without embedded credentials, and
+the entity leaves `media_image_remotely_accessible` false so Home Assistant
+uses its signed media-player proxy instead of exposing that upstream URL to
+the frontend.
 At version 0.1.12, media-player discovery still required a supported volume
 binding at integration startup. Version 0.1.13 retains an already registered
 room while its off-state binding is zero; new source-only or unproven rooms

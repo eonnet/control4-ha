@@ -348,6 +348,12 @@ Watch or Listen artwork. The packaged SVGs are served through Home Assistant's
 signed media-player image proxy, so they do not depend on an external image
 CDN or expose an unauthenticated integration asset route.
 
+Version 0.1.32 mirrors the current media artwork reported in Director's
+structured `CURRENT MEDIA INFO` alongside title, artist, and album. Only
+bounded absolute HTTP(S) artwork URLs are accepted. Home Assistant fetches
+them through its signed media-player image proxy, and stale artwork is cleared
+when the room turns off.
+
 ## License
 
 This repository is licensed under the [Apache License 2.0](LICENSE).
