@@ -139,13 +139,18 @@ A group preset can store:
 
 - The group leader.
 - All selected rooms.
-- The selected Watch/Listen source, TIDAL playlist, or TuneIn favorite.
+- The selected playable Watch/Listen source, TIDAL playlist, or TuneIn
+  favorite.
 - Individual room volume levels.
 - Individual room mute states.
 
 Presets can be created, activated, renamed, updated from the current group,
 reordered, and deleted in the group popup. They are shared across browsers and
 Home Assistant Companion App installations.
+
+Control4's internal **Digital Media** session endpoint is resolved to its
+actual playing Listen source when Director supplies it. The internal endpoint
+itself is not saved or displayed as a playable source.
 
 Presets can also be activated from automations, scripts, voice assistants, or
 NFC tags:
