@@ -53,6 +53,9 @@ class FakeMediaPlayerEntity(FakeEntity):
         suffix = f"?media_image_id={media_image_id}" if media_image_id else ""
         return f"/browse-image/{media_content_type}/{media_content_id}{suffix}"
 
+    async def async_get_media_image(self):
+        return b"director artwork", "image/jpeg"
+
 
 class FakeBrowseError(Exception):
     pass
@@ -548,6 +551,10 @@ class MediaPlayerUITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(entity.media_album_name, "Alien Love Secrets")
         self.assertEqual(entity.media_image_url, "https://private.invalid/art")
         self.assertFalse(entity.media_image_remotely_accessible)
+        self.assertEqual(
+            await entity.async_get_media_image(),
+            (b"director artwork", "image/jpeg"),
+        )
 
     async def test_selected_source_is_title_fallback_when_media_info_is_empty(self):
         apple_tv = RoomSource(
@@ -556,17 +563,31 @@ class MediaPlayerUITests(unittest.IsolatedAsyncioTestCase):
         self.runtime.media_sources[22] = (apple_tv,)
         self.state[22]["selected_source_id"] = 509
         entity = self.media_player.Control4RoomMediaPlayer(self.runtime, self.items[22])
+
+        async def executor(function, *args):
+            return function(*args)
+
+        entity.hass = SimpleNamespace(async_add_executor_job=executor)
         self.assertEqual(entity.state, FakeMediaPlayerState.PLAYING)
         self.assertEqual(entity.source, "Watch: Apple TV")
         self.assertEqual(entity.media_title, "Apple TV")
         self.assertIsNone(entity.media_artist)
         self.assertIsNone(entity.media_album_name)
+        self.assertEqual(
+            entity.media_image_url,
+            "/browse-image/control4_source_logo/appletv",
+        )
+        content, content_type = await entity.async_get_media_image()
+        self.assertTrue(content.startswith(b"<svg"))
+        self.assertEqual(content_type, "image/svg+xml")
 
         self.state[22]["media_title"] = "A real programme title"
         self.assertEqual(entity.media_title, "A real programme title")
 
         self.state[22].update({"is_on": False, "media_title": None})
         self.assertIsNone(entity.media_title)
+        self.assertIsNone(entity.media_image_url)
+        self.assertEqual(await entity.async_get_media_image(), (None, None))
 
     async def test_source_browser_is_inventory_discovered_and_rest_confirmed(self):
         plex = RoomSource(346, "watch", "Plex", "RF_MINI_APP", "Watch: Plex")

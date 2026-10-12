@@ -236,6 +236,11 @@ choose **Retrieve TuneIn favorites**, then open the named TuneIn source's
 one before leaving the last list open. Retrieval listens only while that
 workflow is open and never logs the raw browser response.
 
+Version 0.1.40 packages the English runtime translations used by Home
+Assistant's options flow. The Configure menu now shows the name and
+description of every action, and the TIDAL/TuneIn retrieval screen displays
+the source-specific Control4 app instructions while capture is active.
+
 The existing **Media favorites** option remains available for manual entries
 or corrections. Retrieved items are merged with those entries so another
 source's manual records are not removed. Use one line per playlist:
@@ -372,6 +377,12 @@ structured `CURRENT MEDIA INFO` alongside title, artist, and album. Only
 bounded absolute HTTP(S) artwork URLs are accepted. Home Assistant fetches
 them through its signed media-player image proxy, and stale artwork is cleared
 when the room turns off.
+
+Version 0.1.40 also uses the selected Watch or Listen source's packaged logo
+as current media artwork when Director supplies no poster or album art. For
+example, selecting Netflix displays its local logo instead of the generic
+music note. Real Director artwork still takes priority and all images remain
+behind Home Assistant's media-player proxy.
 
 Version 0.1.33 decodes Director's observed Base64-wrapped artwork URL before
 applying those same HTTP(S), length, and credential checks. This fixes TIDAL
