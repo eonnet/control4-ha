@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import aiohttp
@@ -21,6 +22,16 @@ from .selection import is_candidate_item
 from .transport import AccountTokenProvider, DirectorRestClient
 from .transport.auth import AuthenticationError, AuthenticationTransportError
 from .transport.favorites import parse_tunein_favorites
+from .transport.media_capture import (
+    CapturedMediaItem,
+    MediaCaptureDisconnected,
+    MediaCaptureService,
+    MediaCaptureTimeout,
+    capture_media_items,
+    media_capture_targets,
+    merge_tidal_playlists,
+    merge_tunein_favorites,
+)
 from .transport.playlists import parse_tidal_playlists
 from .transport.rest import DirectorRestError
 
@@ -112,11 +123,100 @@ class Control4ConfigFlow(ConfigFlow, domain=DOMAIN):
 class Control4OptionsFlow(OptionsFlowWithReload):
     """Configure media favorites and integration-wide maintenance actions."""
 
+    _capture_task: asyncio.Task[tuple[CapturedMediaItem, ...]] | None = None
+    _capture_targets_text = ""
+
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
         return self.async_show_menu(
             step_id="init",
-            menu_options=("media_favorites", "recreate_entity_ids"),
+            menu_options=(
+                "retrieve_tidal",
+                "retrieve_tunein",
+                "media_favorites",
+                "recreate_entity_ids",
+            ),
         )
+
+    async def _async_step_retrieve(self, service: MediaCaptureService):
+        runtime = self.config_entry.runtime_data
+        if runtime is None:
+            return self.async_abort(reason="media_capture_disconnected")
+        if self._capture_task is None:
+            targets = media_capture_targets(
+                runtime.media_sources,
+                runtime.transport.inventory.items,
+                service,
+            )
+            if not targets:
+                return self.async_abort(reason=f"no_{service}_sources")
+            self._capture_targets_text = ", ".join(
+                target.source_name for target in targets
+            )
+            self._capture_task = self.hass.async_create_task(
+                capture_media_items(runtime.transport, targets)
+            )
+        if not self._capture_task.done():
+            return self.async_show_progress(
+                progress_action=f"retrieve_{service}",
+                progress_task=self._capture_task,
+                description_placeholders={
+                    "sources": self._capture_targets_text,
+                },
+            )
+        return self.async_show_progress_done(
+            next_step_id=f"retrieve_{service}_finish"
+        )
+
+    async def _async_step_retrieve_finish(self, service: MediaCaptureService):
+        task = self._capture_task
+        if task is None or task.cancelled():
+            return self.async_abort(reason="media_capture_cancelled")
+        try:
+            captured = task.result()
+        except MediaCaptureDisconnected:
+            return self.async_abort(reason="media_capture_disconnected")
+        except MediaCaptureTimeout:
+            return self.async_abort(reason="media_capture_timeout")
+        except (ValueError, RuntimeError):
+            return self.async_abort(reason="media_capture_failed")
+
+        options = dict(self.config_entry.options)
+        try:
+            if service == "tidal":
+                options[CONF_TIDAL_PLAYLISTS] = merge_tidal_playlists(
+                    options.get(CONF_TIDAL_PLAYLISTS, ""), captured
+                )
+            else:
+                options[CONF_TUNEIN_FAVORITES] = merge_tunein_favorites(
+                    options.get(CONF_TUNEIN_FAVORITES, ""), captured
+                )
+        except ValueError:
+            return self.async_abort(reason="stored_media_favorites_invalid")
+        return self.async_create_entry(data=options)
+
+    async def async_step_retrieve_tidal(
+        self, user_input: dict[str, Any] | None = None
+    ):
+        """Guide the user while listening for their TIDAL playlist screen."""
+        return await self._async_step_retrieve("tidal")
+
+    async def async_step_retrieve_tidal_finish(
+        self, user_input: dict[str, Any] | None = None
+    ):
+        """Save captured TIDAL playlists and close the options flow."""
+        return await self._async_step_retrieve_finish("tidal")
+
+    async def async_step_retrieve_tunein(
+        self, user_input: dict[str, Any] | None = None
+    ):
+        """Guide the user while listening for their TuneIn favorites screen."""
+        return await self._async_step_retrieve("tunein")
+
+    async def async_step_retrieve_tunein_finish(
+        self, user_input: dict[str, Any] | None = None
+    ):
+        """Save captured TuneIn favorites and close the options flow."""
+        return await self._async_step_retrieve_finish("tunein")
 
     async def async_step_media_favorites(
         self, user_input: dict[str, Any] | None = None
