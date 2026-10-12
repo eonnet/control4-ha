@@ -5,7 +5,8 @@ The custom component lives at
 Home Assistant-independent; `control4_transport` at the repository root is a
 compatibility import for standalone scripts and tests. Copy the component
 directory into Home Assistant's `custom_components/` and restart Home
-Assistant. The manifest installs pinned `pyControl4` 2.0.2. Version 0.1.2 was
+Assistant. The manifest requires `pyControl4` 2.0.2 or newer so it can follow
+Home Assistant's compatible dependency updates. Version 0.1.2 was
 published through HACS and field-tested in Home Assistant 2026.9.4. Version
 0.1.3 was also published through HACS, after which the user confirmed Sony
 Plug works in both directions in HA. The exact installed version was not

@@ -5,7 +5,7 @@ from __future__ import annotations
 from types import ModuleType, SimpleNamespace
 import sys
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import custom_components.control4_advanced as integration
 
@@ -186,6 +186,7 @@ class MediaPlayerSetupTests(unittest.IsolatedAsyncioTestCase):
         helpers.entity_registry = entity_registry
         session = FakeSession()
         forwarded = []
+        register_frontend = AsyncMock()
 
         async def forward(entry, platforms):
             forwarded.extend(platforms)
@@ -221,8 +222,12 @@ class MediaPlayerSetupTests(unittest.IsolatedAsyncioTestCase):
             patch.object(integration, "MediaSessionCoordinator", FakeSessionCoordinator),
             patch.object(integration, "migrate_tidal_playlist_registry_entries"),
             patch.object(integration, "remove_stale_registry_entries"),
+            patch.object(
+                integration, "_async_register_frontend", register_frontend
+            ),
         ):
             self.assertTrue(await integration.async_setup_entry(hass, entry))
+            register_frontend.assert_awaited_once_with(hass)
             self.assertIn("media_player", forwarded)
             self.assertIn("button", forwarded)
             self.assertNotIn("number", forwarded)

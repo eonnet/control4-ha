@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import sys
 from types import ModuleType, SimpleNamespace
@@ -156,6 +157,17 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
             "registerCard();\nregisterMoreInfoGrouping();\n(async () =>",
             javascript,
         )
+
+    def test_manifest_declares_hassfest_runtime_dependencies(self) -> None:
+        manifest = json.loads(
+            (Path(FRONTEND_FILE).parent.parent / "manifest.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(manifest["version"], "0.1.45")
+        self.assertIn("http", manifest["dependencies"])
+        self.assertEqual(manifest["requirements"], ["pyControl4>=2.0.2"])
+        self.assertTrue(FRONTEND_URL.endswith("?v=0.1.45"))
 
 
 if __name__ == "__main__":
