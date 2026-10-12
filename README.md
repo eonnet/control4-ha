@@ -456,6 +456,11 @@ the visible browser layer instead of leaving it hidden behind the native dialog;
 a short fallback also covers Android Companion App versions that omit the close
 event.
 
+Version 0.1.44 presents the Control4 grouping popup as a native browser modal,
+placing it above Home Assistant's More Info window without closing that window.
+This avoids the Android dialog-history race that could close More Info without
+showing the custom player list. Closing the grouping popup returns to More Info.
+
 Version 0.1.37 registers the dashboard cards as versioned Lovelace resources
 instead of relying on Home Assistant's early extra-module loader. This avoids
 the scoped custom-element registry race that could show **Custom element not
