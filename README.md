@@ -1,442 +1,154 @@
-# Control4 Home Assistant integration
+# Control4 Advanced for Home Assistant
 
-Phase 1 established usable Director WebSocket push events on this Core3.
-Phase 2 provides a small Home Assistant-independent transport layer. Phase 3
-contains a custom-component slice for `light_v2`, Celsius `thermostatV2`, and
-opt-in relay switches. Version 0.1.4 adds read-only window and motion binary
-sensors from the two observed contact proxies. The user reports both Kid
-Window and Kid PIR working correctly in HA; the exact installed version and
-public-branch status were not independently verified. Version 0.1.2 has been
-field-tested in Home Assistant 2026.9.4: on/off lighting, climate, and one
-radiant-floor relay work in both directions, and stale device cleanup works
-after reload. A manual Control4
-Hallway dimmer change appears in HA about 3–4 seconds later; that interval has
-not been instrumented end-to-end. Version 0.1.3 adds the observed regular
-relay proxy; the user confirmed Sony Plug works in both directions in HA and
-subsequently reported that Vent and Boiler work too. Other regular relays have
-not been individually verified.
-Version 0.1.5 adds Living AC named presets to the climate selector and a
-companion hold-mode select for eligible thermostats. The user reports that
-the new thermostat controls work in both directions in HA. Individual choices
-and Kid AC hold were not identified separately in that report.
-Version 0.1.6 adds fan mode: both ACs advertise `Auto`,
-`Low`, `Medium`, and `High`, and Kid AC has direct fan-change push feedback.
-The user reports fan mode working in both directions in HA; the specific ACs
-and choices tested were not identified separately.
-Version 0.1.7 makes GREE's advertised fan and preset controls visible even
-when Director omits their active values from the initial REST snapshot. Their
-displayed values remain unknown until push feedback arrives; an empty GREE
-preset update clears the displayed preset. GREE does not advertise a hold
-command, so it has no writable hold selector. This change is offline-tested
-but has not yet been field-tested in HA.
-Version 0.1.8 detects GREE's single-setpoint REST signature and uses its
-`setpoint_single_c` push updates for the climate target in Heat and Cool.
-It sends the advertised `SET_SETPOINT_SINGLE` command for GREE while retaining
-the existing heat/cool command route for separate-setpoint thermostats.
-This is offline-tested, and the user subsequently confirmed GREE setpoint
-control and feedback working in both directions in HA.
+Control4 Advanced is an unofficial custom integration that brings compatible
+Control4 lighting, climate, relay, contact-sensor, and room-media devices into
+Home Assistant. It also includes media browsing, multi-room audio controls,
+saved group presets, and three dashboard cards.
 
-## WebSocket probe
+## Requirements
 
-The probe is read-only: it obtains a short-lived Director token through the
-already-proven MCP token helper, reads `/api/v1/items` to identify inventory,
-then subscribes to Director's `datatoui` WebSocket feed. It never invokes a
-Control4 device command.
+- Home Assistant with HACS, or access to the Home Assistant
+  `custom_components` directory.
+- A locally reachable Control4 Director.
+- A valid Control4 account username and password.
+- Compatible devices and actions exposed by the Control4 project.
 
-It deliberately does not read or copy any `.env` file. By default it invokes
-the existing trusted helper in `/opt/control4-mcp`; override those paths only
-with equivalent local tooling.
+## Installation
 
-```bash
-python -m venv .venv
-.venv/bin/pip install -r requirements-probe.txt
-.venv/bin/python tools/websocket_probe.py --verbose
-```
+### HACS
 
-For the currently installed trusted environment, this is also suitable for a
-first run without installing new packages:
+1. Open **HACS > Integrations**.
+2. Open the HACS menu and choose **Custom repositories** if Control4 Advanced
+   is not already listed.
+3. Add `https://github.com/eonnet/control4-ha` as an **Integration** repository.
+4. Search for **Control4 Advanced** and download it.
+5. Restart Home Assistant.
+6. Open **Settings > Devices & services > Add integration** and select
+   **Control4 Advanced**.
 
-```bash
-/opt/control4-mcp/.venv/bin/python tools/websocket_probe.py --duration 60 --verbose
-```
+### Manual installation
 
-While it runs, manually change a light's power and level and Living AC's
-setpoint and HVAC mode. The probe prints JSON Lines with redacted payloads.
-Use `--force-reconnect-after 20` only to exercise a client-initiated local
-disconnect/reconnect; it does not command a Control4 device.
+Copy `custom_components/control4_advanced` into Home Assistant's
+`custom_components` directory, restart Home Assistant, and add the integration
+from **Settings > Devices & services**.
 
-For a focused, three-minute manual test of the currently identified entities:
+## Configuration
 
-```bash
-/opt/control4-mcp/.venv/bin/python -u tools/websocket_probe.py \
-  --duration 180 --watch-ids 2646,2726,3177
-```
+The setup form requests:
 
-The IDs are Living AC, Lamp Table, and Hallway respectively. Record the UTC
-time of each manual change; the Director's `time` field has only whole-second
-precision, while `received_at` is the probe's millisecond timestamp. With
-`--watch-ids`, the probe also emits a separate `watched_inventory` record so
-the live REST ID, name, and proxy can be checked without sharing the full
-inventory sample.
+- **Director address** — local hostname or IP address without a URL scheme,
+  port, or path.
+- **Control4 account username**.
+- **Control4 account password**.
 
-To list possible regular relay switches without opening a WebSocket or sending
-any device command:
+The Director address uniquely identifies the integration entry. Account
+credentials are stored in Home Assistant's config entry.
 
-```bash
-/opt/control4-mcp/.venv/bin/python -u tools/websocket_probe.py --inventory-only
-```
+## Supported devices and entities
 
-Look for the `relay_inventory` record. It lists up to 50 basic or wireless
-relay candidates, not automatically enabled HA switches. Gate relays and
-`uibutton` devices such as ID `319` Extract Fan are excluded. A separate Vent
-relay exists at ID `1846`. The radiant-floor proxy used by Kid Heating Panel
-is outside this basic-relay listing; its state and push behavior were tested
-separately.
+| Home Assistant entity | Compatible Control4 device | Available features |
+| --- | --- | --- |
+| Light | `light_v2` | On, off, and brightness for dimmable devices; on/off control for non-dimmable lights |
+| Climate | Celsius `thermostatV2` | Heat, Cool, Auto, Off, target temperature, fan mode, named presets, and hold mode when available |
+| Switch | Compatible standard, wireless, and radiant-floor relays | On and off; newly discovered relay entities are disabled by default |
+| Binary sensor | Window contacts, door contacts, and motion/PIR sensors | Window, door, and motion state |
+| Media player | Rooms with compatible Watch or Listen sources | Source browsing, metadata, artwork, transport, power-off, volume, mute, and grouping as available |
+| Button | Room playback actions | Previous, Play, Pause, Stop, and Next when available |
+| Select | Thermostat and media choices | Hold mode, TIDAL account, and TIDAL playlist when available |
 
-To identify a named switch or on/off-only light before a focused push trace:
+Only features available to a specific Control4 device are exposed on its Home
+Assistant entity.
 
-```bash
-/opt/control4-mcp/.venv/bin/python -u tools/websocket_probe.py --inventory-only \
-  --find-name 'Kid Heating Panel' --find-name 'Ceiling'
-```
+## Climate features
 
-The bounded `matched_inventory` record contains IDs, proxies, and selected
-capability flags. It does not include credentials or tokens. Share that record,
-then use the confirmed IDs with `--watch-ids` while changing the devices
-manually in Control4; do not guess an ID from its display name.
+- Celsius thermostats with separate heating/cooling setpoints.
+- Single-setpoint systems such as compatible GREE configurations.
+- Off, Heat, Cool, and Auto modes when available.
+- Target-temperature limits supplied by the thermostat.
+- Device-specific fan modes.
+- Device-specific named presets.
+- A companion hold-mode selector when available.
 
-For confirmed IDs, `--inspect-ids` reads only the REST variable and command
-metadata. It emits variable/command names plus a small allowlist of simple
-state values; it never executes a command or prints arbitrary variable values:
+## Lighting, relays, and sensors
 
-```bash
-/opt/control4-mcp/.venv/bin/python -u tools/websocket_probe.py \
-  --inventory-only --inspect-ids 1150,579
-```
+- Dimmable lights expose brightness and power controls.
+- Non-dimmable lights expose power controls only.
+- Compatible relay loads appear as switches and are disabled by default so the
+  user can explicitly enable the required devices.
+- Window, door, and motion/PIR devices appear as read-only binary sensors.
 
-These IDs are Bathroom Ceiling and Kid Heating Panel. The latter has a
-specialized `relaysingle_radiantfloor_c4` proxy. Its live state and advertised
-commands have been observed. Once this local update is published and installed,
-the HA switch will be disabled by default until the user enables it.
+## Media players
 
-See `docs/websocket-protocol.md` for the observed/upstream-derived protocol
-model and an evidence checklist.
+Each compatible Control4 room is exposed as a Home Assistant media player.
+Available features can include:
 
-## Transport layer (Phase 2)
+- Browse and start Control4 **Watch** and **Listen** sources.
+- Browse and play configured TIDAL playlists and TuneIn favorites.
+- Current title, artist, album, source, and artwork.
+- Previous, Play, Pause, Stop, and Next.
+- Room power-off.
+- Room volume and mute.
+- Native multi-room join and leave.
+- Individual volume and mute control for each player in a group.
+- Relative master group volume.
+- Mute all and Unmute all.
 
-`control4_transport` contains a direct Control4 account token provider, an
-authenticated Director REST client, inventory and state caches, an event
-dispatcher, and a WebSocket connection supervisor. It reads the tracked items'
-REST variables on startup and after reconnection. Periodic reconciliation is
-optional (`reconciliation_seconds=None` disables it). Normal push updates come
-from WebSocket events.
+Known sources receive packaged logo artwork, including Netflix, Plex, Apple TV,
+HBO Max, Xplore TV, Sony, Xiaomi, WiiM, Spotify, YouTube, TIDAL, and TuneIn.
+Other sources use generic Watch or Listen artwork.
 
-The account provider accepts credentials in memory from its caller and obtains
-a Director token through Control4's account API. It does not invoke the MCP
-project or read that project's `.env`. Local Director TLS verification is
-controlled by the caller's `aiohttp.ClientSession` connector; cloud account
-requests always use verified TLS.
+## TIDAL playlists and TuneIn favorites
 
-```python
-import aiohttp
-from control4_transport import AccountTokenProvider, Control4Transport, DirectorRestClient
+Open **Settings > Devices & services > Control4 Advanced > Configure** to use:
 
-provider = AccountTokenProvider(username, password, controller_common_name=None)
-async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
-    rest = DirectorRestClient("192.168.0.24", provider, session)
-    transport = Control4Transport(rest, tracked_ids=[2646, 2726])
-    try:
-        transport.events.subscribe(async_callback)
-        await transport.start()
-        # Read state with transport.state.snapshot(2646).
-    finally:
-        await transport.stop()
-```
+- **Retrieve TIDAL playlists** — follow the on-screen instructions and open
+  each requested TIDAL playlist screen in the Control4 app.
+- **Retrieve TuneIn favorites** — follow the on-screen instructions and open
+  each requested TuneIn favorites screen in the Control4 app.
+- **Media favorites** — review or manually enter playable items.
 
-The example assumes `username` and `password` were supplied securely by the
-caller; do not log them. `DirectorRestClient.post_json()` exists as a generic
-REST operation, but the transport itself sends no device command.
-
-Run the offline transport tests with:
-
-```bash
-/opt/control4-mcp/.venv/bin/python -m unittest discover -s tests -v
-```
-
-See [transport design](docs/transport.md) for field mappings and recovery rules.
-
-## First Home Assistant slice (Phase 3)
-
-See [component scope and verification status](docs/home-assistant-slice.md).
-The component is self-contained under `custom_components/control4_advanced/`
-and can be installed through HACS after these local changes are published.
-Light control and Control4-originated feedback have been reported working in
-Home Assistant; verify newly added device types separately before using them
-in automations.
-
-The [development backlog](docs/backlog.md) defers numeric sensors. The
-[thermostat hold/preset evidence](docs/thermostat-hold-presets.md) describes
-the read-only Director trace and the user-reported HA field test.
-Read-only [media-player discovery](docs/media-player-discovery.md) found
-Wiim output-volume push while Wiim was the Living room's bound volume device.
-Sony's matching volume events are a Control4 Programming mirror, not an
-independent room-volume source. The media-player platform uses
-bound-device push to trigger immediate room REST reads and displays the
-room's power, volume, and mute state. The user has confirmed volume and mute
-feedback in HA. Version 0.1.10 adds volume and mute controls only when the
-room advertises the exact validated command metadata. The user confirmed
-those controls work in both directions. Version 0.1.11 adds a source selector
-from the Director UI configuration, limited to inventory-backed media sources
-and advertised room commands. The user confirmed HA-to-Control4 source
-selection but reported that external Control4 source changes were not shown
-in HA. Version 0.1.12 reconciles only the selected room source from REST
-every 15 seconds when no source push route is known; volume and mute remain
-push-triggered. Version 0.1.13 adds room power and volume-binding feedback to
-that fallback and retains an already registered room after a reload while it
-is off. It adds a guarded Off control with Director readback. The user
-confirmed that selecting a source turns Living on; a generic On control is
-not offered because no source-selection rule has been established. The user
-subsequently confirmed that Living turned off from HA, remained visible as
-Off after an integration reload, and turned back on through source selection
-with the previous volume and mute values. Both volume and mute feedback
-worked after that power cycle. These reports validate the current
-Living/Wiim binding, not other rooms.
-
-The unpublished 0.1.14 candidate adds separate Play, Pause, and Stop button
-entities under each eligible Control4 room device, only for commands advertised
-without parameters by that room. They are unavailable while the room is off or
-disconnected, and each press checks live room power over REST before sending
-its command. These are stateless command buttons: the media player still
-reports verified room power as On/Off and does not claim Playing/Paused without
-feedback. Their live behavior has not yet been field-tested.
-
-Version 0.1.15 adds read-only door binary sensors for the observed
-`contactsingle_doorcontactsensor_c4` proxy. A live Main Door trace confirmed
-verified `OPENED`/REST `0` as open and `CLOSED`/REST `1` as closed, matching
-the existing contact transport contract. The user subsequently confirmed the
-door entity in Home Assistant.
-
-Version 0.1.17 adds two linked selectors to each eligible Control4 room:
-**TIDAL account** and **TIDAL playlist**. Version 0.1.38 discovers the account
-selector options directly from the room's inventory-backed Listen sources,
-even when no playlists are configured. Choosing an account selects that actual
-Control4 Listen source in the room. The playlist selector is added only when
-at least one playlist is configured, and then shows the playlists for the
-selected account. Director's REST metadata advertises the playlist command
-but omits the dynamic playlist-name/UUID choices shown by Composer.
-
-Version 0.1.39 adds guided retrieval under **Settings > Devices & services >
-Control4 Advanced > Configure**. Choose **Retrieve TIDAL playlists**, then
-open the Control4 app and go directly to the named account's **My
-Collection/Library > Playlists Created by Me** screen. Leave the list open;
-Home Assistant captures the validated playlist names and UUIDs, saves them,
-reloads the integration, and closes the workflow automatically. For TuneIn,
-choose **Retrieve TuneIn favorites**, then open the named TuneIn source's
-**Favorites** screen. When multiple accounts or sources are listed, visit each
-one before leaving the last list open. Retrieval listens only while that
-workflow is open and never logs the raw browser response.
-
-Version 0.1.40 packages the English runtime translations used by Home
-Assistant's options flow. The Configure menu now shows the name and
-description of every action, and the TIDAL/TuneIn retrieval screen displays
-the source-specific Control4 app instructions while capture is active.
-
-The existing **Media favorites** option remains available for manual entries
-or corrections. Retrieved items are merged with those entries so another
-source's manual records are not removed. Use one line per playlist:
+Manual TIDAL entries use one line per playlist:
 
 ```text
 TIDAL source name | Playlist name | Playlist UUID
 ```
 
-For example:
-
-```text
-TIDAL | Evening Mix | 01234567-89ab-cdef-0123-456789abcdef
-```
-
-The source name must match the automatically discovered Listen source shown by
-Control4 (for example `TIDAL`, `Juliane`, `Miki`, or `Jakob`). The integration
-joins that source to its TIDAL protocol driver and adds the account selector
-only to rooms where the source is exposed. Selecting a playlist sends
-Control4's advertised `SelectPlaylist`
-command to that same room with `Shuffle` fixed to `Off`. The selector remains
-stateless because Director does not report which playlist created the current
-queue.
-
-Version 0.1.18 also exposes each room's advertised Play, Pause, and Stop
-commands as native controls on the Home Assistant media-player dialog. Because
-Director does not report playback state, these controls are explicitly marked
-as assumed and never change the room's verified On/Off state. Every press
-re-reads live room power before sending the command. The separate button
-entities remain available for existing dashboards and automations.
-
-Version 0.1.19 exposes every Control4 room that has at least one validated
-Watch or Listen source as a Home Assistant media player. A proven volume
-binding is no longer required for the room entity to exist; volume and mute
-controls remain conditional on their existing validation, while source and
-playback controls use each room's own advertised commands.
-
-Version 0.1.20 corrects the Play, Pause, and Stop request body to the
-asynchronous `tParams` envelope used by `pyControl4`'s room implementation.
-The earlier generic command envelope was accepted by Director but did not
-operate room playback on this installation.
-
-Version 0.1.21 adds native Previous Track and Next Track media-player controls
-plus matching room buttons. They use the parameterless `SKIP_REV` and
-`SKIP_FWD` commands advertised by every discovered media room, with the same
-live room-power guard and asynchronous request envelope as the other playback
-actions.
-
-Version 0.1.22 displays the current title, artist, and album from Director's
-structured `CURRENT MEDIA INFO` room variable. These labels refresh with the
-existing room reconciliation and immediately after Previous or Next; stale
-labels are cleared when the room turns off. Artwork URLs and unrelated media
-payload fields are deliberately not exposed.
-
-Version 0.1.23 maps the room's verified power and selected-source fields to
-Home Assistant media states: Off when room power is off, Playing when the room
-is on with a positive selected-source ID, and Idle when the room is on without
-a selected source. This is a source-selection state, not play/pause feedback.
-
-Version 0.1.24 displays the selected Control4 source name as the media title
-when that source supplies no track or programme metadata. For example, a
-selected Apple TV now shows `Apple TV`; real media titles continue to take
-priority whenever Director provides them.
-
-Version 0.1.25 adds native multi-room support to the Control4 room media
-players. Home Assistant's standard `media_player.join` action uses the
-Director's Digital Media `ADD_ROOMS_TO_SESSION` command, and each entity's
-`group_members` attribute follows the authoritative `/api/v1/media_sessions`
-state. `media_player.unjoin` uses Control4's documented Room Off behavior to
-remove only that room from the session. Join and unjoin wait for Director to
-confirm the new membership instead of updating Home Assistant optimistically.
-
-Version 0.1.26 keeps native grouping advertised on powered-off room players so
-Home Assistant includes them in the active leader's available-player list.
-Selecting an off room adds it to the leader's Control4 session and powers it
-through the native session command.
-
-Version 0.1.27 accepts Home Assistant's empty preparatory join request when
-the last selected member is removed. This lets the dialog continue with its
-separate unjoin request, which removes and powers off the deselected room.
-
-Version 0.1.28 adds the configured TIDAL accounts and playlists to Home
-Assistant's native media browser on each eligible Control4 room player. The
-browse hierarchy is **TIDAL > account > playlist**. Selecting a playlist uses
-the same allowlisted `SelectPlaylist` command as the playlist selector and
-keeps shuffle off. This intentionally exposes only playlists entered in the
-integration options, whether retrieved or entered manually; full TIDAL
-catalog browsing and search require a
-Control4-authorized MSP command channel that Director does not expose through
-its authenticated REST/WebSocket API.
-
-Version 0.1.29 moves the room's validated Watch and Listen sources into the
-same native media browser. The top-level hierarchy is now
-**Control4 > Watch / Listen / TIDAL**, and each source is a playable app tile.
-The media player no longer advertises Home Assistant's source-select feature
-or a source list, so the old source dropdown is removed. Source commands keep
-the existing inventory allowlist, live Director command-metadata gate, and
-REST confirmation before Home Assistant displays the changed source.
-
-Version 0.1.30 adds configured TuneIn favorites to that browser under
-**Control4 > TuneIn > source > station**. Director advertises its `Play Item`
-command but omits the dynamic `GetItemList` choices from REST metadata.
-Version 0.1.39 can retrieve these favorites through the guided workflow
-described above. They can also be entered manually, one per line, under
-**Settings > Devices & services > Control4 Advanced > Configure > Media
-favorites**:
+Manual TuneIn entries use one line per favorite:
 
 ```text
 TuneIn source name | Favorite name | Station/id
 ```
 
-For example:
+Items appear only in rooms where the matching source is available.
 
-```text
-TuneIn | Example Radio | Station/s12345
-```
+## Multi-room groups
 
-The source name may match either the visible Listen source (such as
-`TuneIn Premium`) or its TuneIn protocol driver (often `TuneIn`). A favorite
-appears only in rooms where that inventory-backed source is exposed. Playback
-requires the exact live `Play Item(Item, Room)` metadata and accepts only the
-configured `Station/s...` IDs; arbitrary URLs and unconfigured IDs are
-rejected.
+The custom Control4 group popup is available from all packaged media cards and
+from the Group action in the media player's More Info dialog. It provides:
 
-Version 0.1.31 adds local logo thumbnails to the native media browser. Watch
-and Listen folders get distinct tiles, and known sources such as Netflix,
-Plex, Apple TV, HBO Max, Xplore TV, Sony, Xiaomi, WiiM, Spotify, YouTube,
-TIDAL, and TuneIn get matching source tiles. Unknown sources use the generic
-Watch or Listen artwork. The packaged SVGs are served through Home Assistant's
-signed media-player image proxy, so they do not depend on an external image
-CDN or expose an unauthenticated integration asset route.
+- Room selection with a fixed **Apply** action.
+- Separate **Players in this group** and **Available players** sections.
+- Individual volume and mute controls under every compatible player.
+- Relative master volume for the selected group.
+- Mute all and Unmute all.
+- Saved group presets.
 
-Version 0.1.32 mirrors the current media artwork reported in Director's
-structured `CURRENT MEDIA INFO` alongside title, artist, and album. Only
-bounded absolute HTTP(S) artwork URLs are accepted. Home Assistant fetches
-them through its signed media-player image proxy, and stale artwork is cleared
-when the room turns off.
+## Group presets
 
-Version 0.1.40 also uses the selected Watch or Listen source's packaged logo
-as current media artwork when Director supplies no poster or album art. For
-example, selecting Netflix displays its local logo instead of the generic
-music note. Real Director artwork still takes priority and all images remain
-behind Home Assistant's media-player proxy.
+A group preset can store:
 
-Version 0.1.33 decodes Director's observed Base64-wrapped artwork URL before
-applying those same HTTP(S), length, and credential checks. This fixes TIDAL
-artwork values that v0.1.32 rejected because they were not sent as plain URLs.
+- The group leader.
+- All selected rooms.
+- The selected Watch/Listen source, TIDAL playlist, or TuneIn favorite.
+- Individual room volume levels.
+- Individual room mute states.
 
-Version 0.1.34 adds a native **Volume** number slider to every Control4 room
-with a validated volume command and active `aswitch` binding. Each slider
-targets only its own room, so group members can be adjusted independently from
-an Entities or Grid card. Home Assistant's standard group-membership dialog
-still controls membership only and cannot be extended by an integration.
+Presets can be created, activated, renamed, updated from the current group,
+reordered, and deleted in the group popup. They are shared across browsers and
+Home Assistant Companion App installations.
 
-Version 0.1.35 adds an integration-wide **Recreate entity IDs** action under
-**Settings > Devices & services > Control4 Advanced > Configure**. It previews
-every ID that Home Assistant will change, then applies Home Assistant's current
-automatic entity-ID format to all entities owned by that Control4 config entry,
-including disabled entities. The entities and registry records are retained;
-references to renamed IDs in dashboards, automations, scripts, and scenes must
-still be updated manually.
-
-## Control4 Media Player card
-
-Version 0.1.38 adds **Control4 Media Player**, a full dashboard card backed by
-Home Assistant's current native Media Control card. Artwork, title/artist,
-transport, progress, Browse Media, power, and More Info therefore keep native
-Home Assistant behavior. The card intercepts only the native **Join** action
-and opens the Control4 dialog, where every room has its own volume slider.
-
-After updating the integration, restart Home Assistant and refresh the browser
-or fully close and reopen the mobile app. In dashboard edit mode choose
-**Add card**, search for **Control4 Media Player**, and select the group leader.
-The equivalent manual configuration is:
-
-```yaml
-type: custom:control4-media-player-card
-entity: media_player.kitchen
-```
-
-The smaller **Control4 Media Group** card remains available when only the
-membership/volume popup is wanted.
-
-## Control4 Media Preset card
-
-Version 0.1.54 adds a compact **Control4 Media Preset** dashboard card. Select
-any saved group preset in its visual editor and one tap will restore its media
-source, group membership, individual volume levels, and mute states without
-opening the group popup. The card shows the saved source, room count, current
-leader, and activation progress.
-
-Preset activation now runs as one serialized integration-side operation, shared
-by both the popup and dashboard card. It resolves renamed entities through their
-stable Control4 room IDs and exposes the same operation to automations, scripts,
-voice assistants, and NFC tags through the
-`control4_advanced.activate_group_preset` action. An automation can activate a
-preset by its case-insensitive name:
+Presets can also be activated from automations, scripts, voice assistants, or
+NFC tags:
 
 ```yaml
 action: control4_advanced.activate_group_preset
@@ -444,142 +156,84 @@ data:
   name: Whole House
 ```
 
-In dashboard edit mode choose **Add card**, search for **Control4 Media
-Preset**, and select a preset. The visual editor stores its stable ID so later
-renaming the preset does not break the card.
+The action accepts either the case-insensitive preset `name` or its stable
+`preset_id`.
 
-## Control4 Media Group card
+## Dashboard cards
 
-Version 0.1.36 adds a packaged **Control4 Media Group** dashboard card. Its
-popup combines group membership with an independent volume slider beneath
-every Control4 room player. Membership changes are sent when **Apply** is
-pressed; volume changes are sent immediately to the individual room whose
-slider was moved.
+All cards are packaged with the integration and available from the Home
+Assistant visual card picker after a restart and browser/app refresh.
 
-Version 0.1.39 keeps the Apply/Cancel footer fixed inside the mobile viewport,
-with only the player list scrolling. This prevents the action buttons from
-falling below the visible Home Assistant companion-app screen on phones.
+### Control4 Media Player
 
-Version 0.1.41 pins that footer directly to the visible mobile viewport instead
-of relying on Android WebView's reported `vh`/`dvh` height. The player list
-reserves space for the action bar, so **Cancel** and **Apply** remain visible
-above the system navigation area while every room can still be scrolled into
-view.
+A full native-style media card with artwork, title and artist, playback
+controls, Browse Media, power, More Info, and the custom Control4 grouping
+popup.
 
-Version 0.1.42 also opens the Control4 player-and-volume dialog from the Group
-button in Home Assistant's entity More Info window, not only from the packaged
-dashboard card. The global interception is limited to Control4 Advanced room
-players; other media integrations keep Home Assistant's standard grouping UI.
-Room volume now holds the requested value in the UI while Director confirms it,
-preventing the native slider from jumping back to the previous value during the
-short REST-feedback delay. If confirmation never arrives, the entity returns to
-the last verified volume after eight seconds.
+```yaml
+type: custom:control4-media-player-card
+entity: media_player.kitchen
+```
 
-Version 0.1.43 closes Home Assistant's native More Info window before opening
-the Control4 grouping dialog. This moves the custom player-and-volume popup into
-the visible browser layer instead of leaving it hidden behind the native dialog;
-a short fallback also covers Android Companion App versions that omit the close
-event.
+### Control4 Media Group
 
-Version 0.1.44 presents the Control4 grouping popup as a native browser modal,
-placing it above Home Assistant's More Info window without closing that window.
-This avoids the Android dialog-history race that could close More Info without
-showing the custom player list. Closing the grouping popup returns to More Info.
-
-Version 0.1.45 prepares the repository for inclusion in the default HACS
-catalog. It adds the required Hassfest validation, declares the frontend HTTP
-dependency explicitly, keeps setup config-entry only, and allows
-Home Assistant to provide compatible `pyControl4` versions from 2.0.2 onward.
-
-Version 0.1.46 adds an individual **Mute/Unmute** button beside every room's
-volume slider. Mute feedback stays at the requested state while Director
-confirms the command, and falls back to the last verified state after eight
-seconds if no confirmation arrives. This release also replaces the temporary
-integration artwork with the official Control4 icon and wordmark, including
-high-resolution variants for Home Assistant 2026.3 and newer.
-
-Version 0.1.47 adds **Group volume** and **Mute all / Unmute all** above the
-individual room controls. The master slider targets the currently selected,
-powered-on players and adjusts them by the same relative amount so their
-individual volume differences are retained. Moving the slider fully to 0% or
-100% explicitly sets every target to that endpoint. Group mute follows the
-same selected-player scope and retains optimistic feedback while Director
-confirms each room.
-
-Version 0.1.48 makes the group target explicit in the popup. The master panel
-shows the leader-based group name and every selected room it controls. Selected
-rooms are collected under **Players in this group**, one below another, while
-unselected rooms appear separately under **Available players**. Toggling a
-room immediately moves its row between the two sections; **Apply** still sends
-the membership change to Control4.
-
-Version 0.1.49 adds persistent **Group presets** at the top of the grouping
-popup. **Save current** records the selected rooms, group leader, individual
-volume levels, and mute states in Home Assistant. Each saved preset is shown as
-a clearly labelled one-tap card with its player count and leader; tapping it
-restores the group and then applies every stored room volume and mute setting.
-Presets are shared across browsers and the mobile app, survive entity-ID
-recreation by retaining Control4 room IDs, and can be deleted from the same
-panel. The saved leader must already have an active source before a preset can
-start a Control4 session.
-
-Version 0.1.50 exposes native Home Assistant volume and mute controls for
-rooms whose Control4 volume path is bound through an inventory-backed TV or AV
-device, not only an audio switch. These rooms use short, authoritative Director
-REST reads after a volume or mute command because their bound device does not
-provide the proven audio-switch push feedback path.
-
-Version 0.1.51 keeps TV/AV-bound room volume and mute state synchronized when
-changes originate in Control4, using a three-second authoritative REST fallback
-only while a non-audio-switch volume path is active. Audio-switch rooms continue
-to use immediate push feedback. The custom group dialog is also denser: compact
-player rows, slimmer progress-aware volume sliders, smaller toggles, and reduced
-section, header, preset, and footer spacing bring it closer to Home Assistant's
-stock media-player layout.
-
-Version 0.1.52 moves **Group presets** below both player sections so room and
-volume controls remain the first content in the grouping dialog. New presets no
-longer store volume or mute values for entities that do not advertise those
-features, and recalling an existing preset safely skips unsupported per-room
-actions instead of aborting the entire group with a Home Assistant validation
-error.
-
-Version 0.1.53 introduces **Group Presets 2.0**. Presets can remember the
-leader's allowlisted Control4 source, TIDAL playlist, or TuneIn favorite and
-start it before forming the group, removing the need to prepare an active
-leader manually. Existing presets migrate in place with no media selection.
-Each preset can be renamed, replaced with the current group/source/volume/mute
-state, moved up or down, and deleted. Stable preset IDs keep rename and reorder
-operations persistent across browsers and Home Assistant restarts.
-
-Version 0.1.37 registers the dashboard cards as versioned Lovelace resources
-instead of relying on Home Assistant's early extra-module loader. This avoids
-the scoped custom-element registry race that could show **Custom element not
-found** in the card editor. YAML resource mode keeps an automatic fallback that
-re-registers the cards after Home Assistant completes its frontend bootstrap.
-
-After updating the integration, restart Home Assistant and refresh the browser
-or fully close and reopen the mobile app. In dashboard edit mode choose
-**Add card**, search for **Control4 Media Group**, and select the room that
-should lead the group. The equivalent manual configuration is:
+A compact entry point for group membership, master volume, group mute, and
+individual player controls.
 
 ```yaml
 type: custom:control4-media-group-card
 entity: media_player.kitchen
 ```
 
-A volume slider is disabled while that room is off, unavailable, or does not
-advertise Control4's validated room-volume command. Join the room first, then
-open the card again if it was previously off. The separate **Volume** number
-entities introduced in 0.1.34 are removed as redundant during the first
-successful integration reload after this update.
+### Control4 Media Preset
+
+A compact one-tap preset card showing the saved source, leader, room count, and
+activation status. Add it through the visual card picker and select a saved
+preset. The card keeps the preset's stable ID if it is later renamed.
+
+```yaml
+type: custom:control4-media-preset-card
+preset_id: YOUR_PRESET_ID
+```
+
+## Integration tools
+
+### Recreate entity IDs
+
+Open **Settings > Devices & services > Control4 Advanced > Configure > Recreate
+entity IDs** to preview and apply Home Assistant's current automatic naming
+format to every entity in the integration entry.
+
+Entity history is preserved, but dashboards, automations, scripts, and scenes
+that use an old entity ID must be updated manually.
+
+### Entity cleanup
+
+Obsolete entities are removed after a successful integration reload when their
+Control4 devices are no longer present. Entities owned by other integrations or
+other Control4 entries are not changed.
+
+## Current scope
+
+- Climate entities are Celsius-only.
+- Relay entities require explicit enabling in Home Assistant.
+- TIDAL browsing is limited to configured or retrieved playlists.
+- TuneIn browsing is limited to configured or retrieved favorites.
+- Unsupported device types and actions are not exposed.
+
+## Updating
+
+After installing an update:
+
+1. Restart Home Assistant.
+2. Refresh the browser, or fully close and reopen the Home Assistant Companion
+   App so the latest dashboard card module is loaded.
 
 ## License
 
 This repository is licensed under the [Apache License 2.0](LICENSE).
+
 Control4 Advanced is an independent project and is not affiliated with or
-endorsed by Control4. The license does not grant rights to Control4's
-software, trademarks, or other third-party material.
-The packaged Control4 icon and wordmark are copied without modification from
-the [Home Assistant Brands repository](https://github.com/home-assistant/brands/tree/master/core_integrations/control4)
-and are used for identification purposes only.
+endorsed by Control4. The packaged Control4 icon and wordmark are copied without
+modification from the Home Assistant Brands repository and are used only for
+identification.
