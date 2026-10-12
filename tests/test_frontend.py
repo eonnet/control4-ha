@@ -136,9 +136,13 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('"media_player",\n        "join"', javascript)
         self.assertIn('"media_player",\n        "volume_set"', javascript)
         self.assertIn("control4_room_id", javascript)
-        self.assertIn("height: 100dvh", javascript)
         self.assertIn("grid-template-rows: auto auto minmax(0, 1fr) auto", javascript)
-        self.assertIn("env(safe-area-inset-bottom)", javascript)
+        self.assertIn("position: fixed;\n        z-index: 10000", javascript)
+        self.assertIn("bottom: 0;", javascript)
+        self.assertIn(
+            "padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px))",
+            javascript,
+        )
         self.assertIn("registerCard();\n(async () =>", javascript)
 
 

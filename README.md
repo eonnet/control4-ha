@@ -435,6 +435,12 @@ Version 0.1.39 keeps the Apply/Cancel footer fixed inside the mobile viewport,
 with only the player list scrolling. This prevents the action buttons from
 falling below the visible Home Assistant companion-app screen on phones.
 
+Version 0.1.41 pins that footer directly to the visible mobile viewport instead
+of relying on Android WebView's reported `vh`/`dvh` height. The player list
+reserves space for the action bar, so **Cancel** and **Apply** remain visible
+above the system navigation area while every room can still be scrolled into
+view.
+
 Version 0.1.37 registers the dashboard cards as versioned Lovelace resources
 instead of relying on Home Assistant's early extra-module loader. This avoids
 the scoped custom-element registry race that could show **Custom element not
