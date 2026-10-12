@@ -1,0 +1,81 @@
+{
+  "title": "Control4 Advanced",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Control4",
+        "description": "Use your Control4 account and local Director address. Credentials stay in Home Assistant's config entry.",
+        "data": {
+          "host": "Director address",
+          "username": "Control4 account username",
+          "password": "Control4 account password"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reauthenticate Control4",
+        "description": "Enter the current Control4 account password.",
+        "data": {"password": "Password"}
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot reach Control4 account service or Director",
+      "invalid_auth": "Control4 authentication failed",
+      "invalid_host": "Enter an address without a scheme, port, or path",
+      "no_devices": "No supported lights or thermostats were found"
+    },
+    "abort": {
+      "already_configured": "This Director is already configured",
+      "reauth_successful": "Control4 authentication updated"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Control4 options",
+        "menu_options": {
+          "retrieve_tidal": "Retrieve TIDAL playlists",
+          "retrieve_tunein": "Retrieve TuneIn favorites",
+          "media_favorites": "Media favorites",
+          "recreate_entity_ids": "Recreate entity IDs"
+        },
+        "menu_option_descriptions": {
+          "retrieve_tidal": "Capture your TIDAL playlists while you open them in the Control4 app.",
+          "retrieve_tunein": "Capture your TuneIn favorites while you open them in the Control4 app.",
+          "media_favorites": "TIDAL accounts and TuneIn sources are discovered automatically. Configure optional TIDAL playlists and TuneIn favorites.",
+          "recreate_entity_ids": "Apply Home Assistant's current automatic naming format to every entity in this Control4 integration entry."
+        }
+      },
+      "media_favorites": {
+        "title": "Control4 options",
+        "description": "TIDAL accounts and TuneIn sources are discovered automatically. Director does not expose their dynamic playlist/favorite lists to this integration, so optional playable items use: TIDAL source name | playlist name | playlist UUID; TuneIn source name | favorite name | Station/id. Entries appear only in rooms where that source is available.",
+        "data": {
+          "tidal_playlists": "TIDAL playlists",
+          "tunein_favorites": "TuneIn favorites"
+        }
+      },
+      "recreate_entity_ids": {
+        "title": "Recreate all Control4 entity IDs?",
+        "description": "Home Assistant will rename {count} entity IDs in this Control4 integration entry:\n\n{changes}\n\nYour entities and history are preserved, but dashboards, automations, scripts, and scenes that use an old entity ID must be updated manually."
+      }
+    },
+    "progress": {
+      "retrieve_tidal": "Listening for TIDAL playlists from: {sources}. Now open the Control4 app, choose Listen, open each named TIDAL account, then go directly to My Collection/Library > Playlists Created by Me. Leave that list open until this window closes automatically.",
+      "retrieve_tunein": "Listening for TuneIn favorites from: {sources}. Now open the Control4 app, choose Listen, open each named TuneIn source, then go directly to Favorites. Leave that list open until this window closes automatically."
+    },
+    "error": {
+      "invalid_tidal_playlists": "Use: source name | playlist name | UUID, with a valid UUID and no duplicate names per source",
+      "invalid_tunein_favorites": "Use: source name | favorite name | Station/id, with a valid station ID and no duplicate names per source"
+    },
+    "abort": {
+      "no_tidal_sources": "No inventory-backed TIDAL source is available in a Control4 room.",
+      "no_tunein_sources": "No inventory-backed TuneIn source is available in a Control4 room.",
+      "media_capture_cancelled": "Media retrieval was cancelled before it completed.",
+      "media_capture_disconnected": "The live Control4 connection is unavailable. Reload the integration and try again.",
+      "media_capture_timeout": "No matching list was received. Try again and leave the requested playlist or favorites screen open in the Control4 app.",
+      "media_capture_failed": "The media list could not be retrieved from Control4.",
+      "stored_media_favorites_invalid": "The existing manual media-favorites text is invalid. Correct it under Media favorites, then retrieve again.",
+      "entity_ids_already_current": "All Control4 entity IDs already use Home Assistant's current automatic naming format.",
+      "entity_ids_recreated": "Recreated {count} Control4 entity IDs. Update any dashboard, automation, script, or scene references that used the old IDs."
+    }
+  }
+}

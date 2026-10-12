@@ -577,9 +577,28 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
 
     @property
     def media_image_url(self) -> str | None:
-        """Return Director artwork for Home Assistant's signed image proxy."""
+        """Return Director artwork, or the selected source's packaged logo."""
         value = self.state_data.get("media_image_url")
-        return value if isinstance(value, str) else None
+        if isinstance(value, str):
+            return value
+        selected = self._selected_source()
+        if not self._room_is_on() or selected is None:
+            return None
+        return self._source_thumbnail(selected)
+
+    async def async_get_media_image(self) -> tuple[bytes | None, str | None]:
+        """Fetch Director artwork or serve the selected source logo directly."""
+        if isinstance(self.state_data.get("media_image_url"), str):
+            return await super().async_get_media_image()
+        selected = self._selected_source()
+        if not self._room_is_on() or selected is None:
+            return None, None
+        item = self.runtime.transport.inventory.items.get(selected.device_id)
+        content = await self.hass.async_add_executor_job(
+            source_logo_bytes,
+            source_logo_key(selected.name, selected.experience, item),
+        )
+        return (content, "image/svg+xml") if content is not None else (None, None)
 
     @property
     def media_image_remotely_accessible(self) -> bool:
