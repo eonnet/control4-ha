@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
+import struct
 import sys
 from types import ModuleType, SimpleNamespace
 import unittest
@@ -145,6 +147,11 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("registerMoreInfoGrouping();", javascript)
         self.assertIn('"media_player",\n        "join"', javascript)
         self.assertIn('"media_player",\n        "volume_set"', javascript)
+        self.assertIn('const FEATURE_VOLUME_MUTE = 8', javascript)
+        self.assertIn('data-mute-id="${escapeHtml(state.entity_id)}"', javascript)
+        self.assertIn('"media_player",\n        "volume_mute"', javascript)
+        self.assertIn("{ is_volume_muted: muted }", javascript)
+        self.assertIn('muted ? "mdi:volume-off" : "mdi:volume-medium"', javascript)
         self.assertIn("control4_room_id", javascript)
         self.assertIn("grid-template-rows: auto auto minmax(0, 1fr) auto", javascript)
         self.assertIn("position: fixed;\n        z-index: 10000", javascript)
@@ -164,10 +171,35 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
                 encoding="utf-8"
             )
         )
-        self.assertEqual(manifest["version"], "0.1.45")
+        self.assertEqual(manifest["version"], "0.1.46")
         self.assertIn("http", manifest["dependencies"])
         self.assertEqual(manifest["requirements"], ["pyControl4>=2.0.2"])
-        self.assertTrue(FRONTEND_URL.endswith("?v=0.1.45"))
+        self.assertTrue(FRONTEND_URL.endswith("?v=0.1.46"))
+
+    def test_official_control4_brand_assets_are_packaged(self) -> None:
+        brand = Path(FRONTEND_FILE).parent.parent / "brand"
+        expected = {
+            "icon.png": (
+                (256, 256),
+                "077f6a56334c14a75484283241e2f1c17b6c827fa58d15e4e51c3f138bd057e7",
+            ),
+            "icon@2x.png": (
+                (512, 512),
+                "d777a8a6844c43f5bbb11ffb29e3ac419a5d6619f0a90ff582ab4fd278b54d8a",
+            ),
+            "logo.png": (
+                (1169, 256),
+                "790ba1a0a14dfabc31f5ef3065e68853d4afb6f10ed0f76f445207ef4a2d1586",
+            ),
+            "logo@2x.png": (
+                (2337, 512),
+                "75886d3ba57540fb9e7799c6a866ede215339533af796ca2c58fd045f2fd29a7",
+            ),
+        }
+        for filename, (dimensions, digest) in expected.items():
+            data = (brand / filename).read_bytes()
+            self.assertEqual(struct.unpack(">II", data[16:24]), dimensions)
+            self.assertEqual(hashlib.sha256(data).hexdigest(), digest)
 
 
 if __name__ == "__main__":

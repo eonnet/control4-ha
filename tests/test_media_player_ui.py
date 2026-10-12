@@ -443,13 +443,14 @@ class MediaPlayerUITests(unittest.IsolatedAsyncioTestCase):
         self.commands.room_volume.assert_awaited_once_with(22, 43)
         self.commands.room_mute.assert_awaited_once_with(22, True)
         self.assertEqual(entity.volume_level, 0.43)
-        self.assertFalse(entity.is_volume_muted)
+        self.assertTrue(entity.is_volume_muted)
 
         self.state[22]["volume_percent"] = 41
         await entity._on_event(NormalizedEvent(22, "rest", "snapshot", {
             "volume_percent": 41,
         }, "2026-10-04T00:00:00Z", True, {}))
         self.assertEqual(entity.volume_level, 0.43)
+        self.assertTrue(entity.is_volume_muted)
 
         self.state[22]["volume_percent"] = 43
         await entity._on_event(NormalizedEvent(22, "rest", "snapshot", {
@@ -457,10 +458,22 @@ class MediaPlayerUITests(unittest.IsolatedAsyncioTestCase):
         }, "2026-10-04T00:00:01Z", True, {}))
         self.assertEqual(entity.volume_level, 0.43)
         self.assertIsNone(entity._pending_volume_level)
+        self.assertTrue(entity.is_volume_muted)
+
+        self.state[22]["is_muted"] = True
+        await entity._on_event(NormalizedEvent(22, "rest", "snapshot", {
+            "is_muted": True,
+        }, "2026-10-04T00:00:02Z", True, {}))
+        self.assertTrue(entity.is_volume_muted)
+        self.assertIsNone(entity._pending_volume_muted)
         for value in (-0.1, 1.1, float("nan"), True):
             with self.assertRaises(UnsupportedCommand):
                 await entity.async_set_volume_level(value)
         self.commands.room_volume.assert_awaited_once()
+
+        with self.assertRaises(UnsupportedCommand):
+            await entity.async_mute_volume(1)
+        self.commands.room_mute.assert_awaited_once()
 
     async def test_failed_volume_command_restores_confirmed_feedback(self):
         entity = self.media_player.Control4RoomMediaPlayer(self.runtime, self.items[22])
@@ -469,6 +482,14 @@ class MediaPlayerUITests(unittest.IsolatedAsyncioTestCase):
             await entity.async_set_volume_level(0.05)
         self.assertEqual(entity.volume_level, 0.41)
         self.assertIsNone(entity._pending_volume_level)
+
+    async def test_failed_mute_command_restores_confirmed_feedback(self):
+        entity = self.media_player.Control4RoomMediaPlayer(self.runtime, self.items[22])
+        self.commands.room_mute.side_effect = UnsupportedCommand("failed")
+        with self.assertRaises(UnsupportedCommand):
+            await entity.async_mute_volume(True)
+        self.assertFalse(entity.is_volume_muted)
+        self.assertIsNone(entity._pending_volume_muted)
 
     async def test_room_off_uses_advertised_command_and_rest_confirmation(self):
         entity = self.media_player.Control4RoomMediaPlayer(self.runtime, self.items[22])

@@ -59,6 +59,9 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
         self._pending_volume_level: float | None = None
         self._pending_volume_timer: asyncio.TimerHandle | None = None
         self._volume_request_id = 0
+        self._pending_volume_muted: bool | None = None
+        self._pending_mute_timer: asyncio.TimerHandle | None = None
+        self._mute_request_id = 0
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
@@ -69,6 +72,7 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
 
     async def async_will_remove_from_hass(self) -> None:
         self._clear_pending_volume()
+        self._clear_pending_mute()
         if self._remove_session is not None:
             self._remove_session()
             self._remove_session = None
@@ -80,17 +84,21 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
         self.async_write_ha_state()
 
     async def _on_event(self, event: NormalizedEvent) -> None:
-        if (
-            event.device_id == self.device_id
-            and event.authoritative
-            and self._pending_volume_level is not None
-        ):
-            confirmed = event.changes.get("volume_percent")
-            if (
-                type(confirmed) in (int, float)
-                and abs(confirmed / 100 - self._pending_volume_level) < 0.005
-            ):
-                self._clear_pending_volume()
+        if event.device_id == self.device_id and event.authoritative:
+            if self._pending_volume_level is not None:
+                confirmed = event.changes.get("volume_percent")
+                if (
+                    type(confirmed) in (int, float)
+                    and abs(confirmed / 100 - self._pending_volume_level) < 0.005
+                ):
+                    self._clear_pending_volume()
+            if self._pending_volume_muted is not None:
+                confirmed_mute = event.changes.get("is_muted")
+                if (
+                    isinstance(confirmed_mute, bool)
+                    and confirmed_mute == self._pending_volume_muted
+                ):
+                    self._clear_pending_mute()
         await super()._on_event(event)
 
     @property
@@ -572,7 +580,46 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
         self.async_write_ha_state()
 
     async def async_mute_volume(self, mute: bool) -> None:
-        await self.runtime.commands.room_mute(self.device_id, mute)
+        if not isinstance(mute, bool):
+            raise UnsupportedCommand("Home Assistant room mute must be boolean")
+        self._mute_request_id += 1
+        request_id = self._mute_request_id
+        self._clear_pending_mute()
+        self._pending_volume_muted = mute
+        self.async_write_ha_state()
+        try:
+            await self.runtime.commands.room_mute(self.device_id, mute)
+        except BaseException:
+            if request_id == self._mute_request_id:
+                self._clear_pending_mute(write_state=True)
+            raise
+        if (
+            request_id == self._mute_request_id
+            and self._pending_volume_muted is not None
+        ):
+            self._pending_mute_timer = asyncio.get_running_loop().call_later(
+                VOLUME_CONFIRMATION_TIMEOUT,
+                self._expire_pending_mute,
+                request_id,
+            )
+
+    def _clear_pending_mute(self, *, write_state: bool = False) -> None:
+        if self._pending_mute_timer is not None:
+            self._pending_mute_timer.cancel()
+            self._pending_mute_timer = None
+        had_pending = self._pending_volume_muted is not None
+        self._pending_volume_muted = None
+        if write_state and had_pending:
+            self.async_write_ha_state()
+
+    def _expire_pending_mute(self, request_id: int) -> None:
+        if request_id != self._mute_request_id:
+            return
+        self._pending_mute_timer = None
+        if self._pending_volume_muted is None:
+            return
+        self._pending_volume_muted = None
+        self.async_write_ha_state()
 
     async def async_media_play(self) -> None:
         await self._async_room_transport("PLAY")
@@ -805,6 +852,8 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
 
     @property
     def is_volume_muted(self) -> bool | None:
+        if self._pending_volume_muted is not None:
+            return self._pending_volume_muted
         muted = self.state_data.get("is_muted")
         return muted if isinstance(muted, bool) else None
 

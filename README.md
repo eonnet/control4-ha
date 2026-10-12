@@ -466,6 +466,13 @@ catalog. It adds the required Hassfest validation, declares the frontend HTTP
 dependency explicitly, keeps setup config-entry only, and allows
 Home Assistant to provide compatible `pyControl4` versions from 2.0.2 onward.
 
+Version 0.1.46 adds an individual **Mute/Unmute** button beside every room's
+volume slider. Mute feedback stays at the requested state while Director
+confirms the command, and falls back to the last verified state after eight
+seconds if no confirmation arrives. This release also replaces the temporary
+integration artwork with the official Control4 icon and wordmark, including
+high-resolution variants for Home Assistant 2026.3 and newer.
+
 Version 0.1.37 registers the dashboard cards as versioned Lovelace resources
 instead of relying on Home Assistant's early extra-module loader. This avoids
 the scoped custom-element registry race that could show **Custom element not
@@ -494,3 +501,6 @@ This repository is licensed under the [Apache License 2.0](LICENSE).
 Control4 Advanced is an independent project and is not affiliated with or
 endorsed by Control4. The license does not grant rights to Control4's
 software, trademarks, or other third-party material.
+The packaged Control4 icon and wordmark are copied without modification from
+the [Home Assistant Brands repository](https://github.com/home-assistant/brands/tree/master/core_integrations/control4)
+and are used for identification purposes only.

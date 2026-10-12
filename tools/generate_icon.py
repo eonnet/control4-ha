@@ -1,84 +1,38 @@
-"""Generate a small original PNG brand icon using only the standard library."""
+"""Retrieve the official Control4 brand assets used by Home Assistant."""
 
 from __future__ import annotations
 
-from math import hypot
+import hashlib
 from pathlib import Path
-import struct
-import zlib
+from urllib.request import urlopen
 
 
-SIZE = 256
+BRANDS_COMMIT = "ba54a5eb87172d6f20b74741e4a96335f94cbd1c"
+SOURCE = (
+    "https://raw.githubusercontent.com/home-assistant/brands/"
+    f"{BRANDS_COMMIT}/core_integrations/control4"
+)
 OUTPUT = (
     Path(__file__).resolve().parents[1]
-    / "custom_components/control4_advanced/brand/icon.png"
+    / "custom_components/control4_advanced/brand"
 )
-
-
-def line_distance(
-    x: float,
-    y: float,
-    start: tuple[int, int],
-    end: tuple[int, int],
-) -> float:
-    ax, ay = start
-    bx, by = end
-    dx, dy = bx - ax, by - ay
-    fraction = max(
-        0.0,
-        min(1.0, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy)),
-    )
-    return hypot(x - (ax + fraction * dx), y - (ay + fraction * dy))
-
-
-def pixel(x: int, y: int) -> bytes:
-    # Dark blue background with a gentle center highlight.
-    glow = max(0.0, 1.0 - hypot(x - 128, y - 128) / 180)
-    color = [int(12 + 10 * glow), int(25 + 16 * glow), int(45 + 23 * glow)]
-    roof = (((48, 132), (128, 63)), ((128, 63), (208, 132)))
-    walls = (
-        ((66, 118), (66, 192)),
-        ((66, 192), (190, 192)),
-        ((190, 192), (190, 118)),
-    )
-    if min(line_distance(x, y, a, b) for a, b in roof + walls) <= 5:
-        color = [235, 245, 255]
-    links = (
-        ((91, 150), (128, 113)),
-        ((128, 113), (165, 150)),
-        ((91, 150), (128, 174)),
-        ((165, 150), (128, 174)),
-    )
-    if min(line_distance(x, y, a, b) for a, b in links) <= 4:
-        color = [51, 204, 204]
-    if any(
-        hypot(x - node_x, y - node_y) <= 10
-        for node_x, node_y in ((91, 150), (128, 113), (165, 150), (128, 174))
-    ):
-        color = [240, 253, 255]
-    return bytes((*color, 255))
-
-
-def chunk(kind: bytes, data: bytes) -> bytes:
-    return (
-        struct.pack("!I", len(data))
-        + kind
-        + data
-        + struct.pack("!I", zlib.crc32(kind + data))
-    )
+ASSETS = {
+    "icon.png": "077f6a56334c14a75484283241e2f1c17b6c827fa58d15e4e51c3f138bd057e7",
+    "icon@2x.png": "d777a8a6844c43f5bbb11ffb29e3ac419a5d6619f0a90ff582ab4fd278b54d8a",
+    "logo.png": "790ba1a0a14dfabc31f5ef3065e68853d4afb6f10ed0f76f445207ef4a2d1586",
+    "logo@2x.png": "75886d3ba57540fb9e7799c6a866ede215339533af796ca2c58fd045f2fd29a7",
+}
 
 
 def main() -> None:
-    scanlines = b"".join(
-        b"\x00" + b"".join(pixel(x, y) for x in range(SIZE))
-        for y in range(SIZE)
-    )
-    png = b"\x89PNG\r\n\x1a\n" + chunk(
-        b"IHDR", struct.pack("!2I5B", SIZE, SIZE, 8, 6, 0, 0, 0)
-    )
-    png += chunk(b"IDAT", zlib.compress(scanlines, level=9)) + chunk(b"IEND", b"")
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT.write_bytes(png)
+    OUTPUT.mkdir(parents=True, exist_ok=True)
+    for filename, expected_digest in ASSETS.items():
+        with urlopen(f"{SOURCE}/{filename}", timeout=30) as response:
+            data = response.read()
+        digest = hashlib.sha256(data).hexdigest()
+        if digest != expected_digest:
+            raise RuntimeError(f"unexpected digest for {filename}: {digest}")
+        (OUTPUT / filename).write_bytes(data)
 
 
 if __name__ == "__main__":
