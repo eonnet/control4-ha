@@ -231,6 +231,14 @@ requires the exact live `Play Item(Item, Room)` metadata and accepts only the
 configured `Station/s...` IDs; arbitrary URLs and unconfigured IDs are
 rejected.
 
+Version 0.1.31 adds local logo thumbnails to the native media browser. Watch
+and Listen folders get distinct tiles, and known sources such as Netflix,
+Plex, Apple TV, HBO Max, Xplore TV, Sony, Xiaomi, WiiM, Spotify, YouTube,
+TIDAL, and TuneIn get matching source tiles. Unknown sources use the generic
+Watch or Listen artwork. The packaged SVGs are served through Home Assistant's
+signed media-player image proxy, so they do not depend on an external image
+CDN or expose an unauthenticated integration asset route.
+
 State is initialized through REST, then updated from WebSocket events;
 entities do not poll when a usable push path has been proven. REST re-syncs
 after reconnect and on a slow reconciliation interval. Home Assistant device metadata includes the
