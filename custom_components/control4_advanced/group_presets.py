@@ -21,6 +21,13 @@ MAX_MEDIA_TYPE_LENGTH = 64
 MAX_MEDIA_ID_LENGTH = 512
 MAX_MEDIA_TITLE_LENGTH = 120
 _DATA_KEY = f"{DOMAIN}_group_preset_store"
+SERVICE_ACTIVATE_GROUP_PRESET = "activate_group_preset"
+FEATURE_VOLUME_SET = 4
+FEATURE_VOLUME_MUTE = 8
+
+
+class GroupPresetActivationError(ValueError):
+    """Raised when a saved group preset cannot be activated safely."""
 
 
 def _entity_id(value: Any) -> str | None:
@@ -145,6 +152,7 @@ class GroupPresetStorage:
         self._store = store
         self._presets: list[dict[str, Any]] = []
         self._lock = asyncio.Lock()
+        self._activation_lock = asyncio.Lock()
 
     @property
     def presets(self) -> list[dict[str, Any]]:
@@ -271,6 +279,212 @@ class GroupPresetStorage:
             await self._store.async_save({"presets": self._presets})
         return True
 
+    def _preset(
+        self, *, preset_id: str | None = None, name: str | None = None
+    ) -> dict[str, Any] | None:
+        """Find one preset by stable ID or case-insensitive display name."""
+        if preset_id is not None:
+            preset_id = preset_id.strip()
+            return next(
+                (preset for preset in self._presets if preset["id"] == preset_id),
+                None,
+            )
+        if name is not None:
+            name_key = name.strip().casefold()
+            return next(
+                (
+                    preset
+                    for preset in self._presets
+                    if preset["name"].casefold() == name_key
+                ),
+                None,
+            )
+        return None
+
+    @staticmethod
+    def _media_player_states(hass: Any) -> list[Any]:
+        """Return current media-player states across supported HA versions."""
+        try:
+            return list(hass.states.async_all("media_player"))
+        except TypeError:
+            return [
+                state
+                for state in hass.states.async_all()
+                if getattr(state, "entity_id", "").startswith("media_player.")
+            ]
+
+    @staticmethod
+    def _resolve_member_state(
+        hass: Any, member: Mapping[str, Any], states: list[Any]
+    ) -> Any | None:
+        """Resolve renamed entities by their stable Control4 room ID."""
+        entity_id = member["entity_id"]
+        room_id = member["room_id"]
+        exact = hass.states.get(entity_id)
+        if exact is not None and exact.attributes.get("control4_room_id") == room_id:
+            return exact
+        return next(
+            (
+                state
+                for state in states
+                if state.attributes.get("control4_room_id") == room_id
+            ),
+            None,
+        )
+
+    @staticmethod
+    def _supports(state: Any, feature: int) -> bool:
+        try:
+            supported = int(state.attributes.get("supported_features", 0))
+        except (TypeError, ValueError):
+            return False
+        return bool(supported & feature)
+
+    @staticmethod
+    async def _async_call_media_player(
+        hass: Any,
+        service: str,
+        service_data: dict[str, Any],
+        entity_id: str | list[str],
+        context: Any,
+    ) -> None:
+        await hass.services.async_call(
+            "media_player",
+            service,
+            service_data,
+            blocking=True,
+            context=context,
+            target={"entity_id": entity_id},
+        )
+
+    async def async_activate(
+        self,
+        hass: Any,
+        *,
+        preset_id: str | None = None,
+        name: str | None = None,
+        context: Any = None,
+    ) -> dict[str, Any]:
+        """Activate one preset through HA services as a single operation."""
+        if bool(preset_id and preset_id.strip()) == bool(name and name.strip()):
+            raise GroupPresetActivationError(
+                "Provide exactly one of preset_id or name"
+            )
+
+        async with self._activation_lock:
+            preset = self._preset(preset_id=preset_id, name=name)
+            if preset is None:
+                raise GroupPresetActivationError("Group preset not found")
+
+            states = self._media_player_states(hass)
+            resolved: list[tuple[dict[str, Any], Any]] = []
+            missing: list[str] = []
+            seen_entities: set[str] = set()
+            for member in preset["members"]:
+                state = self._resolve_member_state(hass, member, states)
+                if state is None or state.entity_id in seen_entities:
+                    missing.append(member["entity_id"])
+                    continue
+                seen_entities.add(state.entity_id)
+                resolved.append((member, state))
+            if missing:
+                raise GroupPresetActivationError(
+                    "Preset players are unavailable: " + ", ".join(missing)
+                )
+
+            leader_state = self._resolve_member_state(
+                hass,
+                {
+                    "entity_id": preset["leader_entity_id"],
+                    "room_id": preset["leader_room_id"],
+                },
+                states,
+            )
+            if leader_state is None or leader_state.entity_id not in seen_entities:
+                raise GroupPresetActivationError("Preset leader is unavailable")
+
+            leader_id = leader_state.entity_id
+            member_ids = [state.entity_id for _, state in resolved]
+            target_ids = set(member_ids)
+            join_ids = [entity_id for entity_id in member_ids if entity_id != leader_id]
+            previous_ids = [
+                entity_id
+                for entity_id in (
+                    leader_state.attributes.get("group_members", ()) or ()
+                )
+                if entity_id != leader_id
+            ]
+
+            try:
+                if media := preset.get("media"):
+                    await self._async_call_media_player(
+                        hass,
+                        "play_media",
+                        {
+                            "media_content_type": media["content_type"],
+                            "media_content_id": media["content_id"],
+                        },
+                        leader_id,
+                        context,
+                    )
+                await self._async_call_media_player(
+                    hass,
+                    "join",
+                    {"group_members": join_ids},
+                    leader_id,
+                    context,
+                )
+                removed_ids = [
+                    entity_id
+                    for entity_id in previous_ids
+                    if entity_id not in target_ids
+                ]
+                if removed_ids:
+                    await self._async_call_media_player(
+                        hass, "unjoin", {}, removed_ids, context
+                    )
+
+                for member, original_state in resolved:
+                    state = hass.states.get(original_state.entity_id) or original_state
+                    if (
+                        member["volume_level"] is not None
+                        and self._supports(state, FEATURE_VOLUME_SET)
+                    ):
+                        await self._async_call_media_player(
+                            hass,
+                            "volume_set",
+                            {"volume_level": member["volume_level"]},
+                            state.entity_id,
+                            context,
+                        )
+                for member, original_state in resolved:
+                    state = hass.states.get(original_state.entity_id) or original_state
+                    if (
+                        member["is_volume_muted"] is not None
+                        and self._supports(state, FEATURE_VOLUME_MUTE)
+                    ):
+                        await self._async_call_media_player(
+                            hass,
+                            "volume_mute",
+                            {"is_volume_muted": member["is_volume_muted"]},
+                            state.entity_id,
+                            context,
+                        )
+            except GroupPresetActivationError:
+                raise
+            except Exception as err:
+                message = str(err).strip() or type(err).__name__
+                raise GroupPresetActivationError(
+                    f"Could not activate {preset['name']}: {message}"
+                ) from err
+
+            return {
+                "preset_id": preset["id"],
+                "name": preset["name"],
+                "leader_entity_id": leader_id,
+                "member_entity_ids": member_ids,
+            }
+
 
 async def async_register_group_presets(hass: Any) -> GroupPresetStorage:
     """Load the preset store and register its WebSocket commands once."""
@@ -280,6 +494,7 @@ async def async_register_group_presets(hass: Any) -> GroupPresetStorage:
     import voluptuous as vol
 
     from homeassistant.components import websocket_api
+    from homeassistant.exceptions import HomeAssistantError
     from homeassistant.helpers import config_validation as cv
     from homeassistant.helpers.storage import Store
 
@@ -382,9 +597,55 @@ async def async_register_group_presets(hass: Any) -> GroupPresetStorage:
             return
         connection.send_result(msg["id"], {"presets": presets})
 
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): f"{DOMAIN}/group_presets/activate",
+            vol.Required("preset_id"): cv.string,
+        }
+    )
+    @websocket_api.async_response
+    async def ws_activate_group_preset(
+        hass: Any, connection: Any, msg: dict
+    ) -> None:
+        context_factory = getattr(connection, "context", None)
+        context = context_factory(msg) if callable(context_factory) else None
+        try:
+            result = await manager.async_activate(
+                hass, preset_id=msg["preset_id"], context=context
+            )
+        except GroupPresetActivationError as err:
+            connection.send_error(
+                msg["id"], websocket_api.ERR_INVALID_FORMAT, str(err)
+            )
+            return
+        connection.send_result(msg["id"], result)
+
+    async def async_activate_group_preset(call: Any) -> None:
+        try:
+            await manager.async_activate(
+                hass,
+                preset_id=call.data.get("preset_id"),
+                name=call.data.get("name"),
+                context=call.context,
+            )
+        except GroupPresetActivationError as err:
+            raise HomeAssistantError(str(err)) from err
+
     websocket_api.async_register_command(hass, ws_list_group_presets)
     websocket_api.async_register_command(hass, ws_save_group_preset)
     websocket_api.async_register_command(hass, ws_delete_group_preset)
     websocket_api.async_register_command(hass, ws_reorder_group_presets)
+    websocket_api.async_register_command(hass, ws_activate_group_preset)
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_ACTIVATE_GROUP_PRESET,
+        async_activate_group_preset,
+        schema=vol.Schema(
+            {
+                vol.Optional("preset_id"): cv.string,
+                vol.Optional("name"): cv.string,
+            }
+        ),
+    )
     hass.data[_DATA_KEY] = manager
     return manager
