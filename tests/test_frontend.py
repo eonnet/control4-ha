@@ -205,6 +205,7 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("PRESET_LIST_COMMAND", javascript)
         self.assertIn("PRESET_SAVE_COMMAND", javascript)
         self.assertIn("PRESET_DELETE_COMMAND", javascript)
+        self.assertIn("PRESET_REORDER_COMMAND", javascript)
         self.assertIn(
             "${this._renderPlayerSections(players)}\n"
             "            ${this._renderPresetSection()}",
@@ -212,6 +213,9 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("this._hass?.connection?.sendMessagePromise", javascript)
         self.assertIn("async _activatePreset(presetId)", javascript)
+        self.assertIn("_currentPresetMedia(leader)", javascript)
+        self.assertIn("control4_media_content_id", javascript)
+        self.assertIn('"media_player",\n          "play_media"', javascript)
         self.assertIn("leader_room_id: leaderRoomId", javascript)
         self.assertIn("room_id: Number(state.attributes.control4_room_id)", javascript)
         self.assertIn('`${resolved.members.length} player${', javascript)
@@ -222,6 +226,10 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(
             "supportsFeature(member.state, FEATURE_VOLUME_MUTE)", javascript
         )
+        self.assertIn("data-edit-preset-id", javascript)
+        self.assertIn("data-move-preset-id", javascript)
+        self.assertIn('data-preset-action="update"', javascript)
+        self.assertIn("async _movePreset(presetId, direction)", javascript)
         self.assertIn('"media_player",\n              "volume_mute"', javascript)
 
     def test_manifest_declares_hassfest_runtime_dependencies(self) -> None:
@@ -230,10 +238,10 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
                 encoding="utf-8"
             )
         )
-        self.assertEqual(manifest["version"], "0.1.52")
+        self.assertEqual(manifest["version"], "0.1.53")
         self.assertIn("http", manifest["dependencies"])
         self.assertEqual(manifest["requirements"], ["pyControl4>=2.0.2"])
-        self.assertTrue(FRONTEND_URL.endswith("?v=0.1.52"))
+        self.assertTrue(FRONTEND_URL.endswith("?v=0.1.53"))
 
     def test_official_control4_brand_assets_are_packaged(self) -> None:
         brand = Path(FRONTEND_FILE).parent.parent / "brand"

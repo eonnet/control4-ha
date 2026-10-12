@@ -17,6 +17,9 @@ STORAGE_VERSION = 1
 MAX_PRESETS = 32
 MAX_MEMBERS = 64
 MAX_NAME_LENGTH = 40
+MAX_MEDIA_TYPE_LENGTH = 64
+MAX_MEDIA_ID_LENGTH = 512
+MAX_MEDIA_TITLE_LENGTH = 120
 _DATA_KEY = f"{DOMAIN}_group_preset_store"
 
 
@@ -68,6 +71,29 @@ def _normalize_member(value: Any) -> dict[str, Any] | None:
     }
 
 
+def _bounded_text(value: Any, maximum: int) -> str | None:
+    if not isinstance(value, str) or not (value := value.strip()):
+        return None
+    return value if len(value) <= maximum else None
+
+
+def _normalize_media(value: Any) -> dict[str, str] | None:
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        return None
+    content_type = _bounded_text(value.get("content_type"), MAX_MEDIA_TYPE_LENGTH)
+    content_id = _bounded_text(value.get("content_id"), MAX_MEDIA_ID_LENGTH)
+    title = _bounded_text(value.get("title"), MAX_MEDIA_TITLE_LENGTH)
+    if content_type is None or content_id is None or title is None:
+        return None
+    return {
+        "content_type": content_type,
+        "content_id": content_id,
+        "title": title,
+    }
+
+
 def _normalize_preset(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, Mapping):
         return None
@@ -76,6 +102,8 @@ def _normalize_preset(value: Any) -> dict[str, Any] | None:
     leader_entity_id = _entity_id(value.get("leader_entity_id"))
     leader_room_id = _room_id(value.get("leader_room_id"))
     raw_members = value.get("members")
+    raw_media = value.get("media")
+    media = _normalize_media(raw_media)
     if (
         not isinstance(preset_id, str)
         or not preset_id.strip()
@@ -86,6 +114,7 @@ def _normalize_preset(value: Any) -> dict[str, Any] | None:
         or leader_room_id is None
         or not isinstance(raw_members, list)
         or not 1 <= len(raw_members) <= MAX_MEMBERS
+        or (raw_media is not None and media is None)
     ):
         return None
 
@@ -105,6 +134,7 @@ def _normalize_preset(value: Any) -> dict[str, Any] | None:
         "leader_entity_id": leader_entity_id,
         "leader_room_id": leader_room_id,
         "members": members,
+        "media": media,
     }
 
 
@@ -149,18 +179,42 @@ class GroupPresetStorage:
         leader_entity_id: str,
         leader_room_id: int,
         members: list[dict[str, Any]],
+        media: dict[str, Any] | None = None,
+        preset_id: str | None = None,
     ) -> dict[str, Any]:
-        """Create a preset, or replace the existing preset with the same name."""
+        """Create a preset or update one by stable ID or matching name."""
         name = name.strip()
         async with self._lock:
-            existing = next(
+            if preset_id is not None:
+                preset_id = preset_id.strip() if isinstance(preset_id, str) else ""
+                if not preset_id:
+                    raise ValueError("Invalid group preset ID")
+                existing = next(
+                    (preset for preset in self._presets if preset["id"] == preset_id),
+                    None,
+                )
+                if existing is None:
+                    raise ValueError("Group preset not found")
+            else:
+                existing = next(
+                    (
+                        preset
+                        for preset in self._presets
+                        if preset["name"].casefold() == name.casefold()
+                    ),
+                    None,
+                )
+            name_conflict = next(
                 (
                     preset
                     for preset in self._presets
                     if preset["name"].casefold() == name.casefold()
+                    and (existing is None or preset["id"] != existing["id"])
                 ),
                 None,
             )
+            if name_conflict is not None:
+                raise ValueError("A group preset with this name already exists")
             candidate = _normalize_preset(
                 {
                     "id": existing["id"] if existing is not None else uuid4().hex,
@@ -168,6 +222,7 @@ class GroupPresetStorage:
                     "leader_entity_id": leader_entity_id,
                     "leader_room_id": leader_room_id,
                     "members": members,
+                    "media": media,
                 }
             )
             if candidate is None:
@@ -185,6 +240,24 @@ class GroupPresetStorage:
                 self._presets[index] = candidate
             await self._store.async_save({"presets": self._presets})
         return deepcopy(candidate)
+
+    async def async_reorder_presets(
+        self, preset_ids: list[str]
+    ) -> list[dict[str, Any]]:
+        """Persist an exact client-requested ordering of all presets."""
+        async with self._lock:
+            current_ids = [preset["id"] for preset in self._presets]
+            if (
+                not isinstance(preset_ids, list)
+                or any(not isinstance(item, str) for item in preset_ids)
+                or len(set(preset_ids)) != len(preset_ids)
+                or set(preset_ids) != set(current_ids)
+            ):
+                raise ValueError("Preset order must contain every preset exactly once")
+            by_id = {preset["id"]: preset for preset in self._presets}
+            self._presets = [by_id[preset_id] for preset_id in preset_ids]
+            await self._store.async_save({"presets": self._presets})
+        return self.presets
 
     async def async_delete_preset(self, preset_id: str) -> bool:
         """Delete one preset and report whether it existed."""
@@ -221,6 +294,17 @@ async def async_register_group_presets(hass: Any) -> GroupPresetStorage:
         ),
         vol.Optional("is_volume_muted"): vol.Any(None, bool),
     }
+    media_schema = {
+        vol.Required("content_type"): vol.All(
+            str, lambda value: value.strip(), vol.Length(min=1, max=MAX_MEDIA_TYPE_LENGTH)
+        ),
+        vol.Required("content_id"): vol.All(
+            str, lambda value: value.strip(), vol.Length(min=1, max=MAX_MEDIA_ID_LENGTH)
+        ),
+        vol.Required("title"): vol.All(
+            str, lambda value: value.strip(), vol.Length(min=1, max=MAX_MEDIA_TITLE_LENGTH)
+        ),
+    }
 
     @websocket_api.websocket_command(
         {vol.Required("type"): f"{DOMAIN}/group_presets/list"}
@@ -237,6 +321,8 @@ async def async_register_group_presets(hass: Any) -> GroupPresetStorage:
             ),
             vol.Required("leader_entity_id"): cv.entity_id,
             vol.Required("leader_room_id"): vol.All(int, vol.Range(min=1)),
+            vol.Optional("preset_id"): cv.string,
+            vol.Optional("media"): vol.Any(None, media_schema),
             vol.Required("members"): vol.All(
                 [member_schema], vol.Length(min=1, max=MAX_MEMBERS)
             ),
@@ -250,6 +336,8 @@ async def async_register_group_presets(hass: Any) -> GroupPresetStorage:
                 leader_entity_id=msg["leader_entity_id"],
                 leader_room_id=msg["leader_room_id"],
                 members=msg["members"],
+                media=msg.get("media"),
+                preset_id=msg.get("preset_id"),
             )
         except ValueError as err:
             connection.send_error(
@@ -273,8 +361,30 @@ async def async_register_group_presets(hass: Any) -> GroupPresetStorage:
             return
         connection.send_result(msg["id"], {"deleted": msg["preset_id"]})
 
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): f"{DOMAIN}/group_presets/reorder",
+            vol.Required("preset_ids"): vol.All(
+                [cv.string], vol.Length(max=MAX_PRESETS)
+            ),
+        }
+    )
+    @websocket_api.async_response
+    async def ws_reorder_group_presets(
+        hass: Any, connection: Any, msg: dict
+    ) -> None:
+        try:
+            presets = await manager.async_reorder_presets(msg["preset_ids"])
+        except ValueError as err:
+            connection.send_error(
+                msg["id"], websocket_api.ERR_INVALID_FORMAT, str(err)
+            )
+            return
+        connection.send_result(msg["id"], {"presets": presets})
+
     websocket_api.async_register_command(hass, ws_list_group_presets)
     websocket_api.async_register_command(hass, ws_save_group_preset)
     websocket_api.async_register_command(hass, ws_delete_group_preset)
+    websocket_api.async_register_command(hass, ws_reorder_group_presets)
     hass.data[_DATA_KEY] = manager
     return manager

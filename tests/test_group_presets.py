@@ -51,16 +51,27 @@ def preset(preset_id="whole", name="Whole House"):
             member("media_player.kitchen", 22, 0.2),
             member("media_player.living", 23, 0.35, True),
         ],
+        "media": None,
+    }
+
+
+def media(title="Klassik Radio"):
+    return {
+        "content_type": "channel",
+        "content_id": "control4_advanced:tunein:22:station:92:Station/s25028",
+        "title": title,
     }
 
 
 class GroupPresetStorageTests(unittest.IsolatedAsyncioTestCase):
     async def test_load_keeps_only_valid_unique_presets(self):
         valid = preset()
+        legacy = deepcopy(valid)
+        legacy.pop("media")
         duplicate_name = preset("other", "whole house")
         invalid = {**preset("invalid", "Invalid"), "leader_room_id": 999}
         storage = GroupPresetStorage(
-            FakeStore({"presets": [valid, duplicate_name, invalid, "bad"]})
+            FakeStore({"presets": [legacy, duplicate_name, invalid, "bad"]})
         )
 
         await storage.async_load()
@@ -77,6 +88,7 @@ class GroupPresetStorageTests(unittest.IsolatedAsyncioTestCase):
             leader_entity_id="media_player.kitchen",
             leader_room_id=22,
             members=preset()["members"],
+            media=media(),
         )
         updated_members = [
             member("media_player.kitchen_new", 22, 0.4, True),
@@ -86,12 +98,60 @@ class GroupPresetStorageTests(unittest.IsolatedAsyncioTestCase):
             leader_entity_id="media_player.kitchen_new",
             leader_room_id=22,
             members=updated_members,
+            media=media("Rock Classics"),
         )
 
         self.assertEqual(updated["id"], created["id"])
         self.assertEqual(len(storage.presets), 1)
         self.assertEqual(storage.presets[0]["members"], updated_members)
+        self.assertEqual(storage.presets[0]["media"], media("Rock Classics"))
         self.assertEqual(store.saved[-1], {"presets": storage.presets})
+
+    async def test_update_by_id_can_rename_and_preserves_order(self):
+        store = FakeStore({"presets": [preset("first", "First"), preset("second", "Second")]})
+        storage = GroupPresetStorage(store)
+        await storage.async_load()
+
+        updated = await storage.async_save_preset(
+            preset_id="first",
+            name="Renamed",
+            leader_entity_id="media_player.kitchen",
+            leader_room_id=22,
+            members=preset()["members"],
+            media=media(),
+        )
+        self.assertEqual(updated["id"], "first")
+        self.assertEqual([item["id"] for item in storage.presets], ["first", "second"])
+        self.assertEqual(storage.presets[0]["name"], "Renamed")
+
+        reordered = await storage.async_reorder_presets(["second", "first"])
+        self.assertEqual([item["id"] for item in reordered], ["second", "first"])
+        self.assertEqual(store.saved[-1], {"presets": reordered})
+        with self.assertRaisesRegex(ValueError, "every preset exactly once"):
+            await storage.async_reorder_presets(["first", "first"])
+
+    async def test_invalid_or_conflicting_update_is_rejected(self):
+        storage = GroupPresetStorage(
+            FakeStore({"presets": [preset("first", "First"), preset("second", "Second")]})
+        )
+        await storage.async_load()
+
+        with self.assertRaisesRegex(ValueError, "already exists"):
+            await storage.async_save_preset(
+                preset_id="first",
+                name="Second",
+                leader_entity_id="media_player.kitchen",
+                leader_room_id=22,
+                members=preset()["members"],
+            )
+        with self.assertRaisesRegex(ValueError, "not found"):
+            await storage.async_save_preset(
+                preset_id="missing",
+                name="Missing",
+                leader_entity_id="media_player.kitchen",
+                leader_room_id=22,
+                members=preset()["members"],
+            )
 
     async def test_presets_property_is_detached_and_delete_is_persistent(self):
         store = FakeStore({"presets": [preset()]})
@@ -116,6 +176,14 @@ class GroupPresetStorageTests(unittest.IsolatedAsyncioTestCase):
                 leader_entity_id="media_player.kitchen",
                 leader_room_id=22,
                 members=[member("media_player.kitchen", 22, 1.5)],
+            )
+        with self.assertRaisesRegex(ValueError, "Invalid group preset"):
+            await storage.async_save_preset(
+                name="Bad media",
+                leader_entity_id="media_player.kitchen",
+                leader_room_id=22,
+                members=[member("media_player.kitchen", 22)],
+                media={"content_type": "channel", "content_id": "missing title"},
             )
 
     async def test_websocket_commands_register_once_and_round_trip(self):
@@ -191,7 +259,7 @@ class GroupPresetStorageTests(unittest.IsolatedAsyncioTestCase):
             manager = await async_register_group_presets(hass)
             self.assertIs(await async_register_group_presets(hass), manager)
 
-        self.assertEqual(len(registered), 3)
+        self.assertEqual(len(registered), 4)
         handlers = {handler._ws_command: handler for handler in registered}
         connection = Connection()
         await handlers["control4_advanced/group_presets/save"](
@@ -203,6 +271,7 @@ class GroupPresetStorageTests(unittest.IsolatedAsyncioTestCase):
                 "leader_entity_id": "media_player.kitchen",
                 "leader_room_id": 22,
                 "members": [member("media_player.kitchen", 22)],
+                "media": media(),
             },
         )
         saved_id = connection.results[-1][1]["preset"]["id"]
@@ -212,10 +281,16 @@ class GroupPresetStorageTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             connection.results[-1][1]["presets"][0]["name"], "Downstairs"
         )
-        await handlers["control4_advanced/group_presets/delete"](
-            hass, connection, {"id": 3, "preset_id": saved_id}
+        await handlers["control4_advanced/group_presets/reorder"](
+            hass, connection, {"id": 3, "preset_ids": [saved_id]}
         )
-        self.assertEqual(connection.results[-1], (3, {"deleted": saved_id}))
+        self.assertEqual(
+            connection.results[-1][1]["presets"][0]["media"], media()
+        )
+        await handlers["control4_advanced/group_presets/delete"](
+            hass, connection, {"id": 4, "preset_id": saved_id}
+        )
+        self.assertEqual(connection.results[-1], (4, {"deleted": saved_id}))
         self.assertEqual(connection.errors, [])
 
 

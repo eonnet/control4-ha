@@ -348,10 +348,21 @@ class MediaPlayerUITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(playlist_item.media_content_type, FakeMediaType.PLAYLIST)
         self.assertTrue(playlist_item.can_play)
 
+        async def settle_tidal(_room_id):
+            self.state[22].update({"is_on": True, "selected_source_id": 1417})
+
+        self.runtime.transport.sync_device.side_effect = settle_tidal
         await entity.async_play_media(
             playlist_item.media_content_type, playlist_item.media_content_id
         )
         self.commands.tidal_playlist.assert_awaited_once_with(1416, 22, evening)
+        self.runtime.transport.sync_device.assert_awaited_once_with(22)
+        self.assertEqual(entity.extra_state_attributes, {
+            "control4_room_id": 22,
+            "control4_media_content_type": "playlist",
+            "control4_media_content_id": playlist_item.media_content_id,
+            "control4_media_title": "Evening Mix",
+        })
 
     async def test_browse_does_not_show_empty_tidal_playlist_folder(self):
         self.runtime.media_sources[22] = (
@@ -424,10 +435,21 @@ class MediaPlayerUITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(favorite_item.media_content_type, FakeMediaType.CHANNEL)
         self.assertTrue(favorite_item.can_play)
 
+        async def settle_tunein(_room_id):
+            self.state[22].update({"is_on": True, "selected_source_id": 92})
+
+        self.runtime.transport.sync_device.side_effect = settle_tunein
         await entity.async_play_media(
             favorite_item.media_content_type, favorite_item.media_content_id
         )
         self.commands.tunein_favorite.assert_awaited_once_with(91, 22, klassik)
+        self.runtime.transport.sync_device.assert_awaited_once_with(22)
+        self.assertEqual(entity.extra_state_attributes, {
+            "control4_room_id": 22,
+            "control4_media_content_type": "channel",
+            "control4_media_content_id": favorite_item.media_content_id,
+            "control4_media_title": "Klassik Radio",
+        })
 
         with self.assertRaises(UnsupportedCommand):
             await entity.async_play_media(
@@ -640,6 +662,12 @@ class MediaPlayerUITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(entity.state, FakeMediaPlayerState.PLAYING)
         self.assertFalse(hasattr(entity, "source_list"))
         self.assertEqual(entity.source, "Watch: Plex")
+        self.assertEqual(entity.extra_state_attributes, {
+            "control4_room_id": 22,
+            "control4_media_content_type": "app",
+            "control4_media_content_id": "control4_advanced:media:22:source:watch:346",
+            "control4_media_title": "Watch: Plex",
+        })
         self.assertFalse(
             entity.supported_features & FakeMediaPlayerFeature.SELECT_SOURCE
         )
@@ -682,6 +710,18 @@ class MediaPlayerUITests(unittest.IsolatedAsyncioTestCase):
         self.runtime.transport.sync_device.assert_awaited_once_with(22)
         self.assertEqual(entity.source, "Listen: Wiim")
         self.assertEqual(entity.state, FakeMediaPlayerState.PLAYING)
+        self.assertEqual(entity.extra_state_attributes, {
+            "control4_room_id": 22,
+            "control4_media_content_type": "app",
+            "control4_media_content_id": source_item.media_content_id,
+            "control4_media_title": "Listen: Wiim",
+        })
+        self.state[22]["is_on"] = False
+        await entity._on_event(NormalizedEvent(22, "rest", "snapshot", {
+            "is_on": False,
+        }, "2026-10-12T00:00:00Z", True, {}))
+        self.assertEqual(entity.extra_state_attributes, {"control4_room_id": 22})
+        self.state[22]["is_on"] = True
         with self.assertRaises(UnsupportedCommand):
             await entity.async_play_media(
                 self.media_player.SOURCE_TYPE,

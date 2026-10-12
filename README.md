@@ -519,6 +519,14 @@ features, and recalling an existing preset safely skips unsupported per-room
 actions instead of aborting the entire group with a Home Assistant validation
 error.
 
+Version 0.1.53 introduces **Group Presets 2.0**. Presets can remember the
+leader's allowlisted Control4 source, TIDAL playlist, or TuneIn favorite and
+start it before forming the group, removing the need to prepare an active
+leader manually. Existing presets migrate in place with no media selection.
+Each preset can be renamed, replaced with the current group/source/volume/mute
+state, moved up or down, and deleted. Stable preset IDs keep rename and reorder
+operations persistent across browsers and Home Assistant restarts.
+
 Version 0.1.37 registers the dashboard cards as versioned Lovelace resources
 instead of relying on Home Assistant's early extra-module loader. This avoids
 the scoped custom-element registry race that could show **Custom element not
