@@ -512,6 +512,13 @@ player rows, slimmer progress-aware volume sliders, smaller toggles, and reduced
 section, header, preset, and footer spacing bring it closer to Home Assistant's
 stock media-player layout.
 
+Version 0.1.52 moves **Group presets** below both player sections so room and
+volume controls remain the first content in the grouping dialog. New presets no
+longer store volume or mute values for entities that do not advertise those
+features, and recalling an existing preset safely skips unsupported per-room
+actions instead of aborting the entire group with a Home Assistant validation
+error.
+
 Version 0.1.37 registers the dashboard cards as versioned Lovelace resources
 instead of relying on Home Assistant's early extra-module loader. This avoids
 the scoped custom-element registry race that could show **Custom element not

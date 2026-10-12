@@ -205,11 +205,23 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("PRESET_LIST_COMMAND", javascript)
         self.assertIn("PRESET_SAVE_COMMAND", javascript)
         self.assertIn("PRESET_DELETE_COMMAND", javascript)
+        self.assertIn(
+            "${this._renderPlayerSections(players)}\n"
+            "            ${this._renderPresetSection()}",
+            javascript,
+        )
         self.assertIn("this._hass?.connection?.sendMessagePromise", javascript)
         self.assertIn("async _activatePreset(presetId)", javascript)
         self.assertIn("leader_room_id: leaderRoomId", javascript)
         self.assertIn("room_id: Number(state.attributes.control4_room_id)", javascript)
         self.assertIn('`${resolved.members.length} player${', javascript)
+        self.assertIn("const liveMembers = resolved.members.map", javascript)
+        self.assertIn(
+            "supportsFeature(member.state, FEATURE_VOLUME_SET)", javascript
+        )
+        self.assertIn(
+            "supportsFeature(member.state, FEATURE_VOLUME_MUTE)", javascript
+        )
         self.assertIn('"media_player",\n              "volume_mute"', javascript)
 
     def test_manifest_declares_hassfest_runtime_dependencies(self) -> None:
@@ -218,10 +230,10 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
                 encoding="utf-8"
             )
         )
-        self.assertEqual(manifest["version"], "0.1.51")
+        self.assertEqual(manifest["version"], "0.1.52")
         self.assertIn("http", manifest["dependencies"])
         self.assertEqual(manifest["requirements"], ["pyControl4>=2.0.2"])
-        self.assertTrue(FRONTEND_URL.endswith("?v=0.1.51"))
+        self.assertTrue(FRONTEND_URL.endswith("?v=0.1.52"))
 
     def test_official_control4_brand_assets_are_packaged(self) -> None:
         brand = Path(FRONTEND_FILE).parent.parent / "brand"

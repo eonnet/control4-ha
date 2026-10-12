@@ -538,8 +538,8 @@ class Control4MediaGroupDialog extends HTMLElement {
           )}</div>
           ${this._renderGroupControls()}
           <main>
-            ${this._renderPresetSection()}
             ${this._renderPlayerSections(players)}
+            ${this._renderPresetSection()}
           </main>
           <footer>
             <button class="text-button cancel" ${this._submitting ? "disabled" : ""}>
@@ -736,12 +736,13 @@ class Control4MediaGroupDialog extends HTMLElement {
       );
       const rawVolume = state.attributes.volume_level;
       const hasVolume = typeof rawVolume === "number" && Number.isFinite(rawVolume);
-      const displayedVolume = hasVolume && slider
+      const canSaveVolume = hasVolume && supportsFeature(state, FEATURE_VOLUME_SET);
+      const displayedVolume = canSaveVolume && slider
         ? Number(slider.value) / 100
         : Number.NaN;
       const volumeLevel = Number.isFinite(displayedVolume)
         ? Math.max(0, Math.min(1, displayedVolume))
-        : hasVolume
+        : canSaveVolume
           ? Math.max(0, Math.min(1, rawVolume))
           : null;
       const muted = this._displayedMuted(state);
@@ -749,7 +750,10 @@ class Control4MediaGroupDialog extends HTMLElement {
         entity_id: state.entity_id,
         room_id: Number(state.attributes.control4_room_id),
         volume_level: volumeLevel,
-        is_volume_muted: typeof muted === "boolean" ? muted : null,
+        is_volume_muted:
+          typeof muted === "boolean" && supportsFeature(state, FEATURE_VOLUME_MUTE)
+            ? muted
+            : null,
       };
     });
   }
@@ -887,9 +891,19 @@ class Control4MediaGroupDialog extends HTMLElement {
             )
           )
       );
+      const latestHass =
+        document.querySelector("home-assistant")?.hass || this._hass;
+      const liveMembers = resolved.members.map((member) => ({
+        ...member,
+        state: latestHass.states[member.state.entity_id] || member.state,
+      }));
       await Promise.all(
-        resolved.members
-          .filter((member) => typeof member.volume_level === "number")
+        liveMembers
+          .filter(
+            (member) =>
+              typeof member.volume_level === "number" &&
+              supportsFeature(member.state, FEATURE_VOLUME_SET)
+          )
           .map((member) =>
             this._hass.callService(
               "media_player",
@@ -900,8 +914,12 @@ class Control4MediaGroupDialog extends HTMLElement {
           )
       );
       await Promise.all(
-        resolved.members
-          .filter((member) => typeof member.is_volume_muted === "boolean")
+        liveMembers
+          .filter(
+            (member) =>
+              typeof member.is_volume_muted === "boolean" &&
+              supportsFeature(member.state, FEATURE_VOLUME_MUTE)
+          )
           .map((member) =>
             this._hass.callService(
               "media_player",
@@ -1450,7 +1468,7 @@ class Control4MediaGroupDialog extends HTMLElement {
     }
     main { min-height: 0; overflow-y: auto; padding: 8px 16px 12px; }
     .preset-section {
-      margin-bottom: 12px;
+      margin-top: 12px;
       padding: 10px;
       border: 1px solid var(--divider-color, #444);
       border-radius: 12px;
