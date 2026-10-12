@@ -350,6 +350,19 @@ class MediaPlayerUITests(unittest.IsolatedAsyncioTestCase):
         )
         self.commands.tidal_playlist.assert_awaited_once_with(1416, 22, evening)
 
+    async def test_browse_does_not_show_empty_tidal_playlist_folder(self):
+        self.runtime.media_sources[22] = (
+            RoomSource(1417, "listen", "Miki", "AUDIO_SELECTION", "Listen: Miki"),
+        )
+        self.runtime.tidal_catalogs[22] = (
+            RoomTidalCatalog(22, 1417, 1416, "Miki", ()),
+        )
+        entity = self.media_player.Control4RoomMediaPlayer(
+            self.runtime, self.items[22]
+        )
+        root = await entity.async_browse_media()
+        self.assertEqual([child.title for child in root.children], ["Listen"])
+
     async def test_browse_and_play_reject_unconfigured_tidal_ids(self):
         playlist = TidalPlaylist(
             "Miki", "Evening Mix", "01234567-89ab-cdef-0123-456789abcdef"

@@ -63,6 +63,25 @@ class TidalPlaylistTests(unittest.TestCase):
         self.assertEqual((catalog.source_id, catalog.protocol_id, catalog.source_name), (94, 93, "TIDAL"))
         self.assertEqual([item.name for item in catalog.playlists], ["Evening Mix"])
 
+    def test_catalog_discovers_account_without_configured_playlists(self) -> None:
+        sources = {
+            22: (
+                RoomSource(94, "listen", "Miki", "DIGITAL_AUDIO_SERVER", "Listen: Miki"),
+            )
+        }
+        inventory = {
+            94: {
+                "id": 94,
+                "name": "Miki",
+                "proxy": "media_service",
+                "protocolId": 93,
+                "protocolFilename": "tidal.c4z",
+            }
+        }
+        catalogs = room_tidal_catalogs(sources, inventory, ())
+        self.assertEqual(catalogs[22][0].source_name, "Miki")
+        self.assertEqual(catalogs[22][0].playlists, ())
+
 
 if __name__ == "__main__":
     unittest.main()

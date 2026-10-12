@@ -37,13 +37,13 @@
           "recreate_entity_ids": "Recreate entity IDs"
         },
         "menu_option_descriptions": {
-          "media_favorites": "Configure TIDAL playlists and TuneIn favorites.",
+          "media_favorites": "TIDAL accounts and TuneIn sources are discovered automatically. Configure optional TIDAL playlists and TuneIn favorites.",
           "recreate_entity_ids": "Apply Home Assistant's current automatic naming format to every entity in this Control4 integration entry."
         }
       },
       "media_favorites": {
         "title": "Control4 options",
-        "description": "Optional Control4 media favorites. TIDAL: source name | playlist name | playlist UUID. TuneIn: source name | favorite name | Station/id. Entries appear only in rooms where that source is available.",
+        "description": "TIDAL accounts and TuneIn sources are discovered automatically. Director does not expose their dynamic playlist/favorite lists to this integration, so optional playable items use: TIDAL source name | playlist name | playlist UUID; TuneIn source name | favorite name | Station/id. Entries appear only in rooms where that source is available.",
         "data": {
           "tidal_playlists": "TIDAL playlists",
           "tunein_favorites": "TuneIn favorites"

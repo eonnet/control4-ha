@@ -240,6 +240,18 @@ percentage number slider for each eligible media room. Sliders keep independent
 room IDs and settled Director feedback, allowing a dashboard to show all group
 member volumes without turning the leader's value into a synthetic group
 volume.
+Version 0.1.38 discovers TIDAL account/source names from the same validated
+inventory-backed Listen sources even when no playlists are configured. TuneIn
+source names were already discovered through that Listen-source path. A
+2026-10-12 read-only Navigator check sent `GetTabs` to both the TIDAL media
+proxy and protocol parent using the WebSocket subscription ID assigned by
+Director. Both REST requests returned HTTP 200, but neither produced a
+Navigator response. By contrast, a live Control4 app session produced the
+TIDAL tab response under its own Navigator identity. The authenticated REST
+command metadata also continues to omit TIDAL playlist UUIDs and TuneIn's
+dynamic `GetItemList` values. Automatic account/source discovery is therefore
+safe, while playlists and favorites remain explicitly configured until a
+reliable integration-owned Navigator/MSP channel is available.
 At version 0.1.12, media-player discovery still required a supported volume
 binding at integration startup. Version 0.1.13 retains an already registered
 room while its off-state binding is zero; new source-only or unproven rooms

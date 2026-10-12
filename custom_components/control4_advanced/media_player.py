@@ -237,7 +237,9 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
     ) -> BrowseMedia:
         """Show validated room sources and configured media favorites."""
         sources = self._sources()
-        catalogs = self._tidal_catalogs()
+        catalogs = tuple(
+            catalog for catalog in self._tidal_catalogs() if catalog.playlists
+        )
         tunein_catalogs = self._tunein_catalogs()
         if not sources and not catalogs and not tunein_catalogs:
             raise BrowseError("No Control4 media is available in this room")

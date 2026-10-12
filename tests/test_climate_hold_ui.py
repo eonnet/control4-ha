@@ -305,6 +305,38 @@ class ClimateHoldUITests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(self.error):
             await tidal.async_select_option("Unknown")
 
+    async def test_tidal_account_select_exists_without_playlists(self):
+        self.items[22] = {
+            "id": 22,
+            "name": "Living",
+            "proxy": "roomdevice",
+            "typeName": "room",
+            "roomName": "Living",
+        }
+        self.states[22] = {"is_on": True, "selected_source_id": 94}
+        self.runtime.tidal_catalogs = {
+            22: (RoomTidalCatalog(22, 94, 93, "Miki", ()),)
+        }
+        self.runtime.media_sources = {
+            22: (
+                RoomSource(94, "listen", "Miki", "AUDIO_SELECTION", "Listen: Miki"),
+            )
+        }
+        selects = []
+        await self.select.async_setup_entry(None, self.entry, selects.extend)
+        accounts = [
+            entity
+            for entity in selects
+            if isinstance(entity, self.select.Control4TidalAccountSelect)
+        ]
+        playlists = [
+            entity
+            for entity in selects
+            if isinstance(entity, self.select.Control4TidalPlaylistSelect)
+        ]
+        self.assertEqual(accounts[0].options, ["Miki"])
+        self.assertEqual(playlists, [])
+
     async def test_advertised_choices_allow_unknown_initial_preset_and_fan(self):
         self.states[2646].pop("preset_mode")
         self.states[2646].pop("fan_mode")

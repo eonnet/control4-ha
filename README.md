@@ -217,9 +217,12 @@ the existing contact transport contract. The user subsequently confirmed the
 door entity in Home Assistant.
 
 Version 0.1.17 adds two linked selectors to each eligible Control4 room:
-**TIDAL account** and **TIDAL playlist**. Choosing an account selects that
-actual Control4 Listen source in the room, and the playlist dropdown then
-shows only playlists configured for that account. Director's REST metadata
+**TIDAL account** and **TIDAL playlist**. Version 0.1.38 discovers the account
+selector options directly from the room's inventory-backed Listen sources,
+even when no playlists are configured. Choosing an account selects that actual
+Control4 Listen source in the room. The playlist selector is added only when
+at least one playlist is configured, and then shows the playlists for the
+selected account. Director's REST metadata
 advertises the playlist command
 but omits the dynamic playlist-name/UUID choices shown by Composer, so those
 choices are entered once under **Settings > Devices & services > Control4
@@ -235,10 +238,11 @@ For example:
 TIDAL | Evening Mix | 01234567-89ab-cdef-0123-456789abcdef
 ```
 
-The source name must match the Listen source shown by Control4 (for example
-`TIDAL`, `Juliane`, `Miki`, or `Jakob`). The integration joins that source to
-its TIDAL protocol driver and adds the selectors only to rooms where the source
-is exposed. Selecting a playlist sends Control4's advertised `SelectPlaylist`
+The source name must match the automatically discovered Listen source shown by
+Control4 (for example `TIDAL`, `Juliane`, `Miki`, or `Jakob`). The integration
+joins that source to its TIDAL protocol driver and adds the account selector
+only to rooms where the source is exposed. Selecting a playlist sends
+Control4's advertised `SelectPlaylist`
 command to that same room with `Shuffle` fixed to `Off`. The selector remains
 stateless because Director does not report which playlist created the current
 queue.
@@ -372,6 +376,27 @@ including disabled entities. The entities and registry records are retained;
 references to renamed IDs in dashboards, automations, scripts, and scenes must
 still be updated manually.
 
+## Control4 Media Player card
+
+Version 0.1.38 adds **Control4 Media Player**, a full dashboard card backed by
+Home Assistant's current native Media Control card. Artwork, title/artist,
+transport, progress, Browse Media, power, and More Info therefore keep native
+Home Assistant behavior. The card intercepts only the native **Join** action
+and opens the Control4 dialog, where every room has its own volume slider.
+
+After updating the integration, restart Home Assistant and refresh the browser
+or fully close and reopen the mobile app. In dashboard edit mode choose
+**Add card**, search for **Control4 Media Player**, and select the group leader.
+The equivalent manual configuration is:
+
+```yaml
+type: custom:control4-media-player-card
+entity: media_player.kitchen
+```
+
+The smaller **Control4 Media Group** card remains available when only the
+membership/volume popup is wanted.
+
 ## Control4 Media Group card
 
 Version 0.1.36 adds a packaged **Control4 Media Group** dashboard card. Its
@@ -380,11 +405,11 @@ every Control4 room player. Membership changes are sent when **Apply** is
 pressed; volume changes are sent immediately to the individual room whose
 slider was moved.
 
-Version 0.1.37 registers that card as a versioned Lovelace dashboard resource
+Version 0.1.37 registers the dashboard cards as versioned Lovelace resources
 instead of relying on Home Assistant's early extra-module loader. This avoids
 the scoped custom-element registry race that could show **Custom element not
 found** in the card editor. YAML resource mode keeps an automatic fallback that
-re-registers the card after Home Assistant completes its frontend bootstrap.
+re-registers the cards after Home Assistant completes its frontend bootstrap.
 
 After updating the integration, restart Home Assistant and refresh the browser
 or fully close and reopen the mobile app. In dashboard edit mode choose
