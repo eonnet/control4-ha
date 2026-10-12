@@ -28,6 +28,7 @@ class RoomVolumeCoordinator:
         self._refresh_task: asyncio.Task[None] | None = None
         self._refresh_requested = False
         self._source_task: asyncio.Task[None] | None = None
+        self._volume_fallback_task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
         if self._remove_event is not None:
@@ -50,16 +51,23 @@ class RoomVolumeCoordinator:
             self._remove_event()
             self._remove_event = None
         self._refresh_requested = False
-        for task in (self._binding_task, self._refresh_task, self._source_task):
+        tasks = (
+            self._binding_task,
+            self._refresh_task,
+            self._source_task,
+            self._volume_fallback_task,
+        )
+        for task in tasks:
             if task is not None:
                 task.cancel()
         await asyncio.gather(
-            *(task for task in (self._binding_task, self._refresh_task, self._source_task) if task is not None),
+            *(task for task in tasks if task is not None),
             return_exceptions=True,
         )
         self._binding_task = None
         self._refresh_task = None
         self._source_task = None
+        self._volume_fallback_task = None
 
     def enable_source_fallback(self, *, interval: float = 15.0) -> None:
         """Reconcile source and power, repairing volume after binding changes."""
@@ -79,9 +87,39 @@ class RoomVolumeCoordinator:
                 except Exception as exc:
                     _LOGGER.warning("Room source fallback failed: %s", type(exc).__name__)
 
+    def enable_volume_fallback(self, *, interval: float = 3.0) -> None:
+        """Poll volume only while the bound TV/AV device has no push path."""
+        if self._remove_event is None:
+            raise RuntimeError("room coordinator is not started")
+        if interval <= 0:
+            raise ValueError("volume fallback interval must be positive")
+        if self._volume_fallback_task is None:
+            self._volume_fallback_task = asyncio.create_task(
+                self._reconcile_volume(interval)
+            )
+
+    async def _reconcile_volume(self, interval: float) -> None:
+        while True:
+            await asyncio.sleep(interval)
+            if not self.transport.connected or not self._needs_volume_fallback():
+                continue
+            try:
+                await self.transport.sync_device(self.room_id)
+            except Exception as exc:
+                _LOGGER.warning("Room volume fallback failed: %s", type(exc).__name__)
+
     def _bound_device_id(self) -> int | None:
         value = self.transport.state.snapshot(self.room_id).get("volume_device_id")
         return value if type(value) is int and value > 0 else None
+
+    def _needs_volume_fallback(self) -> bool:
+        device_id = self._bound_device_id()
+        item = (
+            self.transport.inventory.items.get(device_id)
+            if device_id is not None
+            else None
+        )
+        return item is not None and item.get("proxy") != "aswitch"
 
     async def _ensure_bound_device(self) -> None:
         device_id = self._bound_device_id()

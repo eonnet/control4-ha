@@ -126,6 +126,36 @@ class RoomVolumeCoordinatorTests(unittest.IsolatedAsyncioTestCase):
         await self.coordinator.start()
         self.assertNotIn(1227, self.transport.tracked_ids)
 
+    async def test_non_aswitch_volume_fallback_publishes_control4_changes(self) -> None:
+        self.rest.variables_by_id[22] = room_variables(31, 0, 1227)
+        await self.coordinator.stop()
+        await self.transport.stop()
+        self.transport = Control4Transport(
+            self.rest, [22], websocket_factory=FakeWebsocket
+        )
+        await self.transport.start()
+        self.coordinator = RoomVolumeCoordinator(self.transport, 22)
+        await self.coordinator.start()
+        self.assertNotIn(1227, self.transport.tracked_ids)
+
+        self.coordinator.enable_volume_fallback(interval=0.02)
+        self.rest.variables_by_id[22] = room_variables(18, 1, 1227)
+        for _ in range(100):
+            state = self.transport.state.snapshot(22)
+            if state.get("volume_percent") == 18.0 and state.get("is_muted") is True:
+                break
+            await asyncio.sleep(0.01)
+
+        state = self.transport.state.snapshot(22)
+        self.assertEqual(state["volume_percent"], 18.0)
+        self.assertTrue(state["is_muted"])
+
+    async def test_aswitch_volume_fallback_does_not_poll(self) -> None:
+        before = self.room_reads()
+        self.coordinator.enable_volume_fallback(interval=0.01)
+        await asyncio.sleep(0.04)
+        self.assertEqual(self.room_reads(), before)
+
     async def test_stop_cancels_pending_refresh(self) -> None:
         before = self.room_reads()
         await FakeWebsocket.instances[-1].push(623, {"OutputStatus": {

@@ -160,9 +160,13 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("position: fixed;\n        z-index: 10000", javascript)
         self.assertIn("bottom: 0;", javascript)
         self.assertIn(
-            "padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px))",
+            "padding-bottom: calc(78px + env(safe-area-inset-bottom, 0px))",
             javascript,
         )
+        self.assertIn('const setSliderProgress = (slider, value) =>', javascript)
+        self.assertIn('style="--volume-value: ${volume}%"', javascript)
+        self.assertIn('height: 3px;', javascript)
+        self.assertIn('.player { padding: 7px 0 8px;', javascript)
 
     def test_card_asset_contains_relative_group_master_controls(self) -> None:
         javascript = Path(FRONTEND_FILE).read_text(encoding="utf-8")
@@ -214,10 +218,10 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
                 encoding="utf-8"
             )
         )
-        self.assertEqual(manifest["version"], "0.1.50")
+        self.assertEqual(manifest["version"], "0.1.51")
         self.assertIn("http", manifest["dependencies"])
         self.assertEqual(manifest["requirements"], ["pyControl4>=2.0.2"])
-        self.assertTrue(FRONTEND_URL.endswith("?v=0.1.50"))
+        self.assertTrue(FRONTEND_URL.endswith("?v=0.1.51"))
 
     def test_official_control4_brand_assets_are_packaged(self) -> None:
         brand = Path(FRONTEND_FILE).parent.parent / "brand"

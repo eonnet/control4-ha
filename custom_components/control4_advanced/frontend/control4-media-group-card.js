@@ -30,6 +30,12 @@ const escapeHtml = (value) =>
 const stateName = (state) =>
   state?.attributes?.friendly_name || state?.entity_id || "Unknown player";
 
+const setSliderProgress = (slider, value) => {
+  const normalized = Math.max(0, Math.min(100, Number(value) || 0));
+  slider.value = String(normalized);
+  slider.style.setProperty("--volume-value", `${normalized}%`);
+};
+
 const control4Players = (hass) =>
   Object.values(hass?.states || {})
     .filter(
@@ -238,6 +244,7 @@ class Control4MediaGroupDialog extends HTMLElement {
             max="100"
             step="1"
             value="${average}"
+            style="--volume-value: ${average}%"
             data-group-volume
             aria-label="Group volume"
             ${volumeLevels.length && !this._submitting ? "" : "disabled"}
@@ -490,6 +497,7 @@ class Control4MediaGroupDialog extends HTMLElement {
             max="100"
             step="1"
             value="${volume}"
+            style="--volume-value: ${volume}%"
             data-volume-id="${escapeHtml(state.entity_id)}"
             aria-label="${escapeHtml(stateName(state))} volume"
             ${canSetVolume && !this._submitting ? "" : "disabled"}
@@ -604,6 +612,7 @@ class Control4MediaGroupDialog extends HTMLElement {
     );
     groupSlider.addEventListener("input", (event) => {
       this._captureGroupVolumeBaseline(false);
+      setSliderProgress(event.currentTarget, event.currentTarget.value);
       const output = this.shadowRoot.querySelector("[data-group-volume-output]");
       output.value = `${event.currentTarget.value}%`;
       output.textContent = `${event.currentTarget.value}%`;
@@ -621,6 +630,7 @@ class Control4MediaGroupDialog extends HTMLElement {
     for (const slider of this.shadowRoot.querySelectorAll("[data-volume-id]")) {
       slider.addEventListener("input", (event) => {
         const entityId = event.currentTarget.dataset.volumeId;
+        setSliderProgress(event.currentTarget, event.currentTarget.value);
         const output = this.shadowRoot.querySelector(
           `[data-volume-output="${CSS.escape(entityId)}"]`
         );
@@ -932,7 +942,7 @@ class Control4MediaGroupDialog extends HTMLElement {
         const value = hasVolume
           ? Math.max(0, Math.min(100, Math.round(rawVolume * 100)))
           : 0;
-        slider.value = String(value);
+        setSliderProgress(slider, value);
         const output = this.shadowRoot.querySelector(
           `[data-volume-output="${CSS.escape(slider.dataset.volumeId)}"]`
         );
@@ -1026,7 +1036,7 @@ class Control4MediaGroupDialog extends HTMLElement {
     slider.disabled = average === undefined || this._submitting;
     if (slider !== active && this._groupVolumeBaseline === undefined) {
       const value = average === undefined ? 0 : Math.round(average);
-      slider.value = String(value);
+      setSliderProgress(slider, value);
       output.value = average === undefined ? "—" : `${value}%`;
       output.textContent = average === undefined ? "—" : `${value}%`;
     }
@@ -1058,7 +1068,7 @@ class Control4MediaGroupDialog extends HTMLElement {
       `[data-volume-output="${CSS.escape(entityId)}"]`
     );
     if (slider) {
-      slider.value = String(value);
+      setSliderProgress(slider, value);
     }
     if (output) {
       output.value = `${value}%`;
@@ -1290,10 +1300,10 @@ class Control4MediaGroupDialog extends HTMLElement {
     .dialog {
       display: grid;
       grid-template-rows: auto auto auto minmax(0, 1fr) auto;
-      width: min(560px, calc(100vw - 32px));
-      height: min(800px, calc(100vh - 32px));
-      height: min(800px, calc(100dvh - 32px));
-      max-height: min(800px, calc(100vh - 32px));
+      width: min(520px, calc(100vw - 32px));
+      height: min(760px, calc(100vh - 32px));
+      height: min(760px, calc(100dvh - 32px));
+      max-height: min(760px, calc(100vh - 32px));
       overflow: hidden;
       border-radius: var(--ha-card-border-radius, 16px);
       background: var(--card-background-color, #1c1c1c);
@@ -1301,13 +1311,13 @@ class Control4MediaGroupDialog extends HTMLElement {
     }
     header {
       display: grid;
-      grid-template-columns: 48px 1fr auto;
+      grid-template-columns: 44px 1fr auto;
       align-items: center;
-      min-height: 72px;
-      padding: 0 12px;
+      min-height: 60px;
+      padding: 0 10px;
       border-bottom: 1px solid var(--divider-color, #444);
     }
-    h2 { margin: 0; font-size: 24px; font-weight: 500; }
+    h2 { margin: 0; font-size: 22px; font-weight: 500; }
     button { font: inherit; cursor: pointer; }
     button:disabled { cursor: default; opacity: 0.5; }
     .icon-button, .text-button {
@@ -1315,8 +1325,8 @@ class Control4MediaGroupDialog extends HTMLElement {
       color: var(--primary-text-color, #fff);
       background: transparent;
     }
-    .icon-button { width: 44px; height: 44px; font-size: 36px; line-height: 1; }
-    .text-button { padding: 12px; color: var(--primary-color, #03a9f4); }
+    .icon-button { width: 40px; height: 40px; font-size: 32px; line-height: 1; }
+    .text-button { padding: 8px; color: var(--primary-color, #03a9f4); }
     .error {
       margin: 12px 16px 0;
       padding: 12px;
@@ -1326,7 +1336,7 @@ class Control4MediaGroupDialog extends HTMLElement {
     }
     .error[hidden] { display: none; }
     .group-controls {
-      padding: 12px 20px 14px;
+      padding: 8px 16px 10px;
       border-bottom: 1px solid var(--divider-color, #444);
       background: color-mix(in srgb, var(--primary-color, #03a9f4) 7%, transparent);
     }
@@ -1334,25 +1344,25 @@ class Control4MediaGroupDialog extends HTMLElement {
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
-      gap: 12px;
-      margin-bottom: 10px;
+      gap: 8px;
+      margin-bottom: 6px;
     }
     .group-controls-heading > div { min-width: 0; }
     .group-name {
-      font-size: 16px;
+      font-size: 15px;
       font-weight: 500;
     }
     .group-target {
-      margin-top: 3px;
+      margin-top: 2px;
       color: var(--secondary-text-color, #aaa);
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 400;
       line-height: 1.35;
       overflow-wrap: anywhere;
     }
     .group-count {
       flex: 0 0 auto;
-      padding: 3px 8px;
+      padding: 2px 7px;
       border-radius: 12px;
       color: var(--secondary-text-color, #aaa);
       background: color-mix(in srgb, var(--primary-text-color, #fff) 8%, transparent);
@@ -1360,13 +1370,61 @@ class Control4MediaGroupDialog extends HTMLElement {
     }
     .group-volume-row {
       display: grid;
-      grid-template-columns: 112px minmax(0, 1fr) 48px;
-      gap: 10px;
+      grid-template-columns: 104px minmax(0, 1fr) 40px;
+      gap: 8px;
       align-items: center;
     }
-    .group-volume-row input[type="range"] {
+    .group-volume-row input[type="range"],
+    .volume-row input[type="range"] {
       width: 100%;
+      min-width: 0;
+      height: 24px;
+      margin: 0;
+      appearance: none;
+      -webkit-appearance: none;
+      background: transparent;
       accent-color: var(--primary-color, #03a9f4);
+    }
+    .group-volume-row input[type="range"]::-webkit-slider-runnable-track,
+    .volume-row input[type="range"]::-webkit-slider-runnable-track {
+      height: 3px;
+      border-radius: 2px;
+      background: linear-gradient(
+        to right,
+        var(--primary-color, #03a9f4) 0 var(--volume-value),
+        var(--divider-color, #666) var(--volume-value) 100%
+      );
+    }
+    .group-volume-row input[type="range"]::-webkit-slider-thumb,
+    .volume-row input[type="range"]::-webkit-slider-thumb {
+      width: 14px;
+      height: 14px;
+      margin-top: -5.5px;
+      border: 0;
+      border-radius: 50%;
+      -webkit-appearance: none;
+      background: var(--primary-color, #03a9f4);
+    }
+    .group-volume-row input[type="range"]::-moz-range-track,
+    .volume-row input[type="range"]::-moz-range-track {
+      height: 3px;
+      border: 0;
+      border-radius: 2px;
+      background: var(--divider-color, #666);
+    }
+    .group-volume-row input[type="range"]::-moz-range-progress,
+    .volume-row input[type="range"]::-moz-range-progress {
+      height: 3px;
+      border-radius: 2px;
+      background: var(--primary-color, #03a9f4);
+    }
+    .group-volume-row input[type="range"]::-moz-range-thumb,
+    .volume-row input[type="range"]::-moz-range-thumb {
+      width: 14px;
+      height: 14px;
+      border: 0;
+      border-radius: 50%;
+      background: var(--primary-color, #03a9f4);
     }
     .group-volume-row output {
       color: var(--secondary-text-color, #aaa);
@@ -1376,24 +1434,24 @@ class Control4MediaGroupDialog extends HTMLElement {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 6px;
-      min-height: 40px;
-      padding: 6px 10px;
+      gap: 5px;
+      min-height: 32px;
+      padding: 4px 8px;
       border: 1px solid var(--divider-color, #555);
       border-radius: 20px;
       color: var(--primary-text-color, #fff);
       background: var(--card-background-color, #1c1c1c);
     }
-    .group-mute-button ha-icon { width: 20px; }
+    .group-mute-button ha-icon { width: 18px; }
     .group-mute-button.muted {
       border-color: var(--primary-color, #03a9f4);
       color: var(--primary-color, #03a9f4);
       background: color-mix(in srgb, var(--primary-color, #03a9f4) 16%, transparent);
     }
-    main { min-height: 0; overflow-y: auto; padding: 14px 20px 20px; }
+    main { min-height: 0; overflow-y: auto; padding: 8px 16px 12px; }
     .preset-section {
-      margin-bottom: 20px;
-      padding: 14px;
+      margin-bottom: 12px;
+      padding: 10px;
       border: 1px solid var(--divider-color, #444);
       border-radius: 12px;
       background: color-mix(in srgb, var(--primary-text-color, #fff) 3%, transparent);
@@ -1402,8 +1460,8 @@ class Control4MediaGroupDialog extends HTMLElement {
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
-      gap: 12px;
-      margin-bottom: 12px;
+      gap: 8px;
+      margin-bottom: 8px;
     }
     .preset-heading h3 {
       margin: 0;
@@ -1420,8 +1478,8 @@ class Control4MediaGroupDialog extends HTMLElement {
       flex: 0 0 auto;
       align-items: center;
       gap: 4px;
-      min-height: 36px;
-      padding: 7px 10px;
+      min-height: 32px;
+      padding: 5px 8px;
       border: 1px solid var(--primary-color, #03a9f4);
       border-radius: 18px;
       color: var(--primary-color, #03a9f4);
@@ -1436,7 +1494,7 @@ class Control4MediaGroupDialog extends HTMLElement {
     .preset-card {
       display: grid;
       grid-template-columns: minmax(0, 1fr) 42px;
-      min-height: 62px;
+      min-height: 54px;
       overflow: hidden;
       border: 1px solid var(--divider-color, #555);
       border-radius: 10px;
@@ -1449,7 +1507,7 @@ class Control4MediaGroupDialog extends HTMLElement {
       align-items: center;
       gap: 8px;
       min-width: 0;
-      padding: 9px 8px 9px 10px;
+      padding: 6px 8px;
       border: 0;
       color: var(--primary-text-color, #fff);
       text-align: start;
@@ -1534,16 +1592,16 @@ class Control4MediaGroupDialog extends HTMLElement {
       background: color-mix(in srgb, var(--primary-color, #03a9f4) 12%, transparent);
     }
     .player-section + .player-section {
-      margin-top: 20px;
-      padding-top: 14px;
-      border-top: 2px solid var(--divider-color, #444);
+      margin-top: 12px;
+      padding-top: 8px;
+      border-top: 1px solid var(--divider-color, #444);
     }
     .player-section-heading {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
-      padding: 0 2px 6px;
+      gap: 8px;
+      padding: 0 2px 3px;
     }
     .player-section-heading h3 {
       margin: 0;
@@ -1563,55 +1621,55 @@ class Control4MediaGroupDialog extends HTMLElement {
       text-align: center;
     }
     .empty-players {
-      padding: 18px 2px;
+      padding: 10px 2px;
       color: var(--secondary-text-color, #aaa);
       font-size: 14px;
     }
     .empty-players[hidden] { display: none; }
-    .player { padding: 12px 0 14px; border-bottom: 1px solid var(--divider-color, #444); }
+    .player { padding: 7px 0 8px; border-bottom: 1px solid var(--divider-color, #444); }
     .player:last-child { border-bottom: 0; }
     .player-heading {
       display: grid;
-      grid-template-columns: 40px 1fr auto;
-      gap: 12px;
+      grid-template-columns: 30px 1fr auto;
+      gap: 8px;
       align-items: center;
     }
-    .player-heading > ha-icon { width: 28px; color: var(--primary-text-color, #fff); }
+    .player-heading > ha-icon { width: 22px; color: var(--primary-text-color, #fff); }
     .player-info { min-width: 0; }
-    .player-name { font-size: 18px; overflow: hidden; text-overflow: ellipsis; }
+    .player-name { font-size: 16px; overflow: hidden; text-overflow: ellipsis; }
     .player-state {
-      margin-top: 2px;
+      margin-top: 1px;
       color: var(--secondary-text-color, #aaa);
+      font-size: 12px;
       text-transform: capitalize;
     }
     .volume-row {
       display: grid;
-      grid-template-columns: 40px minmax(0, 1fr) 48px;
-      gap: 12px;
+      grid-template-columns: 30px minmax(0, 1fr) 40px;
+      gap: 8px;
       align-items: center;
-      margin-top: 12px;
+      margin-top: 3px;
     }
     .mute-button {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 40px;
-      height: 40px;
+      width: 30px;
+      height: 30px;
       padding: 0;
       border: 0;
       border-radius: 50%;
       color: var(--secondary-text-color, #aaa);
       background: transparent;
     }
-    .mute-button ha-icon { width: 24px; }
+    .mute-button ha-icon { width: 19px; }
     .mute-button.muted {
       color: var(--primary-color, #03a9f4);
       background: color-mix(in srgb, var(--primary-color, #03a9f4) 16%, transparent);
     }
-    .volume-row input[type="range"] { width: 100%; accent-color: var(--primary-color, #03a9f4); }
     .volume-row output { text-align: end; color: var(--secondary-text-color, #aaa); }
     .volume-row.disabled { opacity: 0.45; }
-    .switch { position: relative; display: inline-flex; width: 52px; height: 30px; }
+    .switch { position: relative; display: inline-flex; width: 44px; height: 24px; }
     .switch input { width: 0; height: 0; opacity: 0; }
     .switch span {
       position: absolute;
@@ -1624,10 +1682,10 @@ class Control4MediaGroupDialog extends HTMLElement {
     .switch span::before {
       content: "";
       position: absolute;
-      width: 22px;
-      height: 22px;
-      left: 3px;
-      top: 3px;
+      width: 18px;
+      height: 18px;
+      left: 2px;
+      top: 2px;
       border-radius: 50%;
       background: var(--secondary-text-color, #aaa);
       transition: 0.15s;
@@ -1637,7 +1695,7 @@ class Control4MediaGroupDialog extends HTMLElement {
       background: color-mix(in srgb, var(--primary-color, #03a9f4) 28%, transparent);
     }
     .switch input:checked + span::before {
-      transform: translateX(22px);
+      transform: translateX(20px);
       background: var(--primary-color, #03a9f4);
     }
     .switch input:disabled + span { opacity: 0.55; }
@@ -1645,14 +1703,14 @@ class Control4MediaGroupDialog extends HTMLElement {
       display: flex;
       flex: 0 0 auto;
       justify-content: flex-end;
-      gap: 10px;
-      padding: 14px 20px;
+      gap: 8px;
+      padding: 10px 16px;
       border-top: 1px solid var(--divider-color, #444);
       background: var(--card-background-color, #1c1c1c);
     }
     .apply {
       min-width: 92px;
-      padding: 11px 20px;
+      padding: 9px 18px;
       border: 0;
       border-radius: 22px;
       color: var(--text-primary-color, #fff);
@@ -1668,11 +1726,11 @@ class Control4MediaGroupDialog extends HTMLElement {
         max-height: none;
         border-radius: 0;
       }
-      header { grid-template-columns: 44px minmax(0, 1fr) auto; min-height: 64px; }
-      h2 { font-size: 22px; white-space: nowrap; }
+      header { grid-template-columns: 40px minmax(0, 1fr) auto; min-height: 56px; }
+      h2 { font-size: 20px; white-space: nowrap; }
       main {
-        padding-inline: 20px;
-        padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+        padding-inline: 14px;
+        padding-bottom: calc(78px + env(safe-area-inset-bottom, 0px));
       }
       footer {
         position: fixed;
@@ -1680,8 +1738,8 @@ class Control4MediaGroupDialog extends HTMLElement {
         right: 0;
         bottom: 0;
         left: 0;
-        min-height: 72px;
-        padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+        min-height: 60px;
+        padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
         box-shadow: 0 -6px 16px rgba(0, 0, 0, 0.28);
       }
     }

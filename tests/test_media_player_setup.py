@@ -136,6 +136,7 @@ class FakeCoordinator:
         self.started = False
         self.stopped = False
         self.source_fallback_enabled = False
+        self.volume_fallback_enabled = False
         self.instances.append(self)
 
     async def start(self):
@@ -146,6 +147,9 @@ class FakeCoordinator:
 
     def enable_source_fallback(self):
         self.source_fallback_enabled = True
+
+    def enable_volume_fallback(self):
+        self.volume_fallback_enabled = True
 
 
 class FakeSessionCoordinator:
@@ -266,6 +270,9 @@ class MediaPlayerSetupTests(unittest.IsolatedAsyncioTestCase):
             )
             self.assertTrue(all(
                 item.source_fallback_enabled for item in FakeCoordinator.instances
+            ))
+            self.assertTrue(all(
+                item.volume_fallback_enabled for item in FakeCoordinator.instances
             ))
             catalog = entry.runtime_data.tidal_catalogs[22][0]
             self.assertEqual((catalog.source_id, catalog.protocol_id), (94, 93))
