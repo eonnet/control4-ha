@@ -243,6 +243,7 @@ class MediaPlayerUITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(entity.unique_id, "192.168.0.24_22")
         self.assertEqual(entity.name, "Living")
         self.assertEqual(entity.device_info["suggested_area"], "Living")
+        self.assertEqual(entity.extra_state_attributes, {"control4_room_id": 22})
         self.assertEqual(entity.state, FakeMediaPlayerState.IDLE)
         self.assertEqual(entity.volume_level, 0.41)
         self.assertFalse(entity.is_volume_muted)

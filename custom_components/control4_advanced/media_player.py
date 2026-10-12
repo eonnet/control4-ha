@@ -75,6 +75,11 @@ class Control4RoomMediaPlayer(Control4Entity, MediaPlayerEntity):
         self.async_write_ha_state()
 
     @property
+    def extra_state_attributes(self) -> dict[str, int]:
+        """Mark room players so the packaged dashboard card can find them."""
+        return {"control4_room_id": self.device_id}
+
+    @property
     def supported_features(self) -> MediaPlayerEntityFeature:
         features = MediaPlayerEntityFeature(0)
         if self._volume_ready() and self.runtime.commands.supports_room_volume(self.device_id):

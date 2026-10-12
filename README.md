@@ -372,6 +372,30 @@ including disabled entities. The entities and registry records are retained;
 references to renamed IDs in dashboards, automations, scripts, and scenes must
 still be updated manually.
 
+## Control4 Media Group card
+
+Version 0.1.36 adds a packaged **Control4 Media Group** dashboard card. Its
+popup combines group membership with an independent volume slider beneath
+every Control4 room player. Membership changes are sent when **Apply** is
+pressed; volume changes are sent immediately to the individual room whose
+slider was moved.
+
+After updating the integration, restart Home Assistant and refresh the browser
+or fully close and reopen the mobile app. In dashboard edit mode choose
+**Add card**, search for **Control4 Media Group**, and select the room that
+should lead the group. The equivalent manual configuration is:
+
+```yaml
+type: custom:control4-media-group-card
+entity: media_player.kitchen
+```
+
+A volume slider is disabled while that room is off, unavailable, or does not
+advertise Control4's validated room-volume command. Join the room first, then
+open the card again if it was previously off. The separate **Volume** number
+entities introduced in 0.1.34 are removed as redundant during the first
+successful integration reload after this update.
+
 ## License
 
 This repository is licensed under the [Apache License 2.0](LICENSE).

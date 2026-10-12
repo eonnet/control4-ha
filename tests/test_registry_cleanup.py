@@ -117,7 +117,7 @@ class StaleRegistryTests(unittest.TestCase):
             "light.192.168.0.24_22_media_skip_fwd",
         ])
 
-    def test_room_volume_number_is_cleaned_only_with_its_room(self) -> None:
+    def test_redundant_room_volume_numbers_are_removed_after_upgrade(self) -> None:
         entities = [
             entity("192.168.0.24_22_room_volume"),
             entity("192.168.0.24_23_room_volume"),
@@ -127,7 +127,11 @@ class StaleRegistryTests(unittest.TestCase):
             first_inventory_ids={23, 99}, second_inventory_ids={23, 99},
         )
         self.assertEqual(
-            stale_entities, ["light.192.168.0.24_22_room_volume"]
+            stale_entities,
+            [
+                "light.192.168.0.24_22_room_volume",
+                "light.192.168.0.24_23_room_volume",
+            ],
         )
 
     def test_old_per_account_playlist_entities_are_removed(self) -> None:
