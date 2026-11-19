@@ -191,7 +191,7 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.rest.variables = [{"varName": "Brightness Percent", "value": 58}]
         await socket.sio_connect("test-token")
         for _ in range(100):
-            if self.rest.read_count > first_reads:
+            if self.rest.read_count > first_reads and statuses[-1] is True:
                 break
             await asyncio.sleep(0.01)
         self.assertGreater(self.rest.read_count, first_reads)

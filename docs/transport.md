@@ -47,7 +47,9 @@ dependencies are `aiohttp` and the tested `pyControl4` 2.0.2 Socket.IO client.
 | `thermostatV2` REST | `TEMPERATURE_C`, `HEAT_SETPOINT_C`, `COOL_SETPOINT_C`, `SINGLE_SETPOINT_C` | Celsius temperature and setpoints |
 | `thermostatV2` REST | `HVAC_MODE`, `HVAC_STATE`, `SCALE`, `IS_CONNECTED` | matching normalized mode, state, scale, connectivity |
 | `thermostatV2` REST | `HOLD_MODE`, `PRESET` | `hold_mode`, `preset_mode` |
+| `thermostatV2` REST | bounded `SCHEDULE` JSON/XML/status payload | `schedule` |
 | `thermostatV2` push | direct `hold_mode`, `preset` | `hold_mode`, `preset_mode` (Living AC observed) |
+| `thermostatV2` push | direct bounded `schedule` payload | `schedule` |
 | `thermostatV2` push | direct `fan_mode` | `fan_mode` (Living AC observed during manual preset changes) |
 
 Raw generic setpoint values such as `2921` are deliberately left uninterpreted.
@@ -58,6 +60,10 @@ Fan mode also uses the direct `fan_mode` label, not the parallel `fanmode` or
 `settings.fanmode` fields. A live 2026-10-04 REST read confirmed `FAN_MODE:
 Low` and the same four `SET_MODE_FAN.MODE` choices for both known ACs; see
 [fan-mode investigation](thermostat-fan-mode.md).
+The optional thermostat card accepts Control4's documented schedule entry
+shape (`DayIndex`, `EntryIndex`, `TimeMinutes`, `EnabledFlag`, setpoints, and
+units) from either structured JSON or XML. Thermostats that expose only
+`HOLD_MODE` retain Run/Hold control without fabricating weekly entries.
 For contact sensors, read-only REST sampled `ContactState:0` with verified
 `OPENED` and `ContactState:1` with verified `CLOSED` for both proxies.
 Kid Window's physical open/closed polarity is consistent with its REST and

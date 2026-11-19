@@ -284,6 +284,23 @@ class ClimateHoldUITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.commands.sent, [("humidity_mode", 2646, "Auto")])
         self.assertEqual(self.synced_device_ids, [2646])
 
+    async def test_control4_schedule_is_exposed_on_existing_climate(self):
+        schedule = [{
+            "DayIndex": 1,
+            "EntryIndex": 0,
+            "TimeMinutes": 360,
+            "EnabledFlag": True,
+            "HeatSetpoint": 20,
+            "CoolSetpoint": 24,
+            "Units": "C",
+        }]
+        self.states[2646]["schedule"] = schedule
+        living = self.climate.Control4Climate(self.runtime, self.items[2646])
+        self.assertEqual(living.extra_state_attributes, {
+            "control4_hold_mode": "Off",
+            "control4_schedule": schedule,
+        })
+
     async def test_tidal_account_and_playlist_selects_are_linked_to_room(self):
         self.items[22] = {
             "id": 22,

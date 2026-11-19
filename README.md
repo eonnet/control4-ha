@@ -3,7 +3,7 @@
 Control4 Advanced is an unofficial custom integration that brings compatible
 Control4 lighting, climate, relay, contact-sensor, and room-media devices into
 Home Assistant. It also includes media browsing, multi-room audio controls,
-saved group presets, privacy-preserving diagnostics, and four dashboard cards.
+saved group presets, privacy-preserving diagnostics, and five dashboard cards.
 
 ## Requirements
 
@@ -74,6 +74,7 @@ Assistant entity.
   same Home Assistant thermostat device.
 - Current humidity mode, operating state, and both setpoints as climate
   attributes.
+- A Control4 schedule attribute when Director exposes schedule data.
 
 Humidity controls appear only when the individual thermostat advertises the
 matching Control4 commands. Thermostats with a humidity reading but no control
@@ -178,6 +179,20 @@ The action accepts either the case-insensitive preset `name` or its stable
 
 All cards are packaged with the integration and available from the Home
 Assistant visual card picker after a restart and browser/app refresh.
+
+### Control4 Thermostat Card
+
+A compact thermostat card with current and target temperature, HVAC modes,
+fan, named presets, Control4 hold modes, and available humidifier/
+dehumidifier controls. Its **Schedule** tab imports the thermostat's Control4
+weekly events and groups them by day when Director exposes the schedule rows.
+Run/Hold remains available for thermostats that keep the weekly schedule
+internal to Control4.
+
+```yaml
+type: custom:control4-thermostat-card
+entity: climate.living_ac
+```
 
 ### Control4 Media Player
 

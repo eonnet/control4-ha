@@ -118,6 +118,10 @@ climate preset selector. Kid AC did not advertise `SET_PRESET`, so no preset
 control is exposed there. Both devices advertised `SET_MODE_HOLD` and a
 current `HOLD_MODE`; hold is shown as the climate attribute
 `control4_hold_mode` and as a companion select entity on the same HA device.
+When Director exposes `SCHEDULE`, the bounded payload is retained as
+`control4_schedule` for the packaged thermostat card. Its Schedule tab parses
+the documented Control4 day, time, enabled flag, and setpoint fields; otherwise
+it shows the real Run/Hold state without generating synthetic events.
 Thermostat humidity is exposed as the climate entity's native current-humidity
 value. Devices that advertise `SET_MODE_HUMIDITY` receive an Off/Humidify/
 Dehumidify/Auto companion selector. Parameterless Director-advertised

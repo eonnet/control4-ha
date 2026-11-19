@@ -295,16 +295,42 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("-webkit-line-clamp: 2;", javascript)
         self.assertIn("width: 52px;", javascript)
 
+    def test_thermostat_card_has_control4_schedule_and_humidity_tabs(self) -> None:
+        javascript = Path(FRONTEND_FILE).read_text(encoding="utf-8")
+        self.assertIn(
+            'const THERMOSTAT_CARD_TAG = "control4-thermostat-card"',
+            javascript,
+        )
+        self.assertIn(
+            'const THERMOSTAT_EDITOR_TAG = "control4-thermostat-card-editor"',
+            javascript,
+        )
+        self.assertIn("class Control4ThermostatCard extends HTMLElement", javascript)
+        self.assertIn(
+            "class Control4ThermostatCardEditor extends HTMLElement", javascript
+        )
+        self.assertIn("parseControl4Schedule", javascript)
+        self.assertIn('"DayIndex", "day_index", "day"', javascript)
+        self.assertIn('"TimeMinutes", "time_minutes", "minutes", "time"', javascript)
+        self.assertIn("Running Control4 schedule", javascript)
+        self.assertIn('data-tab="schedule"', javascript)
+        self.assertIn('data-action="${escapeHtml(action)}"', javascript)
+        self.assertIn('this._call("climate", "set_temperature"', javascript)
+        self.assertIn('this._call("select", "select_option"', javascript)
+        self.assertIn('this._call("button", "press"', javascript)
+        self.assertIn('name: "Control4 Thermostat"', javascript)
+        self.assertIn("Weekly entries are not exposed by this thermostat", javascript)
+
     def test_manifest_declares_hassfest_runtime_dependencies(self) -> None:
         manifest = json.loads(
             (Path(FRONTEND_FILE).parent.parent / "manifest.json").read_text(
                 encoding="utf-8"
             )
         )
-        self.assertEqual(manifest["version"], "0.1.63")
+        self.assertEqual(manifest["version"], "0.1.64")
         self.assertIn("http", manifest["dependencies"])
         self.assertEqual(manifest["requirements"], ["pyControl4>=2.0.2"])
-        self.assertTrue(FRONTEND_URL.endswith("?v=0.1.63"))
+        self.assertTrue(FRONTEND_URL.endswith("?v=0.1.64"))
 
     def test_official_control4_brand_assets_are_packaged(self) -> None:
         brand = Path(FRONTEND_FILE).parent.parent / "brand"

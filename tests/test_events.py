@@ -320,6 +320,39 @@ class EventNormalizationTests(unittest.TestCase):
         ])
         self.assertEqual(kid.changes, {"hold_mode": "Until Next"})
 
+    def test_thermostat_schedule_is_bounded_and_preserved_for_card(self) -> None:
+        schedule = [
+            {
+                "DayIndex": 1,
+                "EntryIndex": 0,
+                "TimeMinutes": 360,
+                "EnabledFlag": True,
+                "HeatSetpoint": 20,
+                "CoolSetpoint": 24,
+                "Units": "C",
+            }
+        ]
+        rest = normalize_rest_variables(2646, "thermostatV2", [
+            {"varName": "SCHEDULE", "value": schedule},
+        ])
+        self.assertEqual(rest.changes, {"schedule": schedule})
+        push = normalize_websocket_event(
+            {
+                "evtName": "OnDataToUI",
+                "iddevice": 2646,
+                "data": {"schedule": "<schedule DayIndex='2' TimeMinutes='480' />"},
+            },
+            "thermostatV2",
+        )
+        self.assertEqual(
+            push.changes,
+            {"schedule": "<schedule DayIndex='2' TimeMinutes='480' />"},
+        )
+        oversized = normalize_rest_variables(2646, "thermostatV2", [
+            {"varName": "SCHEDULE", "value": "x" * 65537},
+        ])
+        self.assertEqual(oversized.changes, {})
+
     def test_thermostat_hold_and_preset_push_ignore_legacy_hint(self) -> None:
         events = [
             ({"hold_mode": "Off"}, {"hold_mode": "Off"}),
