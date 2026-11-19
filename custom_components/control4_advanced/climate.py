@@ -110,6 +110,9 @@ class Control4Climate(Control4Entity, ClimateEntity):
         hold = self.state_data.get("hold_mode")
         if isinstance(hold, str):
             attributes["control4_hold_mode"] = hold
+        schedule = self.state_data.get("schedule")
+        if isinstance(schedule, (str, list, dict, bool, int, float)):
+            attributes["control4_schedule"] = schedule
         for state_key, attribute_key in (
             ("humidity_mode", "control4_humidity_mode"),
             ("humidity_state", "control4_humidity_state"),

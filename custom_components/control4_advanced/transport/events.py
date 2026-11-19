@@ -7,6 +7,7 @@ from binascii import Error as Base64Error
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+import json
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
@@ -57,6 +58,27 @@ def _label(value: Any) -> str | None:
         return None
     result = value.strip()
     return result if result and result != "-" else None
+
+
+def _schedule(value: Any) -> Any | None:
+    """Keep one bounded, JSON-safe Control4 thermostat schedule payload."""
+    if isinstance(value, str):
+        result = value.strip()
+        if (
+            not result
+            or result == "-"
+            or len(result) > 65536
+            or any(ord(char) < 32 and char not in "\t\r\n" for char in result)
+        ):
+            return None
+        return result
+    if not isinstance(value, (Mapping, list, bool, int, float)):
+        return None
+    try:
+        encoded = json.dumps(value, ensure_ascii=False, allow_nan=False)
+    except (TypeError, ValueError):
+        return None
+    return value if len(encoded) <= 65536 else None
 
 
 def _media_text(value: Any) -> str | None:
@@ -220,6 +242,9 @@ def _thermostat_changes(data: Mapping[str, Any]) -> dict[str, Any]:
     hold_mode = _label(data.get("hold_mode"))
     if hold_mode:
         changes["hold_mode"] = hold_mode
+    schedule = _schedule(_first(data, "schedule", "SCHEDULE"))
+    if schedule is not None:
+        changes["schedule"] = schedule
     if "preset" in data:
         preset_mode = _label(data["preset"])
         if preset_mode:
@@ -400,6 +425,9 @@ def normalize_rest_variables(
         hold_mode = _label(_first(by_name, "HOLD_MODE"))
         if hold_mode:
             changes["hold_mode"] = hold_mode
+        schedule = _schedule(by_name.get("SCHEDULE"))
+        if schedule is not None:
+            changes["schedule"] = schedule
         preset_mode = _label(_first(by_name, "PRESET"))
         if preset_mode:
             changes["preset_mode"] = preset_mode

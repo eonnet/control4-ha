@@ -5,6 +5,8 @@ const PRESET_CARD_TAG = "control4-media-preset-card";
 const PRESET_EDITOR_TAG = "control4-media-preset-card-editor";
 const FAVORITES_CARD_TAG = "control4-media-favorites-card";
 const FAVORITES_EDITOR_TAG = "control4-media-favorites-card-editor";
+const THERMOSTAT_CARD_TAG = "control4-thermostat-card";
+const THERMOSTAT_EDITOR_TAG = "control4-thermostat-card-editor";
 const DIALOG_TAG = "control4-media-group-dialog";
 const CONTROL4_PLATFORM = "control4_advanced";
 const FEATURE_VOLUME_SET = 4;
@@ -64,6 +66,246 @@ const control4BrowsePlayers = (hass) =>
         supportsFeature(state, FEATURE_BROWSE_MEDIA)
     )
     .sort((left, right) => stateName(left).localeCompare(stateName(right)));
+
+const control4Climates = (hass) =>
+  Object.values(hass?.states || {})
+    .filter(
+      (state) =>
+        state.entity_id.startsWith("climate.") &&
+        (hass.entities?.[state.entity_id]?.platform === CONTROL4_PLATFORM ||
+          Object.keys(state.attributes || {}).some((key) =>
+            key.startsWith("control4_")
+          ))
+    )
+    .sort((left, right) => stateName(left).localeCompare(stateName(right)));
+
+const control4DeviceEntities = (hass, entityId, domain) => {
+  const deviceId = hass?.entities?.[entityId]?.device_id;
+  if (!deviceId) {
+    return [];
+  }
+  return Object.values(hass?.states || {}).filter(
+    (state) =>
+      state.entity_id.startsWith(`${domain}.`) &&
+      hass.entities?.[state.entity_id]?.device_id === deviceId &&
+      hass.entities?.[state.entity_id]?.platform === CONTROL4_PLATFORM
+  );
+};
+
+const control4ThermostatCompanions = (hass, entityId) => {
+  const selects = control4DeviceEntities(hass, entityId, "select");
+  const buttons = control4DeviceEntities(hass, entityId, "button");
+  const hasOption = (state, value) =>
+    (state?.attributes?.options || []).some(
+      (option) => String(option).toLowerCase() === value
+    );
+  const hold = selects.find(
+    (state) => hasOption(state, "permanent") || hasOption(state, "until next")
+  );
+  const humidity = selects.find(
+    (state) => hasOption(state, "humidify") || hasOption(state, "dehumidify")
+  );
+  const stepButton = (kind, direction) =>
+    buttons.find((state) => {
+      const name = stateName(state).toLowerCase();
+      const icon = String(state.attributes.icon || "").toLowerCase();
+      return (
+        name.includes(kind) &&
+        (direction === "increase"
+          ? name.includes("+1") || icon.includes("plus")
+          : name.includes("-1") || name.includes("−1") || icon.includes("minus"))
+      );
+    });
+  return {
+    hold,
+    humidity,
+    humidifyDecrease: stepButton("humidifier", "decrease"),
+    humidifyIncrease: stepButton("humidifier", "increase"),
+    dehumidifyDecrease: stepButton("dehumidifier", "decrease"),
+    dehumidifyIncrease: stepButton("dehumidifier", "increase"),
+  };
+};
+
+const scheduleKey = (value) =>
+  String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+
+const scheduleValue = (record, ...names) => {
+  if (!record || typeof record !== "object") {
+    return undefined;
+  }
+  const wanted = new Set(names.map(scheduleKey));
+  const key = Object.keys(record).find((candidate) =>
+    wanted.has(scheduleKey(candidate))
+  );
+  return key === undefined ? undefined : record[key];
+};
+
+const scheduleDayIndex = (value) => {
+  const days = [
+    "sunday",
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+  ];
+  const numeric = Number(value);
+  if (Number.isInteger(numeric) && numeric >= 0 && numeric <= 6) {
+    return numeric;
+  }
+  const label = scheduleKey(value);
+  const index = days.findIndex(
+    (day) => label === day || label === day.slice(0, 3)
+  );
+  return index >= 0 ? index : undefined;
+};
+
+const scheduleMinutes = (value) => {
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric >= 0 && numeric < 1440) {
+    return Math.round(numeric);
+  }
+  const match = String(value || "").trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) {
+    return undefined;
+  }
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  return hours < 24 && minutes < 60 ? hours * 60 + minutes : undefined;
+};
+
+const normalizeScheduleEntry = (record, inheritedDay) => {
+  const day = scheduleDayIndex(
+    scheduleValue(record, "DayIndex", "day_index", "day") ?? inheritedDay
+  );
+  const minutes = scheduleMinutes(
+    scheduleValue(record, "TimeMinutes", "time_minutes", "minutes", "time")
+  );
+  if (day === undefined || minutes === undefined) {
+    return undefined;
+  }
+  const enabledValue = scheduleValue(
+    record,
+    "EnabledFlag",
+    "enabled_flag",
+    "enabled"
+  );
+  const enabled = !(
+    enabledValue === false ||
+    enabledValue === 0 ||
+    String(enabledValue).toLowerCase() === "false" ||
+    String(enabledValue) === "0"
+  );
+  return {
+    day,
+    minutes,
+    index: Number(
+      scheduleValue(record, "EntryIndex", "entry_index", "index") ?? 0
+    ),
+    enabled,
+    heat: scheduleValue(record, "HeatSetpoint", "heat_setpoint", "heat"),
+    cool: scheduleValue(record, "CoolSetpoint", "cool_setpoint", "cool"),
+    single: scheduleValue(
+      record,
+      "SingleSetpoint",
+      "single_setpoint",
+      "setpoint",
+      "temperature"
+    ),
+    units: scheduleValue(record, "Units", "units", "unit") || "°C",
+    preset: scheduleValue(
+      record,
+      "Preset",
+      "preset",
+      "EntryName",
+      "entry_name",
+      "name"
+    ),
+  };
+};
+
+const parseControl4Schedule = (raw) => {
+  if (raw === undefined || raw === null || raw === "") {
+    return { entries: [], status: "" };
+  }
+  let value = raw;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    try {
+      value = JSON.parse(trimmed);
+    } catch (_error) {
+      if (trimmed.startsWith("<") && typeof DOMParser !== "undefined") {
+        const documentNode = new DOMParser().parseFromString(
+          trimmed,
+          "application/xml"
+        );
+        const records = [...documentNode.querySelectorAll("*")].map((node) =>
+          Object.fromEntries(
+            [...node.attributes].map((attribute) => [
+              attribute.name,
+              attribute.value,
+            ])
+          )
+        );
+        return {
+          entries: records
+            .map((record) => normalizeScheduleEntry(record))
+            .filter(Boolean)
+            .sort(
+              (left, right) =>
+                left.day - right.day ||
+                left.minutes - right.minutes ||
+                left.index - right.index
+            ),
+          status: records.length ? "" : trimmed,
+        };
+      }
+      return { entries: [], status: trimmed };
+    }
+  }
+  const entries = [];
+  const seen = new Set();
+  const visit = (node, inheritedDay, depth = 0) => {
+    if (depth > 8 || node === null || node === undefined) {
+      return;
+    }
+    if (Array.isArray(node)) {
+      node.forEach((child) => visit(child, inheritedDay, depth + 1));
+      return;
+    }
+    if (typeof node !== "object") {
+      return;
+    }
+    const entry = normalizeScheduleEntry(node, inheritedDay);
+    if (entry) {
+      const key = `${entry.day}|${entry.index}|${entry.minutes}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        entries.push(entry);
+      }
+    }
+    for (const [key, child] of Object.entries(node)) {
+      if (child && typeof child === "object") {
+        visit(child, scheduleDayIndex(key) ?? inheritedDay, depth + 1);
+      }
+    }
+  };
+  visit(value, undefined);
+  const status =
+    scheduleValue(value, "status", "state", "mode", "name") ?? "";
+  return {
+    entries: entries.sort(
+      (left, right) =>
+        left.day - right.day ||
+        left.minutes - right.minutes ||
+        left.index - right.index
+    ),
+    status: typeof status === "object" ? "" : String(status),
+  };
+};
 
 const browseControl4Media = (hass, entityId, item) => {
   if (typeof hass?.callWS !== "function") {
@@ -2313,6 +2555,608 @@ class Control4MediaPlayerCard extends HTMLElement {
   }
 }
 
+class Control4ThermostatCard extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._config = undefined;
+    this._hass = undefined;
+    this._activeTab = "controls";
+    this._selectedDay = new Date().getDay();
+    this._busy = false;
+    this._error = "";
+  }
+
+  static getConfigElement() {
+    return document.createElement(THERMOSTAT_EDITOR_TAG);
+  }
+
+  static getStubConfig(hass) {
+    return { entity: control4Climates(hass)[0]?.entity_id || "" };
+  }
+
+  setConfig(config) {
+    if (!config?.entity || !String(config.entity).startsWith("climate.")) {
+      throw new Error("Select a Control4 climate entity");
+    }
+    this._config = { ...config };
+    this._render();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+  }
+
+  connectedCallback() {
+    this._render();
+  }
+
+  getCardSize() {
+    return 5;
+  }
+
+  getGridOptions() {
+    return { rows: 5, columns: 6, min_rows: 3, min_columns: 3 };
+  }
+
+  async _run(action) {
+    if (this._busy) {
+      return;
+    }
+    this._busy = true;
+    this._error = "";
+    this._render();
+    try {
+      await action();
+    } catch (error) {
+      this._error = error?.message || String(error);
+    } finally {
+      this._busy = false;
+      if (this.isConnected) {
+        this._render();
+      }
+    }
+  }
+
+  _call(domain, service, data) {
+    if (typeof this._hass?.callService !== "function") {
+      throw new Error("Home Assistant service connection is unavailable");
+    }
+    return this._hass.callService(domain, service, data);
+  }
+
+  _temperature(value, unit = "°C") {
+    let numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return "—";
+    }
+    if (numeric > 1000) {
+      numeric = numeric / 10 - 273.15;
+    } else if (numeric > 100) {
+      numeric /= 10;
+    }
+    const rounded = Math.round(numeric * 10) / 10;
+    const suffix = String(unit || "°C").toUpperCase().replace("CELSIUS", "°C");
+    return `${rounded}${suffix === "C" ? "°C" : suffix}`;
+  }
+
+  _renderSelect(label, action, current, options, disabled = false) {
+    if (!Array.isArray(options) || !options.length) {
+      return "";
+    }
+    return `
+      <label class="select-row">
+        <span>${escapeHtml(label)}</span>
+        <select data-action="${escapeHtml(action)}" ${disabled ? "disabled" : ""}>
+          ${options
+            .map(
+              (option) => `<option value="${escapeHtml(option)}" ${
+                String(option).toLowerCase() === String(current).toLowerCase()
+                  ? "selected"
+                  : ""
+              }>${escapeHtml(option)}</option>`
+            )
+            .join("")}
+        </select>
+      </label>`;
+  }
+
+  _renderHumidity(state, companions) {
+    const attributes = state.attributes || {};
+    const current = attributes.current_humidity;
+    const mode = companions.humidity;
+    const humidify = attributes.control4_humidify_setpoint;
+    const dehumidify = attributes.control4_dehumidify_setpoint;
+    if (
+      current === undefined &&
+      !mode &&
+      humidify === undefined &&
+      dehumidify === undefined
+    ) {
+      return "";
+    }
+    const setpoint = (label, value, decrease, increase) => {
+      if (value === undefined) {
+        return "";
+      }
+      return `
+        <div class="humidity-setpoint">
+          <span class="humidity-label">${escapeHtml(label)}</span>
+          <div class="stepper">
+            <button data-press="${escapeHtml(
+              decrease?.entity_id || ""
+            )}" ${!decrease || decrease.state === "unavailable" ? "disabled" : ""}
+              aria-label="Decrease ${escapeHtml(label)}">
+              <ha-icon icon="mdi:minus"></ha-icon>
+            </button>
+            <strong>${escapeHtml(Math.round(Number(value)))}%</strong>
+            <button data-press="${escapeHtml(
+              increase?.entity_id || ""
+            )}" ${!increase || increase.state === "unavailable" ? "disabled" : ""}
+              aria-label="Increase ${escapeHtml(label)}">
+              <ha-icon icon="mdi:plus"></ha-icon>
+            </button>
+          </div>
+        </div>`;
+    };
+    return `
+      <section class="section humidity-section">
+        <div class="section-title">
+          <span><ha-icon icon="mdi:water-percent"></ha-icon> Humidity</span>
+          ${current === undefined ? "" : `<strong>${escapeHtml(Math.round(Number(current)))}%</strong>`}
+        </div>
+        ${
+          mode
+            ? this._renderSelect(
+                "Mode",
+                "humidity",
+                mode.state,
+                mode.attributes.options,
+                this._busy
+              )
+            : ""
+        }
+        <div class="humidity-grid">
+          ${setpoint(
+            "Humidifier",
+            humidify,
+            companions.humidifyDecrease,
+            companions.humidifyIncrease
+          )}
+          ${setpoint(
+            "Dehumidifier",
+            dehumidify,
+            companions.dehumidifyDecrease,
+            companions.dehumidifyIncrease
+          )}
+        </div>
+        ${
+          attributes.control4_humidity_state
+            ? `<div class="subtle">Current state: ${escapeHtml(
+                attributes.control4_humidity_state
+              )}</div>`
+            : ""
+        }
+      </section>`;
+  }
+
+  _renderControls(state, companions) {
+    const attributes = state.attributes || {};
+    const modes = Array.isArray(attributes.hvac_modes)
+      ? attributes.hvac_modes
+      : [];
+    const target = Number(attributes.temperature);
+    const step = Number(attributes.target_temp_step) || 1;
+    return `
+      <section class="temperature-control">
+        <div class="temperature-values">
+          <div>
+            <span class="eyebrow">Current</span>
+            <strong>${this._temperature(attributes.current_temperature)}</strong>
+          </div>
+          <div class="target-block">
+            <span class="eyebrow">Target</span>
+            <div class="target-stepper">
+              <button data-target-delta="-${step}" ${
+                !Number.isFinite(target) || this._busy ? "disabled" : ""
+              } aria-label="Lower target temperature"><ha-icon icon="mdi:minus"></ha-icon></button>
+              <strong>${this._temperature(target)}</strong>
+              <button data-target-delta="${step}" ${
+                !Number.isFinite(target) || this._busy ? "disabled" : ""
+              } aria-label="Raise target temperature"><ha-icon icon="mdi:plus"></ha-icon></button>
+            </div>
+          </div>
+        </div>
+        ${
+          modes.length
+            ? `<div class="mode-grid">${modes
+                .map(
+                  (mode) => `<button data-hvac-mode="${escapeHtml(mode)}" class="${
+                    state.state === mode ? "selected" : ""
+                  }" ${this._busy ? "disabled" : ""}>
+                    <ha-icon icon="${
+                      mode === "heat"
+                        ? "mdi:fire"
+                        : mode === "cool"
+                          ? "mdi:snowflake"
+                          : mode === "auto"
+                            ? "mdi:autorenew"
+                            : "mdi:power"
+                    }"></ha-icon><span>${escapeHtml(mode)}</span>
+                  </button>`
+                )
+                .join("")}</div>`
+            : ""
+        }
+      </section>
+      <section class="section settings-section">
+        ${this._renderSelect(
+          "Fan",
+          "fan",
+          attributes.fan_mode,
+          attributes.fan_modes,
+          this._busy
+        )}
+        ${this._renderSelect(
+          "Preset",
+          "preset",
+          attributes.preset_mode,
+          attributes.preset_modes,
+          this._busy
+        )}
+        ${
+          companions.hold
+            ? this._renderSelect(
+                "Schedule hold",
+                "hold",
+                companions.hold.state,
+                companions.hold.attributes.options,
+                this._busy
+              )
+            : ""
+        }
+      </section>
+      ${this._renderHumidity(state, companions)}`;
+  }
+
+  _scheduleEntryDetails(entry) {
+    const details = [];
+    if (entry.preset !== undefined && entry.preset !== "") {
+      details.push(String(entry.preset));
+    }
+    if (entry.single !== undefined) {
+      details.push(this._temperature(entry.single, entry.units));
+    } else {
+      if (entry.heat !== undefined) {
+        details.push(`Heat ${this._temperature(entry.heat, entry.units)}`);
+      }
+      if (entry.cool !== undefined) {
+        details.push(`Cool ${this._temperature(entry.cool, entry.units)}`);
+      }
+    }
+    return details.join(" · ") || "Scheduled event";
+  }
+
+  _renderSchedule(state, companions) {
+    const attributes = state.attributes || {};
+    const rawSchedule = attributes.control4_schedule;
+    const schedule = parseControl4Schedule(rawSchedule);
+    const dayNames = [
+      "Sunday",
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+    ];
+    const availableDays = new Set(schedule.entries.map((entry) => entry.day));
+    if (schedule.entries.length && !availableDays.has(this._selectedDay)) {
+      this._selectedDay = schedule.entries[0].day;
+    }
+    const entries = schedule.entries.filter(
+      (entry) => entry.day === this._selectedDay
+    );
+    const hold = companions.hold;
+    const holdMode = hold?.state || attributes.control4_hold_mode || "Unknown";
+    const isRunning = String(holdMode).toLowerCase() === "off";
+    return `
+      <section class="schedule-status ${isRunning ? "running" : "holding"}">
+        <ha-icon icon="${isRunning ? "mdi:calendar-clock" : "mdi:hand-back-right"}"></ha-icon>
+        <div>
+          <strong>${isRunning ? "Running Control4 schedule" : `Hold: ${escapeHtml(holdMode)}`}</strong>
+          <span>${
+            schedule.status
+              ? escapeHtml(schedule.status)
+              : schedule.entries.length
+                ? `${schedule.entries.length} weekly events imported from Director`
+                : rawSchedule !== undefined
+                  ? "Schedule status imported from Director"
+                  : "Schedule status follows the Control4 hold mode"
+          }</span>
+        </div>
+        ${
+          hold
+            ? `<button class="run-schedule" data-run-schedule ${
+                isRunning || this._busy ? "disabled" : ""
+              }>Run</button>`
+            : ""
+        }
+      </section>
+      ${
+        hold
+          ? this._renderSelect(
+              "Run / hold",
+              "hold",
+              hold.state,
+              hold.attributes.options,
+              this._busy
+            )
+          : ""
+      }
+      ${
+        schedule.entries.length
+          ? `<div class="day-tabs" role="tablist">${dayNames
+              .map(
+                (day, index) => `<button data-day="${index}" class="${
+                  index === this._selectedDay ? "selected" : ""
+                } ${availableDays.has(index) ? "has-events" : ""}" title="${escapeHtml(day)}">
+                  ${escapeHtml(day.slice(0, 3))}
+                </button>`
+              )
+              .join("")}</div>
+            <section class="schedule-list">
+              <div class="schedule-day-title">${escapeHtml(
+                dayNames[this._selectedDay]
+              )}</div>
+              ${
+                entries.length
+                  ? entries
+                      .map((entry) => {
+                        const hours = Math.floor(entry.minutes / 60);
+                        const minutes = String(entry.minutes % 60).padStart(2, "0");
+                        return `<div class="schedule-entry ${
+                          entry.enabled ? "" : "disabled-entry"
+                        }">
+                          <time>${String(hours).padStart(2, "0")}:${minutes}</time>
+                          <span>${escapeHtml(this._scheduleEntryDetails(entry))}</span>
+                          <ha-icon icon="${
+                            entry.enabled ? "mdi:check-circle" : "mdi:minus-circle-outline"
+                          }"></ha-icon>
+                        </div>`;
+                      })
+                      .join("")
+                  : `<div class="empty-schedule">No enabled events for this day.</div>`
+              }
+            </section>`
+          : `<section class="empty-schedule">
+              <ha-icon icon="mdi:calendar-search"></ha-icon>
+              <strong>Weekly entries are not exposed by this thermostat</strong>
+              <span>Run and Hold still control the schedule stored in Control4. When Director provides schedule rows, they appear here automatically.</span>
+            </section>`
+      }`;
+  }
+
+  _render() {
+    if (!this._config || !this._hass) {
+      return;
+    }
+    const state = this._hass.states?.[this._config.entity];
+    if (!state) {
+      this.shadowRoot.innerHTML = `<ha-card><div class="missing">Climate entity not found: ${escapeHtml(
+        this._config.entity
+      )}</div></ha-card>`;
+      return;
+    }
+    const companions = control4ThermostatCompanions(
+      this._hass,
+      this._config.entity
+    );
+    const title = this._config.name || stateName(state);
+    const action = state.attributes.hvac_action || state.state;
+    this.shadowRoot.innerHTML = `
+      <style>
+        :host { display: block; }
+        * { box-sizing: border-box; }
+        ha-card { overflow: hidden; color: var(--primary-text-color); }
+        button, select { font: inherit; color: inherit; }
+        button { cursor: pointer; }
+        button:disabled, select:disabled { cursor: default; opacity: .45; }
+        .header { display: flex; align-items: center; gap: 12px; padding: 16px 18px 10px; }
+        .header > ha-icon { color: var(--primary-color); --mdc-icon-size: 28px; }
+        .header-text { min-width: 0; flex: 1; }
+        .header h2 { margin: 0; font-size: 21px; line-height: 1.2; }
+        .header p { margin: 3px 0 0; color: var(--secondary-text-color); text-transform: capitalize; }
+        .more-info { width: 40px; height: 40px; border: 0; border-radius: 50%; background: transparent; }
+        .tabs { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid var(--divider-color); padding: 0 12px; }
+        .tabs button { position: relative; padding: 11px 8px; border: 0; background: transparent; color: var(--secondary-text-color); }
+        .tabs button.selected { color: var(--primary-color); font-weight: 600; }
+        .tabs button.selected::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: 0; height: 2px; border-radius: 2px; background: var(--primary-color); }
+        .body { padding: 14px 18px 18px; }
+        .temperature-values { display: grid; grid-template-columns: 1fr 1.35fr; align-items: end; gap: 12px; }
+        .temperature-values > div { display: flex; flex-direction: column; gap: 4px; }
+        .temperature-values strong { font-size: 34px; font-weight: 400; }
+        .eyebrow { color: var(--secondary-text-color); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+        .target-stepper { display: grid; grid-template-columns: 38px minmax(70px, 1fr) 38px; align-items: center; gap: 4px; }
+        .target-stepper strong { text-align: center; }
+        .target-stepper button, .stepper button { width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid var(--divider-color); border-radius: 50%; background: var(--secondary-background-color); }
+        .target-stepper ha-icon, .stepper ha-icon { --mdc-icon-size: 19px; }
+        .mode-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; margin-top: 15px; }
+        .mode-grid button { min-width: 0; padding: 9px 3px 8px; border: 1px solid var(--divider-color); border-radius: 11px; background: var(--secondary-background-color); text-transform: capitalize; }
+        .mode-grid button ha-icon { display: block; margin: 0 auto 4px; --mdc-icon-size: 20px; }
+        .mode-grid button.selected { color: var(--text-primary-color, #fff); background: var(--primary-color); border-color: var(--primary-color); }
+        .section { margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--divider-color); }
+        .settings-section:empty { display: none; }
+        .select-row { display: grid; grid-template-columns: minmax(90px, 1fr) minmax(130px, 1.3fr); align-items: center; gap: 12px; min-height: 44px; }
+        .select-row + .select-row { border-top: 1px solid color-mix(in srgb, var(--divider-color) 70%, transparent); }
+        select { width: 100%; min-width: 0; padding: 8px 30px 8px 10px; border: 1px solid var(--divider-color); border-radius: 9px; background: var(--secondary-background-color); }
+        .section-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+        .section-title span { display: flex; align-items: center; gap: 7px; font-weight: 600; }
+        .section-title ha-icon { color: var(--primary-color); --mdc-icon-size: 21px; }
+        .humidity-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 8px; }
+        .humidity-setpoint { padding: 10px; border: 1px solid var(--divider-color); border-radius: 11px; background: var(--secondary-background-color); }
+        .humidity-label { display: block; margin-bottom: 8px; color: var(--secondary-text-color); font-size: 13px; }
+        .stepper { display: grid; grid-template-columns: 32px 1fr 32px; align-items: center; gap: 4px; }
+        .stepper button { width: 30px; height: 30px; }
+        .stepper strong { text-align: center; font-size: 17px; }
+        .subtle { margin-top: 8px; color: var(--secondary-text-color); font-size: 13px; }
+        .schedule-status { display: grid; grid-template-columns: 36px 1fr auto; align-items: center; gap: 10px; padding: 12px; border-radius: 12px; background: var(--secondary-background-color); }
+        .schedule-status > ha-icon { color: var(--primary-color); --mdc-icon-size: 27px; }
+        .schedule-status div { min-width: 0; }
+        .schedule-status strong, .schedule-status span { display: block; }
+        .schedule-status span { margin-top: 3px; color: var(--secondary-text-color); font-size: 13px; }
+        .run-schedule { padding: 8px 13px; border: 1px solid var(--primary-color); border-radius: 18px; color: var(--primary-color); background: transparent; }
+        .day-tabs { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; margin: 14px 0 10px; }
+        .day-tabs button { position: relative; min-width: 0; padding: 8px 1px; border: 0; border-radius: 9px; color: var(--secondary-text-color); background: transparent; font-size: 12px; }
+        .day-tabs button.has-events::after { content: ""; position: absolute; bottom: 3px; left: 50%; width: 3px; height: 3px; border-radius: 50%; background: currentColor; transform: translateX(-50%); }
+        .day-tabs button.selected { color: var(--text-primary-color, #fff); background: var(--primary-color); }
+        .schedule-list { overflow: hidden; border: 1px solid var(--divider-color); border-radius: 12px; }
+        .schedule-day-title { padding: 10px 12px; font-weight: 600; background: var(--secondary-background-color); }
+        .schedule-entry { display: grid; grid-template-columns: 54px 1fr 22px; align-items: center; gap: 9px; padding: 11px 12px; border-top: 1px solid var(--divider-color); }
+        .schedule-entry time { font-variant-numeric: tabular-nums; font-weight: 600; }
+        .schedule-entry span { min-width: 0; color: var(--secondary-text-color); }
+        .schedule-entry ha-icon { color: var(--primary-color); --mdc-icon-size: 18px; }
+        .schedule-entry.disabled-entry { opacity: .5; }
+        .empty-schedule { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 24px 18px; text-align: center; color: var(--secondary-text-color); }
+        .empty-schedule ha-icon { --mdc-icon-size: 34px; }
+        .empty-schedule strong { color: var(--primary-text-color); }
+        .error { margin-top: 12px; padding: 10px; border-radius: 9px; color: var(--error-color); background: color-mix(in srgb, var(--error-color) 12%, transparent); overflow-wrap: anywhere; }
+        .missing { padding: 20px; color: var(--error-color); }
+        @media (max-width: 360px) {
+          .body { padding-inline: 12px; }
+          .humidity-grid { grid-template-columns: 1fr; }
+          .mode-grid { gap: 4px; }
+          .mode-grid button { font-size: 12px; }
+        }
+      </style>
+      <ha-card aria-busy="${this._busy ? "true" : "false"}">
+        <header class="header">
+          <ha-icon icon="mdi:thermostat"></ha-icon>
+          <div class="header-text">
+            <h2>${escapeHtml(title)}</h2>
+            <p>${escapeHtml(action)}</p>
+          </div>
+          <button class="more-info" data-more-info aria-label="More information"><ha-icon icon="mdi:dots-vertical"></ha-icon></button>
+        </header>
+        <nav class="tabs">
+          <button data-tab="controls" class="${this._activeTab === "controls" ? "selected" : ""}">Controls</button>
+          <button data-tab="schedule" class="${this._activeTab === "schedule" ? "selected" : ""}">Schedule</button>
+        </nav>
+        <div class="body">
+          ${
+            this._activeTab === "schedule"
+              ? this._renderSchedule(state, companions)
+              : this._renderControls(state, companions)
+          }
+          ${this._error ? `<div class="error">${escapeHtml(this._error)}</div>` : ""}
+        </div>
+      </ha-card>`;
+    this._bind(state, companions);
+  }
+
+  _bind(state, companions) {
+    for (const button of this.shadowRoot.querySelectorAll("[data-tab]")) {
+      button.addEventListener("click", () => {
+        this._activeTab = button.dataset.tab;
+        this._render();
+      });
+    }
+    this.shadowRoot.querySelector("[data-more-info]")?.addEventListener("click", () =>
+      this.dispatchEvent(
+        new CustomEvent("hass-more-info", {
+          detail: { entityId: this._config.entity },
+          bubbles: true,
+          composed: true,
+        })
+      )
+    );
+    for (const button of this.shadowRoot.querySelectorAll("[data-hvac-mode]")) {
+      button.addEventListener("click", () =>
+        void this._run(() =>
+          this._call("climate", "set_hvac_mode", {
+            entity_id: this._config.entity,
+            hvac_mode: button.dataset.hvacMode,
+          })
+        )
+      );
+    }
+    for (const button of this.shadowRoot.querySelectorAll("[data-target-delta]")) {
+      button.addEventListener("click", () => {
+        const temperature =
+          Number(state.attributes.temperature) + Number(button.dataset.targetDelta);
+        void this._run(() =>
+          this._call("climate", "set_temperature", {
+            entity_id: this._config.entity,
+            temperature,
+          })
+        );
+      });
+    }
+    for (const select of this.shadowRoot.querySelectorAll("select[data-action]")) {
+      select.addEventListener("change", () => {
+        const action = select.dataset.action;
+        const value = select.value;
+        if (action === "fan") {
+          void this._run(() =>
+            this._call("climate", "set_fan_mode", {
+              entity_id: this._config.entity,
+              fan_mode: value,
+            })
+          );
+        } else if (action === "preset") {
+          void this._run(() =>
+            this._call("climate", "set_preset_mode", {
+              entity_id: this._config.entity,
+              preset_mode: value,
+            })
+          );
+        } else {
+          const entity = action === "hold" ? companions.hold : companions.humidity;
+          if (entity) {
+            void this._run(() =>
+              this._call("select", "select_option", {
+                entity_id: entity.entity_id,
+                option: value,
+              })
+            );
+          }
+        }
+      });
+    }
+    for (const button of this.shadowRoot.querySelectorAll("button[data-press]")) {
+      button.addEventListener("click", () => {
+        if (button.dataset.press) {
+          void this._run(() =>
+            this._call("button", "press", {
+              entity_id: button.dataset.press,
+            })
+          );
+        }
+      });
+    }
+    this.shadowRoot.querySelector("[data-run-schedule]")?.addEventListener("click", () => {
+      const off = companions.hold?.attributes?.options?.find(
+        (option) => String(option).toLowerCase() === "off"
+      );
+      if (off) {
+        void this._run(() =>
+          this._call("select", "select_option", {
+            entity_id: companions.hold.entity_id,
+            option: off,
+          })
+        );
+      }
+    });
+    for (const button of this.shadowRoot.querySelectorAll("[data-day]")) {
+      button.addEventListener("click", () => {
+        this._selectedDay = Number(button.dataset.day);
+        this._render();
+      });
+    }
+  }
+}
+
 class Control4MediaFavoritesCard extends HTMLElement {
   constructor() {
     super();
@@ -3583,6 +4427,86 @@ class Control4MediaFavoritesCardEditor extends HTMLElement {
   }
 }
 
+class Control4ThermostatCardEditor extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._hass = undefined;
+    this._config = {};
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+  }
+
+  setConfig(config) {
+    this._config = { ...config };
+    this._render();
+  }
+
+  _changed(updates) {
+    const config = { ...this._config, ...updates };
+    if (!config.name) {
+      delete config.name;
+    }
+    this._config = config;
+    this.dispatchEvent(
+      new CustomEvent("config-changed", {
+        detail: { config },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
+  _render() {
+    if (!this._hass) {
+      return;
+    }
+    const climates = control4Climates(this._hass);
+    this.shadowRoot.innerHTML = `
+      <style>
+        :host { display: block; }
+        label { display: block; margin: 16px 0; color: var(--primary-text-color); }
+        select, input {
+          width: 100%;
+          margin-top: 8px;
+          padding: 12px;
+          border: 1px solid var(--divider-color);
+          border-radius: 8px;
+          color: var(--primary-text-color);
+          background: var(--card-background-color);
+          font: inherit;
+        }
+        .hint { color: var(--secondary-text-color); font-size: 13px; line-height: 1.4; }
+      </style>
+      <label>
+        Control4 thermostat
+        <select>
+          ${climates
+            .map(
+              (state) => `<option value="${escapeHtml(state.entity_id)}" ${
+                state.entity_id === this._config.entity ? "selected" : ""
+              }>${escapeHtml(stateName(state))}</option>`
+            )
+            .join("")}
+        </select>
+      </label>
+      <label>
+        Card title (optional)
+        <input type="text" value="${escapeHtml(this._config.name || "")}" />
+      </label>
+      <div class="hint">The Schedule tab imports Director schedule rows when the thermostat exposes them and always provides the available Control4 Run/Hold modes.</div>`;
+    this.shadowRoot.querySelector("select")?.addEventListener("change", (event) =>
+      this._changed({ entity: event.currentTarget.value })
+    );
+    this.shadowRoot.querySelector("input")?.addEventListener("change", (event) =>
+      this._changed({ name: event.currentTarget.value.trim() })
+    );
+  }
+}
+
 class Control4MediaGroupCardEditor extends HTMLElement {
   constructor() {
     super();
@@ -3674,6 +4598,12 @@ const registerCard = () => {
   if (!customElements.get(PLAYER_CARD_TAG)) {
     customElements.define(PLAYER_CARD_TAG, Control4MediaPlayerCard);
   }
+  if (!customElements.get(THERMOSTAT_EDITOR_TAG)) {
+    customElements.define(THERMOSTAT_EDITOR_TAG, Control4ThermostatCardEditor);
+  }
+  if (!customElements.get(THERMOSTAT_CARD_TAG)) {
+    customElements.define(THERMOSTAT_CARD_TAG, Control4ThermostatCard);
+  }
   if (!customElements.get(FAVORITES_EDITOR_TAG)) {
     customElements.define(
       FAVORITES_EDITOR_TAG,
@@ -3706,6 +4636,15 @@ const registerCard = () => {
       description: "Native media controls with Control4 room grouping and independent volume",
       preview: true,
       documentationURL: "https://github.com/eonnet/control4-ha#control4-media-player-card",
+    });
+  }
+  if (!window.customCards.some((card) => card.type === THERMOSTAT_CARD_TAG)) {
+    window.customCards.push({
+      type: THERMOSTAT_CARD_TAG,
+      name: "Control4 Thermostat",
+      description: "Control4 climate, humidity, presets, fan, hold, and schedule",
+      preview: true,
+      documentationURL: "https://github.com/eonnet/control4-ha#control4-thermostat-card",
     });
   }
   if (!window.customCards.some((card) => card.type === FAVORITES_CARD_TAG)) {
