@@ -13,7 +13,7 @@ from typing import Any
 from pyControl4.websocket import C4Websocket
 
 from .events import NormalizedEvent, normalize_rest_variables, normalize_websocket_event
-from .proxies import ZWAVE_COMMON_SENSOR_PROXY
+from .proxies import ZWAVE_NUMERIC_SENSOR_PROXIES
 from .rest import DirectorRestClient
 
 
@@ -318,10 +318,10 @@ class Control4Transport:
             if event.device_id != routed_device_id:
                 _LOGGER.warning("Control4 WebSocket event route mismatch; ignoring")
                 return
-            # The bundled generic Z-Wave driver publishes dynamic variables.
-            # Its push does not carry a stable variable-name/value pair, so use
-            # the routed event as a trigger for one authoritative item read.
-            if proxy == ZWAVE_COMMON_SENSOR_PROXY and event.event_type in {
+            # The common and native security Z-Wave drivers publish dynamic
+            # variables. Their push does not carry one stable variable/value
+            # pair, so use it as a trigger for an authoritative item read.
+            if proxy in ZWAVE_NUMERIC_SENSOR_PROXIES and event.event_type in {
                 "OnDataToUI", "OnVariableChanged",
             }:
                 await self.sync_device(routed_device_id)

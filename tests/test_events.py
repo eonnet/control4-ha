@@ -49,6 +49,39 @@ class EventNormalizationTests(unittest.TestCase):
             ),
         })
 
+    def test_security_zwave_sensor_uses_native_metric_names(self) -> None:
+        event = normalize_rest_variables(3416, "zwave-security-sensor", [
+            {"varName": "BatteryPercent", "value": 90},
+            {"varName": "TemperatureC", "value": 25.1},
+            {"varName": "IlluminanceLux", "value": None},
+            {"varName": "MotionDetected", "value": 0},
+            {"varName": "HostConnected", "value": 1},
+        ])
+        self.assertEqual(event.changes, {
+            "zwave_sensor_battery": 90.0,
+            "zwave_sensor_temperature": 25.1,
+            "zwave_sensor_illumination": None,
+            "zwave_sensor_variables": (
+                "BatteryPercent", "IlluminanceLux", "TemperatureC",
+            ),
+        })
+        self.assertTrue(event.authoritative)
+
+    def test_security_zwave_sensor_rejects_impossible_values(self) -> None:
+        event = normalize_rest_variables(3423, "zwave-security-sensor", [
+            {"varName": "BatteryPercent", "value": 101},
+            {"varName": "TemperatureC", "value": -300},
+            {"varName": "IlluminanceLux", "value": -1},
+        ])
+        self.assertEqual(event.changes, {
+            "zwave_sensor_battery": None,
+            "zwave_sensor_temperature": None,
+            "zwave_sensor_illumination": None,
+            "zwave_sensor_variables": (
+                "BatteryPercent", "IlluminanceLux", "TemperatureC",
+            ),
+        })
+
     def test_wiim_output_status_push_is_device_scoped_and_bounded(self) -> None:
         event = normalize_websocket_event({
             "evtName": "OnDataToUI", "iddevice": 623,

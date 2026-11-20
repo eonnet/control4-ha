@@ -41,6 +41,11 @@ MAX_METADATA_ITEMS = 100
 SAFE_STATE_VARIABLES = frozenset({
     "RELAYSTATE", "LIGHT_STATE", "LIGHT_LEVEL", "BRIGHTNESS PERCENT", "CONTACTSTATE",
     "OUTPUT_01_MUTE", "OUTPUT_01_VOLUME_LEVEL", "OUTPUT_02_MUTE", "OUTPUT_02_VOLUME_LEVEL",
+    "BATTERY LEVEL", "LOCAL TEMPERATURE 0", "ILLUMINATION 0", "OCCUPANCY 0",
+    "BATTERYPERCENT", "BATTERYVALID", "BATTERYLOW", "BATTERYLOWVALID",
+    "ILLUMINANCELUX", "ILLUMINANCEVALID", "ILLUMINANCEPERCENT",
+    "ILLUMINANCEPERCENTVALID", "TEMPERATUREC", "TEMPERATUREVALID",
+    "MOTIONDETECTED", "MOTIONVALID", "TAMPERED", "TAMPERVALID", "HOSTCONNECTED",
 })
 THERMOSTAT_COMMANDS = frozenset({"SET_MODE_HOLD", "SET_PRESET", "SET_MODE_FAN"})
 THERMOSTAT_FAN_VARIABLES = frozenset({
@@ -1369,7 +1374,12 @@ async def async_main(args: argparse.Namespace) -> int:
         probe = Probe(args, session)
         loop = asyncio.get_running_loop()
         for signum in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(signum, probe.stop.set)
+            try:
+                loop.add_signal_handler(signum, probe.stop.set)
+            except NotImplementedError:
+                # Windows' ProactorEventLoop has no add_signal_handler.
+                # KeyboardInterrupt is still handled by main().
+                pass
         duration_task: asyncio.Task[None] | None = None
         if args.duration:
             duration_task = asyncio.create_task(asyncio.sleep(args.duration))

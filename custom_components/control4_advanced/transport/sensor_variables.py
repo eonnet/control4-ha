@@ -1,4 +1,4 @@
-"""Exact numeric variables exposed by Control4's common Z-Wave sensor."""
+"""Exact numeric variables exposed by Control4's Z-Wave sensor proxies."""
 
 from __future__ import annotations
 
@@ -42,6 +42,9 @@ _VARIABLE_PATTERNS: tuple[tuple[re.Pattern[str], SensorKind], ...] = (
     (re.compile(r"Local Temperature (\d+)", re.IGNORECASE), "temperature"),
     (re.compile(r"Humidity percentage (\d+)", re.IGNORECASE), "humidity"),
     (re.compile(r"Illumination (\d+)", re.IGNORECASE), "illumination"),
+    (re.compile(r"BatteryPercent", re.IGNORECASE), "battery"),
+    (re.compile(r"TemperatureC", re.IGNORECASE), "temperature"),
+    (re.compile(r"IlluminanceLux", re.IGNORECASE), "illumination"),
 )
 
 
@@ -56,7 +59,8 @@ def zwave_sensor_metric(variable_name: Any) -> ZWaveSensorMetric | None:
         match = pattern.fullmatch(name)
         if match is None:
             continue
-        endpoint = int(match.group(1)) if match.group(1) is not None else None
+        endpoint_value = match.group(1) if pattern.groups else None
+        endpoint = int(endpoint_value) if endpoint_value is not None else None
         if endpoint is not None and endpoint > 255:
             return None
         return ZWaveSensorMetric(name, kind, endpoint)

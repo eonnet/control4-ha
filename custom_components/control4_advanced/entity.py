@@ -17,10 +17,18 @@ class Control4Entity(Entity):
 
     _attr_should_poll = False
 
-    def __init__(self, runtime: Control4Runtime, item: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        runtime: Control4Runtime,
+        item: dict[str, Any],
+        *,
+        registry_item: dict[str, Any] | None = None,
+    ) -> None:
         self.runtime = runtime
         self.item = item
         self.device_id = int(item["id"])
+        self.registry_item = registry_item or item
+        self.registry_device_id = int(self.registry_item["id"])
         self._attr_unique_id = f"{runtime.transport.rest.host}_{self.device_id}"
         self._attr_name = item.get("name") or f"Control4 {self.device_id}"
         self._remove_event = None
@@ -29,18 +37,26 @@ class Control4Entity(Entity):
     @property
     def device_info(self) -> DeviceInfo:
         info: DeviceInfo = {
-            # Multiple entities (climate + hold select) belong to one Director
-            # item. Keep the existing device-registry identifier stable.
-            "identifiers": {(DOMAIN, f"{self.runtime.transport.rest.host}_{self.device_id}")},
-            "name": self.item.get("name") or f"Control4 {self.device_id}",
+            # Most entities use their source item. Related Control4 proxy
+            # siblings can explicitly share one logical HA device.
+            "identifiers": {
+                (
+                    DOMAIN,
+                    f"{self.runtime.transport.rest.host}_{self.registry_device_id}",
+                )
+            },
+            "name": self.registry_item.get("name")
+            or f"Control4 {self.registry_device_id}",
         }
-        if manufacturer := self.item.get("manufacturer"):
+        if manufacturer := self.registry_item.get("manufacturer"):
             info["manufacturer"] = manufacturer
-        if model := self.item.get("model") or self.item.get("protocolName"):
+        if model := self.registry_item.get("model") or self.registry_item.get(
+            "protocolName"
+        ):
             info["model"] = model
-        if proxy := self.item.get("proxy"):
+        if proxy := self.registry_item.get("proxy"):
             info["model_id"] = proxy
-        if room := self.item.get("roomName"):
+        if room := self.registry_item.get("roomName"):
             info["suggested_area"] = room
         return info
 

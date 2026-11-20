@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 from .proxies import (
     CONTACT_SENSOR_PROXIES,
     SUPPORTED_RELAY_PROXIES,
-    ZWAVE_COMMON_SENSOR_PROXY,
+    ZWAVE_NUMERIC_SENSOR_PROXIES,
 )
 from .sensor_variables import valid_zwave_sensor_value, zwave_sensor_metric
 
@@ -372,7 +372,7 @@ def normalize_rest_variables(
         state = _rest_binary_state(_first(by_name, "CONTACTSTATE"))
         if state is not None:
             changes = {"director_contact_state": "CLOSED" if state else "OPENED", "is_on": not state}
-    elif proxy == ZWAVE_COMMON_SENSOR_PROXY:
+    elif proxy in ZWAVE_NUMERIC_SENSOR_PROXIES:
         metric_names: dict[str, str] = {}
         for item in variables:
             if not isinstance(item, Mapping):

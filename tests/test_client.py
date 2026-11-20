@@ -205,6 +205,32 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
             23.0,
         )
 
+    async def test_security_zwave_sensor_push_triggers_rest_refresh(self) -> None:
+        self.rest.items = [{
+            "id": 3416, "name": "Kid PIR", "proxy": "zwave-security-sensor",
+        }]
+        self.rest.variables = [
+            {"varName": "BatteryPercent", "value": 90},
+            {"varName": "TemperatureC", "value": 25.1},
+        ]
+        self.transport = Control4Transport(
+            self.rest, [3416], websocket_factory=FakeWebsocket
+        )
+        await self.transport.start()
+        first_reads = self.rest.read_count
+        self.rest.variables = [
+            {"varName": "BatteryPercent", "value": 89},
+            {"varName": "TemperatureC", "value": 25.4},
+        ]
+
+        await FakeWebsocket.instances[-1].push(3416, {"changed": True})
+
+        self.assertEqual(self.rest.read_count, first_reads + 1)
+        self.assertEqual(
+            self.transport.state.snapshot(3416)["zwave_sensor_temperature"],
+            25.4,
+        )
+
     async def test_reconnect_reloads_rest_state(self) -> None:
         statuses = []
         self.transport.subscribe_connection(statuses.append)

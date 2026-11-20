@@ -16,3 +16,11 @@ CONTACT_SENSOR_PROXIES = frozenset({
 # Control4's bundled general-purpose Z-Wave sensor driver. The Core3 inventory
 # uses the hyphenated proxy name even though driver.xml declares underscores.
 ZWAVE_COMMON_SENSOR_PROXY = "zwave-common-sensor"
+
+# Control4's newer native Z-Wave security sensor proxy. It exposes motion,
+# battery, temperature, and illuminance variables directly on one item.
+ZWAVE_SECURITY_SENSOR_PROXY = "zwave-security-sensor"
+ZWAVE_NUMERIC_SENSOR_PROXIES = frozenset({
+    ZWAVE_COMMON_SENSOR_PROXY,
+    ZWAVE_SECURITY_SENSOR_PROXY,
+})

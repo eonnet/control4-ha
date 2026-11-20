@@ -20,6 +20,7 @@ class FakeEntity:
 class FakeSensorDeviceClass:
     BATTERY = "battery"
     HUMIDITY = "humidity"
+    ILLUMINANCE = "illuminance"
     TEMPERATURE = "temperature"
 
 
@@ -44,6 +45,7 @@ def ha_stub_modules():
     sensor.SensorStateClass = FakeSensorStateClass
     modules["homeassistant.config_entries"].ConfigEntry = type("ConfigEntry", (), {})
     modules["homeassistant.const"].PERCENTAGE = "%"
+    modules["homeassistant.const"].UnitOfIlluminance = SimpleNamespace(LUX="lx")
     modules["homeassistant.const"].UnitOfTemperature = SimpleNamespace(CELSIUS="°C")
     modules["homeassistant.core"].HomeAssistant = type("HomeAssistant", (), {})
     modules["homeassistant.helpers.device_registry"].DeviceInfo = dict
@@ -123,7 +125,7 @@ class SensorTests(unittest.IsolatedAsyncioTestCase):
         ])
         self.assertEqual(
             [getattr(entity, "_attr_device_class", None) for entity in entities],
-            ["battery", "temperature", "humidity", None],
+            ["battery", "temperature", "humidity", "illuminance"],
         )
         self.assertTrue(all(entity.available for entity in entities))
 
@@ -152,6 +154,103 @@ class SensorTests(unittest.IsolatedAsyncioTestCase):
 
         state["zwave_sensor_battery"] = None
         self.assertFalse(entities[0].available)
+
+    async def test_security_sensor_wins_and_joins_matching_pir_device(self):
+        items = {
+            354: {
+                "id": 354, "name": "Kitchen PIR", "typeName": "device",
+                "proxy": "contactsingle_motionsensor_c4", "roomName": "Kitchen",
+            },
+            378: {
+                "id": 378, "name": "Kid PIR", "typeName": "device",
+                "proxy": "contactsingle_motionsensor_c4", "roomName": "Kid",
+            },
+            2090: {
+                "id": 2090, "name": "Kitchen PIR", "typeName": "device",
+                "proxy": "zwave-common-sensor", "roomName": "Kitchen",
+            },
+            3416: {
+                "id": 3416, "name": "Kid PIR", "typeName": "device",
+                "proxy": "zwave-security-sensor", "roomName": "Kid",
+            },
+            3423: {
+                "id": 3423, "name": "Kitchen PIR", "typeName": "device",
+                "proxy": "zwave-security-sensor", "roomName": "Kitchen",
+            },
+        }
+        states = {
+            # Even if the legacy common-proxy read fails during setup, its
+            # established unique IDs remain stable while security data wins.
+            2090: {},
+            3416: {
+                "zwave_sensor_battery": 90.0,
+                "zwave_sensor_temperature": 25.1,
+                "zwave_sensor_illumination": None,
+                "zwave_sensor_variables": (
+                    "BatteryPercent", "TemperatureC", "IlluminanceLux",
+                ),
+            },
+            3423: {
+                "zwave_sensor_battery": 100.0,
+                "zwave_sensor_temperature": 26.7,
+                "zwave_sensor_illumination": 50.0,
+                "zwave_sensor_variables": (
+                    "BatteryPercent", "TemperatureC", "IlluminanceLux",
+                ),
+            },
+        }
+        transport = SimpleNamespace(
+            inventory=SimpleNamespace(items=items),
+            tracked_ids=set(items),
+            rest=SimpleNamespace(host="192.168.0.24"),
+            state=SimpleNamespace(
+                snapshot=lambda device_id: dict(states.get(device_id, {}))
+            ),
+            connected=True,
+        )
+        entities = []
+        await self.sensor.async_setup_entry(
+            None,
+            SimpleNamespace(runtime_data=SimpleNamespace(transport=transport)),
+            entities.extend,
+        )
+
+        by_unique_id = {entity._attr_unique_id: entity for entity in entities}
+        self.assertEqual(set(by_unique_id), {
+            "192.168.0.24_2090_battery",
+            "192.168.0.24_2090_temperature_0",
+            "192.168.0.24_2090_illumination_0",
+            "192.168.0.24_3416_battery",
+            "192.168.0.24_3416_temperature",
+            "192.168.0.24_3416_illumination",
+        })
+        self.assertEqual(
+            by_unique_id["192.168.0.24_2090_temperature_0"].device_id,
+            3423,
+        )
+        self.assertEqual(
+            by_unique_id["192.168.0.24_2090_temperature_0"].native_value,
+            26.7,
+        )
+        self.assertEqual(
+            by_unique_id["192.168.0.24_2090_illumination_0"].native_value,
+            50.0,
+        )
+        self.assertEqual(
+            by_unique_id["192.168.0.24_3416_temperature"].native_value,
+            25.1,
+        )
+        self.assertFalse(
+            by_unique_id["192.168.0.24_3416_illumination"].available
+        )
+        self.assertEqual(
+            by_unique_id["192.168.0.24_2090_battery"].device_info["identifiers"],
+            {("control4_advanced", "192.168.0.24_354")},
+        )
+        self.assertEqual(
+            by_unique_id["192.168.0.24_3416_battery"].device_info["identifiers"],
+            {("control4_advanced", "192.168.0.24_378")},
+        )
 
 
 if __name__ == "__main__":

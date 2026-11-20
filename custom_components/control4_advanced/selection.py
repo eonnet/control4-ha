@@ -9,7 +9,7 @@ from .const import DOMAIN
 from .transport.proxies import (
     CONTACT_SENSOR_PROXIES,
     SUPPORTED_RELAY_PROXIES,
-    ZWAVE_COMMON_SENSOR_PROXY,
+    ZWAVE_NUMERIC_SENSOR_PROXIES,
 )
 
 
@@ -21,7 +21,7 @@ def is_candidate_item(item: dict[str, Any]) -> bool:
         return True
     if isinstance(proxy, str) and proxy in CONTACT_SENSOR_PROXIES:
         return True
-    if proxy == ZWAVE_COMMON_SENSOR_PROXY:
+    if isinstance(proxy, str) and proxy in ZWAVE_NUMERIC_SENSOR_PROXIES:
         return True
     capabilities = item.get("capabilities")
     if not isinstance(capabilities, dict):
@@ -151,6 +151,6 @@ def command_metadata_ids(
         device_id
         for device_id in sorted(tracked_ids)
         if items[device_id].get("proxy") not in (
-            CONTACT_SENSOR_PROXIES | {ZWAVE_COMMON_SENSOR_PROXY}
+            CONTACT_SENSOR_PROXIES | ZWAVE_NUMERIC_SENSOR_PROXIES
         )
     ]

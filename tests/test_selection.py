@@ -66,6 +66,7 @@ class SelectionTests(unittest.TestCase):
             377: {"id": 377, "typeName": "device", "proxy": "contactsingle_windowcontactsensor_c4"},
             378: {"id": 378, "typeName": "device", "proxy": "contactsingle_motionsensor_c4"},
             2140: {"id": 2140, "typeName": "device", "proxy": "zwave-common-sensor"},
+            3416: {"id": 3416, "typeName": "device", "proxy": "zwave-security-sensor"},
             319: {"id": 319, "typeName": "device", "proxy": "uibutton"},
             431: {"id": 431, "typeName": "device", "proxy": "relaysingle_relay_c4"},
             400: {"id": 400, "typeName": "room", "proxy": "contactsingle_windowcontactsensor_c4"},
@@ -75,11 +76,12 @@ class SelectionTests(unittest.TestCase):
         self.assertTrue(is_candidate_item(items[377]))
         self.assertTrue(is_candidate_item(items[378]))
         self.assertTrue(is_candidate_item(items[2140]))
+        self.assertTrue(is_candidate_item(items[3416]))
         self.assertFalse(is_candidate_item(items[400]))
         self.assertFalse(is_candidate_item(items[401]))
         self.assertEqual(supported_binary_sensor_ids(items, items), [335, 377, 378])
         self.assertEqual(
-            command_metadata_ids(items, {335, 377, 378, 2140, 431}), [431]
+            command_metadata_ids(items, {335, 377, 378, 2140, 3416, 431}), [431]
         )
 
     def test_media_rooms_require_complete_state_and_inventory_volume_binding(self) -> None:

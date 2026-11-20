@@ -166,7 +166,10 @@ push update or later reconciliation.
 Window and motion devices have user-reported HA field validation; door entity
 registration in HA is still pending. The `zwave-common-sensor` proxy exposes
 its dynamic Battery Level, Local Temperature, Humidity percentage, and
-Illumination variables as separate read-only sensor entities. Unsupported
+Illumination variables as separate read-only sensor entities. The native
+`zwave-security-sensor` proxy exposes BatteryPercent, TemperatureC, and
+IlluminanceLux; those readings are grouped with the matching motion entity and
+take priority over duplicate common-proxy readings. Unsupported
 dynamic variables, `cardaccess_wirelessrelay`, and `uibutton` remain out of
 scope. Color controls are still out of scope. Fan mode has a metadata-gated 0.1.6
 implementation. Both known ACs' choices/current state and
