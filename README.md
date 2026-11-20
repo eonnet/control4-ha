@@ -50,6 +50,7 @@ credentials are stored in Home Assistant's config entry.
 | Home Assistant entity | Compatible Control4 device | Available features |
 | --- | --- | --- |
 | Light | `light_v2` | On, off, and brightness for dimmable devices; on/off control for non-dimmable lights |
+| Scene | Control4 Advanced Lighting | Activate existing lighting scenes from dashboards, scripts, and automations |
 | Climate | Celsius `thermostatV2` | Heat, Cool, Auto, Off, target temperature, current humidity, fan mode, named presets, hold mode, and humidity status when available |
 | Switch | Compatible standard, wireless, and radiant-floor relays | On and off; newly discovered relay entities are disabled by default |
 | Lock | Native Control4 Z-Wave locks that advertise both lock and unlock | Lock, unlock, and state reported by Control4 |
@@ -106,6 +107,13 @@ Compatible native Control4 Z-Wave locks appear as standard Home Assistant lock
 entities. The displayed state comes from the lock status reported by Control4.
 Control4's relay-based door-lock proxies and lock PIN management are outside the
 scope of this platform.
+
+## Lighting scenes
+
+Home Assistant automatically imports available Control4 Advanced Lighting
+scenes. Use the standard `scene.turn_on` action to activate a scene with its
+Control4 lighting levels and fade settings. Reload the integration after
+adding or renaming scenes in Control4.
 
 ## Media players
 

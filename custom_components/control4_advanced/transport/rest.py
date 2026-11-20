@@ -7,6 +7,7 @@ from typing import Any
 import aiohttp
 
 from .auth import TokenProvider
+from .lighting_scenes import LIGHTING_SCENES_PATH, LightingScene, parse_lighting_scenes
 
 
 class DirectorRestError(Exception):
@@ -78,6 +79,13 @@ class DirectorRestClient:
         if not isinstance(payload, dict) or not isinstance(payload.get("experiences"), list):
             raise DirectorRestError("Director UI configuration has an unexpected shape")
         return payload
+
+    async def get_lighting_scenes(self) -> tuple[LightingScene, ...]:
+        """Read the Advanced Lighting catalog without activating a scene."""
+        payload = await self.request_json("GET", LIGHTING_SCENES_PATH)
+        if not isinstance(payload, list):
+            raise DirectorRestError("Director lighting scene catalog has an unexpected shape")
+        return parse_lighting_scenes(payload)
 
     async def get_media_sessions(self) -> list[dict[str, Any]]:
         """Read Director's authoritative active media-session membership."""

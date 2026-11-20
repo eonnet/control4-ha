@@ -240,6 +240,7 @@ class MediaPlayerSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("media_player", forwarded)
             self.assertIn("button", forwarded)
             self.assertIn("lock", forwarded)
+            self.assertIn("scene", forwarded)
             self.assertNotIn("number", forwarded)
             self.assertEqual(FakeTransport.instances[0].tracked_ids, {2726})
             self.assertEqual(

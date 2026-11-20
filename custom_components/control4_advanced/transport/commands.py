@@ -14,6 +14,7 @@ import math
 from typing import Any
 
 from .favorites import TuneInFavorite
+from .lighting_scenes import LIGHTING_SCENES_PATH, LightingScene
 from .playlists import TidalPlaylist
 from .rest import DirectorRestClient, DirectorRestError
 from .sources import RoomSource
@@ -60,6 +61,7 @@ class DeviceCommandClient:
         self._tunein_favorites: dict[int, dict[int, frozenset[str]]] = {}
         self._digital_media_id: int | None = None
         self._grouping_room_ids: frozenset[int] = frozenset()
+        self._lighting_scene_ids: dict[int, frozenset[int]] = {}
 
     def register_media_grouping(
         self, digital_media_id: int, room_ids: Iterable[int]
@@ -160,6 +162,34 @@ class DeviceCommandClient:
         return self.supports_parameterless(
             device_id, "LOCK"
         ) and self.supports_parameterless(device_id, "UNLOCK")
+
+    def supports_lighting_scenes(self, agent_id: int) -> bool:
+        """Require the Advanced Lighting catalog selector on ACTIVATE_SCENE."""
+        record = self._metadata.get(agent_id, {}).get("ACTIVATE_SCENE", {})
+        params = record.get("params")
+        if not isinstance(params, list) or len(params) != 1:
+            return False
+        param = params[0]
+        if not isinstance(param, dict):
+            return False
+        source = param.get("valueSrc")
+        return (
+            param.get("name") == "SCENE_ID"
+            and param.get("type") == "LIST"
+            and param.get("valueType") == "INTEGER"
+            and param.get("valueField") == "scene_id"
+            and isinstance(source, dict)
+            and source.get("method") == "GET"
+            and source.get("path") == LIGHTING_SCENES_PATH
+        )
+
+    def register_lighting_scenes(
+        self, agent_id: int, scenes: Iterable[LightingScene],
+    ) -> None:
+        """Allow activation only for scene IDs returned by this agent's catalog."""
+        self._lighting_scene_ids[agent_id] = frozenset(
+            scene.scene_id for scene in scenes
+        )
 
     def choices(self, device_id: int, command: str, parameter: str) -> list[str]:
         spec = self._parameter(device_id, command, parameter)
@@ -352,6 +382,15 @@ class DeviceCommandClient:
     async def relay_open(self, device_id: int) -> Any:
         """Open an advertised relay; physical mapping was observed for both supported proxies."""
         return await self.send(device_id, "OPEN")
+
+    async def activate_lighting_scene(self, agent_id: int, scene_id: int) -> Any:
+        if (
+            type(scene_id) is not int
+            or scene_id not in self._lighting_scene_ids.get(agent_id, ())
+            or not self.supports_lighting_scenes(agent_id)
+        ):
+            raise UnsupportedCommand("Control4 did not advertise this lighting scene")
+        return await self.send(agent_id, "ACTIVATE_SCENE", {"SCENE_ID": scene_id})
 
     async def lock_device(self, device_id: int) -> Any:
         """Lock a native Control4 lock after metadata validation."""
