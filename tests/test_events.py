@@ -26,7 +26,6 @@ class EventNormalizationTests(unittest.TestCase):
                 "Battery Level", "Humidity percentage 0", "Illumination 1",
                 "Local Temperature 0",
             ),
-            "is_connected": True,
         })
         self.assertTrue(event.authoritative)
 
@@ -48,7 +47,6 @@ class EventNormalizationTests(unittest.TestCase):
                 "Battery Level", "Humidity percentage 0", "Illumination 0",
                 "Local Temperature 0",
             ),
-            "is_connected": False,
         })
 
     def test_wiim_output_status_push_is_device_scoped_and_bounded(self) -> None:

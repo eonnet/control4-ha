@@ -164,12 +164,18 @@ class RemoteUITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(entity.current_activity, "Watch: Netflix")
         self.assertEqual(entity.activity_list, ["Watch: Netflix"])
         self.assertEqual(entity.supported_features, FakeRemoteFeature.ACTIVITY)
+        self.assertTrue(entity.available)
         self.assertEqual(entity.extra_state_attributes, {
             "control4_room_id": 22,
             "control4_commands": list(self.commands.remote_commands),
         })
 
+        self.state.clear()
+        self.assertIsNone(entity.is_on)
+        self.assertTrue(entity.available)
+
         self.commands.remote_commands = ()
+        self.assertFalse(entity.available)
         entities.clear()
         await self.remote.async_setup_entry(None, entry, entities.extend)
         self.assertFalse(entities)

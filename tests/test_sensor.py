@@ -127,11 +127,11 @@ class SensorTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(all(entity.available for entity in entities))
 
-    async def test_invalid_or_offline_metric_is_unavailable(self):
+    async def test_sleeping_device_keeps_valid_value_available(self):
         item = {"id": 2140, "name": "Kid Window", "proxy": "zwave-common-sensor"}
         state = {
             "is_connected": False,
-            "zwave_sensor_battery": None,
+            "zwave_sensor_battery": 82.0,
             "zwave_sensor_variables": ("Battery Level",),
         }
         transport = SimpleNamespace(
@@ -147,7 +147,10 @@ class SensorTests(unittest.IsolatedAsyncioTestCase):
             entities.extend,
         )
         self.assertEqual(len(entities), 1)
-        self.assertIsNone(entities[0].native_value)
+        self.assertEqual(entities[0].native_value, 82.0)
+        self.assertTrue(entities[0].available)
+
+        state["zwave_sensor_battery"] = None
         self.assertFalse(entities[0].available)
 
 

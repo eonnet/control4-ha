@@ -79,6 +79,17 @@ class Control4RoomRemote(Control4Entity, RemoteEntity):
         return value if isinstance(value, bool) else None
 
     @property
+    def available(self) -> bool:
+        # A room can be off or have no current state snapshot while its Watch
+        # activities and virtual-remote commands remain usable. Activity
+        # selection can power it on; individual key presses retain their live
+        # powered-room guard in ``async_send_command``.
+        return (
+            self.runtime.transport.connected
+            and bool(self.runtime.commands.room_remote_commands(self.device_id))
+        )
+
+    @property
     def activity_list(self) -> list[str] | None:
         sources = self._watch_sources()
         return [source.label for source in sources] if sources else None

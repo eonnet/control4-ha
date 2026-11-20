@@ -391,9 +391,6 @@ def normalize_rest_variables(
             changes["zwave_sensor_variables"] = tuple(
                 metric_names[key] for key in sorted(metric_names)
             )
-        status = _mode(by_name.get("DEVICE STATUS"))
-        if status in {"ONLINE", "OFFLINE"}:
-            changes["is_connected"] = status == "ONLINE"
     elif proxy == "roomdevice":
         power = _rest_binary_state(by_name.get("POWER_STATE"))
         if power is not None:

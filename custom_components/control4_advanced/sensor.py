@@ -77,4 +77,8 @@ class Control4ZWaveSensor(Control4Entity, SensorEntity):
 
     @property
     def available(self) -> bool:
-        return super().available and self.native_value is not None
+        # Non-listening Z-Wave sensors sleep between reports and Control4 can
+        # label them offline while their last reading is still valid. The
+        # driver clears stale variables itself, so availability follows the
+        # Director connection and the individual validated value.
+        return self.runtime.transport.connected and self.native_value is not None
