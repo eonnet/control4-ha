@@ -116,6 +116,23 @@ class SelectionTests(unittest.TestCase):
             [3402, 3403, 3404],
         )
 
+    def test_zigbee_climate_discovery_matches_the_driver(self) -> None:
+        items = {
+            1: {"id": 1, "typeName": "device", "proxy": "keypad_proxy",
+                "filename": "zigbee-climate-sensor.c4z"},
+            2: {"id": 2, "typeName": "device", "proxy": "keypad_proxy",
+                "protocolFilename": "zigbee-climate-sensor.c4z"},
+            3: {"id": 3, "typeName": "device", "proxy": "keypad_proxy",
+                "name": "Zigbee Climate Sensor"},
+            4: {"id": 4, "typeName": "device", "proxy": "other",
+                "filename": "zigbee-climate-sensor.c4z"},
+        }
+        self.assertEqual(
+            [item_id for item_id in items if is_candidate_item(items[item_id])],
+            [1, 2],
+        )
+        self.assertEqual(command_metadata_ids(items, [1, 2]), [])
+
     def test_media_rooms_require_complete_state_and_inventory_volume_binding(self) -> None:
         items = {
             22: {"id": 22, "typeName": "room", "proxy": "roomdevice"},

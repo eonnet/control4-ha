@@ -17,7 +17,11 @@ from .proxies import (
     ZWAVE_LOCK_PROXY,
     ZWAVE_NUMERIC_SENSOR_PROXIES,
 )
-from .sensor_variables import valid_zwave_sensor_value, zwave_sensor_metric
+from .sensor_variables import (
+    ZIGBEE_CLIMATE_METRICS,
+    valid_sensor_value,
+    zwave_sensor_metric,
+)
 
 
 Source = Literal["websocket", "rest"]
@@ -359,7 +363,8 @@ def normalize_websocket_event(raw: Any, proxy: str | None) -> NormalizedEvent | 
 
 
 def normalize_rest_variables(
-    device_id: int, proxy: str | None, variables: list[dict[str, Any]]
+    device_id: int, proxy: str | None, variables: list[dict[str, Any]],
+    *, zigbee_climate: bool = False,
 ) -> NormalizedEvent:
     by_name = {
         str(item.get("varName", "")).strip().upper(): item.get("value")
@@ -395,12 +400,22 @@ def normalize_rest_variables(
             value = _number(item.get("value"))
             changes[metric.state_key] = (
                 value
-                if value is not None and valid_zwave_sensor_value(metric, value)
+                if value is not None and valid_sensor_value(metric, value)
                 else None
             )
         if metric_names:
             changes["zwave_sensor_variables"] = tuple(
                 metric_names[key] for key in sorted(metric_names)
+            )
+    elif zigbee_climate and proxy == "keypad_proxy":
+        for metric, valid_flag in ZIGBEE_CLIMATE_METRICS:
+            value = _number(by_name.get(metric.variable_name.upper()))
+            changes[metric.state_key] = (
+                value
+                if _rest_binary_state(by_name.get(valid_flag.upper())) is True
+                and value is not None
+                and valid_sensor_value(metric, value)
+                else None
             )
     elif proxy == ZWAVE_LOCK_PROXY:
         # An unrecognized or missing status must clear any old indication

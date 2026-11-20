@@ -8,6 +8,37 @@ from control4_transport.events import normalize_rest_variables, normalize_websoc
 
 
 class EventNormalizationTests(unittest.TestCase):
+    def test_zigbee_climate_readings_require_validity_flags(self) -> None:
+        variables = [
+            {"varName": "TemperatureC", "value": "23.74"},
+            {"varName": "TemperatureValid", "value": 1},
+            {"varName": "TemperatureF", "value": 74.732},
+            {"varName": "RelativeHumidity", "value": 0},
+            {"varName": "HumidityValid", "value": "1"},
+            {"varName": "BatteryPercent", "value": 0},
+            {"varName": "BatteryValid", "value": 0},
+        ]
+        cache = DeviceStateCache()
+        cache.apply(normalize_rest_variables(1, "keypad_proxy", variables, zigbee_climate=True))
+        self.assertEqual(cache.snapshot(1), {
+            "zigbee_climate_temperature": 23.74,
+            "zigbee_climate_humidity": 0.0,
+            "zigbee_climate_battery": None,
+        })
+        cache.apply(normalize_rest_variables(1, "keypad_proxy", [
+            {"varName": "TemperatureC", "value": 24},
+            {"varName": "RelativeHumidity", "value": 101},
+            {"varName": "HumidityValid", "value": True},
+            {"varName": "BatteryPercent", "value": 0},
+            {"varName": "BatteryValid", "value": 1},
+        ], zigbee_climate=True))
+        self.assertEqual(cache.snapshot(1), {
+            "zigbee_climate_temperature": None,
+            "zigbee_climate_humidity": None,
+            "zigbee_climate_battery": 0.0,
+        })
+        self.assertEqual(normalize_rest_variables(2, "keypad_proxy", variables).changes, {})
+
     def test_common_zwave_sensor_rest_uses_exact_dynamic_variables(self) -> None:
         event = normalize_rest_variables(2144, "zwave-common-sensor", [
             {"varName": "Device Status", "value": "ONLINE"},

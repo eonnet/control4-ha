@@ -1,4 +1,4 @@
-"""Read-only numeric sensors from Control4's Z-Wave drivers."""
+"""Read-only numeric sensors from supported Control4 drivers."""
 
 from __future__ import annotations
 
@@ -20,8 +20,13 @@ from .transport.proxies import (
     MOTION_CONTACT_PROXY,
     ZWAVE_COMMON_SENSOR_PROXY,
     ZWAVE_NUMERIC_SENSOR_PROXIES,
+    is_zigbee_climate_sensor,
 )
-from .transport.sensor_variables import ZWaveSensorMetric, zwave_sensor_metric
+from .transport.sensor_variables import (
+    SensorMetric,
+    ZIGBEE_CLIMATE_METRICS,
+    zwave_sensor_metric,
+)
 
 
 async def async_setup_entry(
@@ -42,9 +47,16 @@ async def async_setup_entry(
         elif item.get("proxy") == ZWAVE_COMMON_SENSOR_PROXY:
             common_items.setdefault(key, []).append(item)
 
-    sources: list[tuple[dict[str, Any], ZWaveSensorMetric]] = []
+    sources: list[tuple[dict[str, Any], SensorMetric]] = []
+    entities: list[Control4NumericSensor] = []
     for device_id in sorted(runtime.transport.tracked_ids):
         item = items[device_id]
+        if is_zigbee_climate_sensor(item):
+            entities.extend(
+                Control4NumericSensor(runtime, item, metric)
+                for metric, _valid_flag in ZIGBEE_CLIMATE_METRICS
+            )
+            continue
         if item.get("proxy") not in ZWAVE_NUMERIC_SENSOR_PROXIES:
             continue
         state = runtime.transport.state.snapshot(device_id)
@@ -66,7 +78,6 @@ async def async_setup_entry(
         for item, metric in sources
         if item.get("proxy") != ZWAVE_COMMON_SENSOR_PROXY
     }
-    entities: list[Control4ZWaveSensor] = []
     kind_order = {"battery": 0, "temperature": 1, "humidity": 2, "illumination": 3}
 
     def sort_key(key: tuple[str, str, str, int]) -> tuple[int, int, int]:
@@ -84,14 +95,14 @@ async def async_setup_entry(
                 legacy_endpoint = None if metric.kind == "battery" else metric.endpoint or 0
                 replaced_common = (
                     common_matches[0],
-                    ZWaveSensorMetric(
+                    SensorMetric(
                         metric.variable_name, metric.kind, legacy_endpoint
                     ),
                 )
         matches = motion_items.get(identity, ()) if identity is not None else ()
         registry_item = matches[0] if len(matches) == 1 else None
         entities.append(
-            Control4ZWaveSensor(
+            Control4NumericSensor(
                 runtime,
                 item,
                 metric,
@@ -114,7 +125,7 @@ def _sensor_identity(item: dict[str, Any]) -> tuple[str, str] | None:
 
 
 def _metric_identity(
-    item: dict[str, Any], metric: ZWaveSensorMetric
+    item: dict[str, Any], metric: SensorMetric
 ) -> tuple[str, str, str, int]:
     """Treat endpoint zero and an endpoint-less native metric as equivalent."""
     identity = _sensor_identity(item)
@@ -123,7 +134,7 @@ def _metric_identity(
     return identity[0], identity[1], metric.kind, metric.endpoint or 0
 
 
-class Control4ZWaveSensor(Control4Entity, SensorEntity):
+class Control4NumericSensor(Control4Entity, SensorEntity):
     """One validated numeric variable belonging to a Control4 sensor device."""
 
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -132,10 +143,10 @@ class Control4ZWaveSensor(Control4Entity, SensorEntity):
         self,
         runtime: Control4Runtime,
         item: dict[str, Any],
-        metric: ZWaveSensorMetric,
+        metric: SensorMetric,
         *,
         registry_item: dict[str, Any] | None = None,
-        unique_id_source: tuple[dict[str, Any], ZWaveSensorMetric] | None = None,
+        unique_id_source: tuple[dict[str, Any], SensorMetric] | None = None,
     ) -> None:
         super().__init__(runtime, item, registry_item=registry_item)
         self.metric = metric

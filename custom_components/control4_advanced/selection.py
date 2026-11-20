@@ -11,6 +11,7 @@ from .transport.proxies import (
     SUPPORTED_RELAY_PROXIES,
     ZWAVE_LOCK_PROXY,
     ZWAVE_NUMERIC_SENSOR_PROXIES,
+    is_zigbee_climate_sensor,
 )
 
 
@@ -24,6 +25,8 @@ def is_candidate_item(item: dict[str, Any]) -> bool:
         return True
     if isinstance(proxy, str) and proxy in ZWAVE_NUMERIC_SENSOR_PROXIES:
         return True
+    if is_zigbee_climate_sensor(item):
+        return type(item["id"]) is int and item["id"] > 0
     if proxy == ZWAVE_LOCK_PROXY:
         return type(item["id"]) is int and item["id"] > 0
     capabilities = item.get("capabilities")
@@ -171,4 +174,5 @@ def command_metadata_ids(
         if items[device_id].get("proxy") not in (
             CONTACT_SENSOR_PROXIES | ZWAVE_NUMERIC_SENSOR_PROXIES
         )
+        and not is_zigbee_climate_sensor(items[device_id])
     ]

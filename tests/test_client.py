@@ -4,6 +4,7 @@ import asyncio
 import time
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from control4_transport.auth import DirectorToken
 from control4_transport.client import Control4Transport
@@ -230,6 +231,41 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
             self.transport.state.snapshot(3416)["zwave_sensor_temperature"],
             25.4,
         )
+
+    async def test_zigbee_climate_refreshes_on_push_and_without_push(self) -> None:
+        self.rest.items.extend([
+            {"id": 1, "typeName": "device", "proxy": "keypad_proxy",
+             "filename": "zigbee-climate-sensor.c4z"},
+            {"id": 2, "typeName": "device", "proxy": "keypad_proxy"},
+        ])
+        self.rest.variables_by_id[1] = [
+            {"varName": "TemperatureC", "value": 22},
+            {"varName": "TemperatureValid", "value": 1},
+        ]
+        self.transport = Control4Transport(
+            self.rest, [1, 2, 2726], websocket_factory=FakeWebsocket
+        )
+
+        with patch(
+            "custom_components.control4_advanced.transport.client."
+            "_ZIGBEE_CLIMATE_REFRESH_SECONDS", 0.02
+        ):
+            await self.transport.start()
+            self.assertEqual(self.transport.state.snapshot(1)["zigbee_climate_temperature"], 22.0)
+            self.rest.read_ids.clear()
+            socket = FakeWebsocket.instances[-1]
+            self.rest.variables_by_id[1][0]["value"] = 23
+            await socket.push(2, {"changed": True})
+            await socket.push(1, {"changed": True})
+            self.assertEqual(self.rest.read_ids, [1])
+            self.assertEqual(self.transport.state.snapshot(1)["zigbee_climate_temperature"], 23.0)
+
+            self.rest.read_ids.clear()
+            self.rest.variables_by_id[1][0]["value"] = 24
+            self.rest.read_started.clear()
+            await asyncio.wait_for(self.rest.read_started.wait(), timeout=2)
+            self.assertEqual(self.rest.read_ids, [1])
+            self.assertEqual(self.transport.state.snapshot(1)["zigbee_climate_temperature"], 24.0)
 
     async def test_native_lock_push_triggers_rest_refresh(self) -> None:
         self.rest.items = [{

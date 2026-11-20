@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Iterable
+from contextlib import suppress
 from copy import deepcopy
 from dataclasses import replace
 import logging
@@ -13,11 +14,12 @@ from typing import Any
 from pyControl4.websocket import C4Websocket
 
 from .events import NormalizedEvent, normalize_rest_variables, normalize_websocket_event
-from .proxies import REST_REFRESH_PROXIES
+from .proxies import REST_REFRESH_PROXIES, is_zigbee_climate_sensor
 from .rest import DirectorRestClient
 
 
 _LOGGER = logging.getLogger(__name__)
+_ZIGBEE_CLIMATE_REFRESH_SECONDS = 60.0
 EventCallback = Callable[[NormalizedEvent], Awaitable[None]]
 ConnectionCallback = Callable[[bool], None]
 
@@ -210,6 +212,9 @@ class Control4Transport:
     async def sync_all(self, *, reason: str = "reconciliation") -> None:
         """Read tracked REST variables without overwriting newer push fields."""
         del reason  # useful to callers; intentionally never logged with payloads
+        await self._sync_devices(self.tracked_ids)
+
+    async def _sync_devices(self, device_ids: Iterable[int]) -> None:
         async with self._sync_lock:
             limit = asyncio.Semaphore(6)
 
@@ -217,9 +222,10 @@ class Control4Transport:
                 if self._stop_event.is_set():
                     return
                 async with limit:
-                    await self.sync_device(device_id)
+                    if device_id in self.tracked_ids:
+                        await self.sync_device(device_id)
 
-            await asyncio.gather(*(sync_one(device_id) for device_id in sorted(self.tracked_ids)))
+            await asyncio.gather(*(sync_one(device_id) for device_id in sorted(device_ids)))
 
     async def sync_device(self, device_id: int) -> bool:
         """Refresh a tracked item and report whether the cache accepted any fields."""
@@ -231,7 +237,14 @@ class Control4Transport:
         except Exception as exc:
             _LOGGER.warning("REST state sync failed for %s: %s", device_id, type(exc).__name__)
             return False
-        event = normalize_rest_variables(device_id, self.inventory.proxy(device_id), variables)
+        event = normalize_rest_variables(
+            device_id,
+            self.inventory.proxy(device_id),
+            variables,
+            zigbee_climate=is_zigbee_climate_sensor(
+                self.inventory.items.get(device_id, {})
+            ),
+        )
         accepted = self.state.apply(event, only_if_unchanged_since=baseline)
         await self.events.publish(replace(event, changes=accepted, authoritative=bool(accepted)))
         return bool(accepted)
@@ -319,12 +332,11 @@ class Control4Transport:
             if event.device_id != routed_device_id:
                 _LOGGER.warning("Control4 WebSocket event route mismatch; ignoring")
                 return
-            # Dynamic Z-Wave sensors and locks publish change notifications
-            # without one stable state field. Use them as triggers for an
-            # authoritative, targeted item read.
-            if proxy in REST_REFRESH_PROXIES and event.event_type in {
-                "OnDataToUI", "OnVariableChanged",
-            }:
+            # Use push as a read trigger for drivers with REST-backed metrics.
+            if event.event_type in {"OnDataToUI", "OnVariableChanged"} and (
+                proxy in REST_REFRESH_PROXIES
+                or is_zigbee_climate_sensor(self.inventory.items[routed_device_id])
+            ):
                 await self.sync_device(routed_device_id)
                 return
             self.state.apply(event)
@@ -383,6 +395,14 @@ class Control4Transport:
             self._report_connection(False)
 
     async def _watch_connection(self, token_expires_at: float) -> None:
+        zigbee_climate_ids = {
+            device_id for device_id in self.tracked_ids
+            if is_zigbee_climate_sensor(self.inventory.items[device_id])
+        }
+        zigbee_interval = (
+            _ZIGBEE_CLIMATE_REFRESH_SECONDS if zigbee_climate_ids else float("inf")
+        )
+        next_zigbee_refresh = time.monotonic() + zigbee_interval
         next_reconcile = (
             time.monotonic() + self.reconciliation_seconds
             if self.reconciliation_seconds is not None
@@ -396,7 +416,7 @@ class Control4Transport:
             if not self._socket_active():
                 self._report_connection(False)
                 return  # rebuild if upstream omitted the disconnect callback
-            deadline = min(refresh_at, next_reconcile)
+            deadline = min(refresh_at, next_reconcile, next_zigbee_refresh)
             timeout = min(1.0, max(0.1, deadline - now))
             try:
                 await asyncio.wait_for(self._disconnect_event.wait(), timeout=timeout)
@@ -411,6 +431,7 @@ class Control4Transport:
                 if self._connected:
                     await self._wait_for_subscription()
                     await self.sync_all(reason="reconnect")
+                    next_zigbee_refresh = time.monotonic() + zigbee_interval
                     self._report_connection(True)
             except asyncio.TimeoutError:
                 if not self._socket_active():
@@ -418,7 +439,16 @@ class Control4Transport:
                     return
                 if time.monotonic() >= next_reconcile:
                     await self.sync_all(reason="reconciliation")
-                    next_reconcile = time.monotonic() + (self.reconciliation_seconds or 0)
+                    now = time.monotonic()
+                    next_reconcile = now + (self.reconciliation_seconds or 0)
+                    next_zigbee_refresh = now + zigbee_interval
+                elif time.monotonic() >= next_zigbee_refresh:
+                    # This driver may update variables without a UI notification.
+                    with suppress(TimeoutError):
+                        await asyncio.wait_for(
+                            self._sync_devices(zigbee_climate_ids), timeout=10
+                        )
+                    next_zigbee_refresh = time.monotonic() + zigbee_interval
 
     async def _wait_for_subscription(self, timeout: float = 15.0) -> None:
         """Wait for Director's subscription ID, not just Socket.IO connect.

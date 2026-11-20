@@ -74,6 +74,35 @@ class SensorTests(unittest.IsolatedAsyncioTestCase):
             sys.modules.pop(name, None)
         cls.patcher.stop()
 
+    async def test_zigbee_climate_entities_exist_before_the_first_read(self):
+        weather = {"id": 1, "name": "Weather", "typeName": "device",
+                   "proxy": "keypad_proxy", "filename": "zigbee-climate-sensor.c4z"}
+        keypad = {"id": 2, "name": "Keypad", "typeName": "device", "proxy": "keypad_proxy"}
+        state = {}
+        transport = SimpleNamespace(
+            inventory=SimpleNamespace(items={1: weather, 2: keypad}),
+            tracked_ids={1, 2},
+            rest=SimpleNamespace(host="example.test"),
+            state=SimpleNamespace(snapshot=lambda device_id: state if device_id == 1 else {}),
+            connected=True,
+        )
+        entities = []
+        await self.sensor.async_setup_entry(
+            None, SimpleNamespace(runtime_data=SimpleNamespace(transport=transport)),
+            entities.extend,
+        )
+        self.assertEqual([entity._attr_unique_id for entity in entities], [
+            "example.test_1_battery", "example.test_1_temperature", "example.test_1_humidity",
+        ])
+        self.assertTrue(all(entity.registry_device_id == 1 for entity in entities))
+        self.assertTrue(all(not entity.available for entity in entities))
+        state.update(zigbee_climate_temperature=23.74, zigbee_climate_humidity=32.0)
+        self.assertEqual([entity.native_value for entity in entities], [None, 23.74, 32.0])
+        self.assertEqual([entity.available for entity in entities], [False, True, True])
+        self.assertEqual(
+            [entity._attr_native_unit_of_measurement for entity in entities], ["%", "°C", "%"]
+        )
+
     async def test_setup_creates_only_director_advertised_metrics(self):
         items = {
             2144: {

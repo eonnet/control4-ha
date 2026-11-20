@@ -54,7 +54,7 @@ credentials are stored in Home Assistant's config entry.
 | Switch | Compatible standard, wireless, and radiant-floor relays | On and off; newly discovered relay entities are disabled by default |
 | Lock | Native Control4 Z-Wave locks that advertise both lock and unlock | Lock, unlock, and state reported by Control4 |
 | Binary sensor | Window contacts, door contacts, and motion/PIR sensors | Window, door, and motion state |
-| Sensor | Control4 `zwave-common-sensor` and `zwave-security-sensor` devices | Battery level, Celsius temperature, relative humidity, and illumination when exposed by the device |
+| Sensor | Control4 Z-Wave sensors and devices using the Zigbee Climate Sensor driver | Battery level, Celsius temperature, relative humidity, and illumination when exposed by the device |
 | Media player | Rooms with compatible Watch or Listen sources | Source browsing, metadata, artwork, transport, power-off, volume, mute, and grouping as available |
 | Button | Room playback and thermostat humidity actions | Previous, Play, Pause, Stop, Next, and one-percent humidify/dehumidify setpoint adjustments when available |
 | Select | Thermostat and media choices | Hold mode, humidity mode, TIDAL account, and TIDAL playlist when available |
@@ -96,6 +96,9 @@ capability expose only the reading.
   motion/PIR entity. The native security source takes priority when both old
   and new Control4 sensor proxies describe the same PIR, avoiding duplicates.
 - Multi-endpoint readings appear as separate Home Assistant sensor entities.
+- Devices using the Control4 `zigbee-climate-sensor.c4z` driver expose
+  temperature, relative humidity, and battery level. Each reading becomes
+  available when the driver reports it as valid.
 
 ## Door locks
 

@@ -48,6 +48,9 @@ _SAFE_STATE_VALUES = {
     "output_volume_percent",
     "target_temperature_c",
     "volume_percent",
+    "zigbee_climate_battery",
+    "zigbee_climate_humidity",
+    "zigbee_climate_temperature",
 }
 
 

@@ -1,4 +1,4 @@
-"""Exact numeric variables exposed by Control4's Z-Wave sensor proxies."""
+"""Numeric metrics exposed by supported Control4 sensor drivers."""
 
 from __future__ import annotations
 
@@ -11,12 +11,13 @@ SensorKind = Literal["battery", "temperature", "humidity", "illumination"]
 
 
 @dataclass(frozen=True)
-class ZWaveSensorMetric:
-    """One dynamically created variable on a Z-Wave common sensor."""
+class SensorMetric:
+    """A numeric reading with a stable state key and entity identifier."""
 
     variable_name: str
     kind: SensorKind
     endpoint: int | None
+    state_prefix: str = "zwave_sensor"
 
     @property
     def entity_key(self) -> str:
@@ -24,7 +25,7 @@ class ZWaveSensorMetric:
 
     @property
     def state_key(self) -> str:
-        return f"zwave_sensor_{self.entity_key}"
+        return f"{self.state_prefix}_{self.entity_key}"
 
     @property
     def label(self) -> str:
@@ -47,8 +48,14 @@ _VARIABLE_PATTERNS: tuple[tuple[re.Pattern[str], SensorKind], ...] = (
     (re.compile(r"IlluminanceLux", re.IGNORECASE), "illumination"),
 )
 
+ZIGBEE_CLIMATE_METRICS = (
+    (SensorMetric("BatteryPercent", "battery", None, "zigbee_climate"), "BatteryValid"),
+    (SensorMetric("TemperatureC", "temperature", None, "zigbee_climate"), "TemperatureValid"),
+    (SensorMetric("RelativeHumidity", "humidity", None, "zigbee_climate"), "HumidityValid"),
+)
 
-def zwave_sensor_metric(variable_name: Any) -> ZWaveSensorMetric | None:
+
+def zwave_sensor_metric(variable_name: Any) -> SensorMetric | None:
     """Recognize only variables documented by the bundled Control4 driver."""
     if not isinstance(variable_name, str):
         return None
@@ -63,11 +70,11 @@ def zwave_sensor_metric(variable_name: Any) -> ZWaveSensorMetric | None:
         endpoint = int(endpoint_value) if endpoint_value is not None else None
         if endpoint is not None and endpoint > 255:
             return None
-        return ZWaveSensorMetric(name, kind, endpoint)
+        return SensorMetric(name, kind, endpoint)
     return None
 
 
-def valid_zwave_sensor_value(metric: ZWaveSensorMetric, value: float) -> bool:
+def valid_sensor_value(metric: SensorMetric, value: float) -> bool:
     """Reject impossible or unbounded values without inventing conversions."""
     if metric.kind in {"battery", "humidity"}:
         return 0 <= value <= 100
