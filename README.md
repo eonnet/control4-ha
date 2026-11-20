@@ -205,6 +205,19 @@ type: custom:control4-media-player-card
 entity: media_player.kitchen
 ```
 
+### Control4 Remote Card
+
+A room-aware Control4 remote for Watch sources. It shows the active source,
+switches between the room's validated Watch activities, and exposes only the
+virtual remote commands advertised by Director. The compact mobile layout
+includes Home, Menu, Guide, Info, Back, D-pad, volume, channel, playback,
+colored keys, room power, and an expandable number pad.
+
+```yaml
+type: custom:control4-remote-card
+entity: remote.living_remote
+```
+
 ### Control4 Media Favorites
 
 A compact one-tap launcher that automatically reads the selected room's
@@ -277,6 +290,9 @@ other Control4 entries are not changed.
 - Humidifier and dehumidifier setpoints use Control4's one-percent increase and
   decrease controls because the Director does not advertise a direct setpoint
   command.
+- Remote entities are created for media rooms that advertise supported
+  virtual-room commands. Watch activity selection uses the room's validated
+  Control4 UI source catalog.
 - Relay entities require explicit enabling in Home Assistant.
 - TIDAL browsing is limited to configured or retrieved playlists.
 - TuneIn browsing is limited to configured or retrieved favorites.

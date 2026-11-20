@@ -22,6 +22,31 @@ from .sources import RoomSource
 _LOGGER = logging.getLogger(__name__)
 
 
+# Parameterless virtual-room commands advertised by Control4's roomdevice
+# proxy. Keep this list deliberately finite: remote.send_command must never
+# become an arbitrary Director command endpoint.
+ROOM_REMOTE_COMMANDS = (
+    "CONTROL4", "MENU", "GUIDE", "INFO", "BACK", "CANCEL", "EXIT",
+    "UP", "DOWN", "LEFT", "RIGHT", "ENTER",
+    "PULSE_VOL_UP", "PULSE_VOL_DOWN", "MUTE_TOGGLE",
+    "PULSE_CH_UP", "PULSE_CH_DOWN", "RECALL",
+    "SKIP_REV", "SCAN_REV", "PLAY", "PAUSE", "STOP", "SCAN_FWD",
+    "SKIP_FWD", "RECORD", "PVR", "OPEN_CLOSE", "EJECT",
+    "NUMBER_0", "NUMBER_1", "NUMBER_2", "NUMBER_3", "NUMBER_4",
+    "NUMBER_5", "NUMBER_6", "NUMBER_7", "NUMBER_8", "NUMBER_9",
+    "DASH", "STAR", "POUND", "PROGRAM_A", "PROGRAM_B", "PROGRAM_C",
+    "PROGRAM_D", "PIP", "CLOSED_CAPTIONED",
+)
+_ROOM_REMOTE_COMMAND_SET = frozenset(ROOM_REMOTE_COMMANDS)
+_ROOM_REMOTE_HOLD_COMMANDS = frozenset({
+    "START_UP", "STOP_UP", "START_DOWN", "STOP_DOWN",
+    "START_LEFT", "STOP_LEFT", "START_RIGHT", "STOP_RIGHT",
+    "START_VOL_UP", "STOP_VOL_UP", "START_VOL_DOWN", "STOP_VOL_DOWN",
+    "START_CH_UP", "STOP_CH_UP", "START_CH_DOWN", "STOP_CH_DOWN",
+    "START_SCAN_REV", "STOP_SCAN_REV", "START_SCAN_FWD", "STOP_SCAN_FWD",
+})
+
+
 class UnsupportedCommand(ValueError):
     """Director metadata does not support the requested command or value."""
 
@@ -176,6 +201,20 @@ class DeviceCommandClient:
         return command in {
             "PLAY", "PAUSE", "STOP", "SKIP_REV", "SKIP_FWD",
         } and self.supports_parameterless(room_id, command)
+
+    def supports_room_remote(self, room_id: int, command: str) -> bool:
+        """Return whether one allowlisted virtual-remote command is advertised."""
+        return (
+            command in _ROOM_REMOTE_COMMAND_SET | _ROOM_REMOTE_HOLD_COMMANDS
+            and self.supports_parameterless(room_id, command)
+        )
+
+    def room_remote_commands(self, room_id: int) -> tuple[str, ...]:
+        """Return public remote commands actually advertised for this room."""
+        return tuple(
+            command for command in ROOM_REMOTE_COMMANDS
+            if self.supports_room_remote(room_id, command)
+        )
 
     def supports_room_source(self, room_id: int, experience: str) -> bool:
         """Require the source command shape observed on this Core3 room."""
@@ -334,6 +373,17 @@ class DeviceCommandClient:
         # Match pyControl4's C4Room playback wire format. These commands are
         # accepted but ignored on this Director when sent through the generic
         # ``params`` envelope used successfully by the other command groups.
+        return await self.rest.post_json(
+            f"/api/v1/items/{room_id}/commands",
+            {"async": True, "command": command, "tParams": {}},
+        )
+
+    async def room_remote(self, room_id: int, command: str) -> Any:
+        """Send one allowlisted, metadata-validated virtual remote command."""
+        if not self.supports_room_remote(room_id, command):
+            raise UnsupportedCommand(
+                "Director did not advertise this Control4 remote command"
+            )
         return await self.rest.post_json(
             f"/api/v1/items/{room_id}/commands",
             {"async": True, "command": command, "tParams": {}},

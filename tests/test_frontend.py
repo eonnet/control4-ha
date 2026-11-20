@@ -184,6 +184,19 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
             javascript,
         )
 
+    def test_remote_card_uses_validated_room_remote_entity(self) -> None:
+        javascript = Path(FRONTEND_FILE).read_text(encoding="utf-8")
+        self.assertIn('const REMOTE_CARD_TAG = "control4-remote-card"', javascript)
+        self.assertIn("class Control4RemoteCard extends HTMLElement", javascript)
+        self.assertIn("class Control4RemoteCardEditor extends HTMLElement", javascript)
+        self.assertIn("control4_commands", javascript)
+        self.assertIn('this._hass.callService("remote", "send_command"', javascript)
+        self.assertIn('this._hass.callService("remote", "turn_on"', javascript)
+        self.assertIn('this._hass.callService("remote", "turn_off"', javascript)
+        self.assertIn('this._button("CONTROL4", "mdi:home", "Home")', javascript)
+        self.assertIn('this._button("ENTER", "mdi:circle-outline"', javascript)
+        self.assertIn('this._numberButton(0, "NUMBER_0")', javascript)
+
     def test_group_players_are_visually_partitioned_and_retarget_live(self) -> None:
         javascript = Path(FRONTEND_FILE).read_text(encoding="utf-8")
         self.assertIn("Master volume — ${escapeHtml(", javascript)
@@ -327,10 +340,10 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
                 encoding="utf-8"
             )
         )
-        self.assertEqual(manifest["version"], "0.1.64")
+        self.assertEqual(manifest["version"], "0.1.65")
         self.assertIn("http", manifest["dependencies"])
         self.assertEqual(manifest["requirements"], ["pyControl4>=2.0.2"])
-        self.assertTrue(FRONTEND_URL.endswith("?v=0.1.64"))
+        self.assertTrue(FRONTEND_URL.endswith("?v=0.1.65"))
 
     def test_official_control4_brand_assets_are_packaged(self) -> None:
         brand = Path(FRONTEND_FILE).parent.parent / "brand"

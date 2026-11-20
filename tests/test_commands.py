@@ -38,6 +38,14 @@ class FakeRest:
                 {"command": "STOP", "deviceId": 22, "params": []},
                 {"command": "SKIP_REV", "deviceId": 22, "params": []},
                 {"command": "SKIP_FWD", "deviceId": 22, "params": []},
+                {"command": "CONTROL4", "deviceId": 22, "params": []},
+                {"command": "UP", "deviceId": 22, "params": []},
+                {"command": "START_UP", "deviceId": 22, "params": []},
+                {"command": "STOP_UP", "deviceId": 22, "params": []},
+                {"command": "ENTER", "deviceId": 22, "params": []},
+                {"command": "NUMBER_1", "deviceId": 22, "params": []},
+                {"command": "PROGRAM_A", "deviceId": 22, "params": []},
+                {"command": "CUSTOM_1", "deviceId": 22, "params": []},
                 {"command": "SET_VOLUME_LEVEL", "deviceId": 22, "params": [
                     {"name": "LEVEL", "type": "RANGE", "valueType": "INTEGER",
                      "low": 0, "high": 100},
@@ -213,6 +221,34 @@ class CommandTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.commands.supports_room_transport(22, "PAUSE"))
         with self.assertRaises(UnsupportedCommand):
             await self.commands.room_transport(22, "PAUSE")
+        self.assertFalse(self.rest.sent)
+
+    async def test_room_remote_is_allowlisted_and_uses_virtual_room_wire_format(self) -> None:
+        self.assertTrue(self.commands.supports_room_remote(22, "CONTROL4"))
+        self.assertTrue(self.commands.supports_room_remote(22, "START_UP"))
+        self.assertFalse(self.commands.supports_room_remote(22, "CUSTOM_1"))
+        self.assertEqual(
+            self.commands.room_remote_commands(22),
+            (
+                "CONTROL4", "UP", "ENTER", "SKIP_REV", "PLAY", "PAUSE",
+                "STOP", "SKIP_FWD", "NUMBER_1", "PROGRAM_A",
+            ),
+        )
+        await self.commands.room_remote(22, "UP")
+        await self.commands.room_remote(22, "START_UP")
+        await self.commands.room_remote(22, "STOP_UP")
+        self.assertEqual(self.rest.sent, [
+            ("/api/v1/items/22/commands", {
+                "async": True, "command": command, "tParams": {},
+            })
+            for command in ("UP", "START_UP", "STOP_UP")
+        ])
+        self.rest.sent.clear()
+        with self.assertRaises(UnsupportedCommand):
+            await self.commands.room_remote(22, "CUSTOM_1")
+        self.commands._metadata[22]["ENTER"]["params"] = [{"name": "BAD"}]
+        with self.assertRaises(UnsupportedCommand):
+            await self.commands.room_remote(22, "ENTER")
         self.assertFalse(self.rest.sent)
 
     async def test_unsupported_room_volume_or_mute_never_posts(self) -> None:

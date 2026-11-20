@@ -7,6 +7,8 @@ const FAVORITES_CARD_TAG = "control4-media-favorites-card";
 const FAVORITES_EDITOR_TAG = "control4-media-favorites-card-editor";
 const THERMOSTAT_CARD_TAG = "control4-thermostat-card";
 const THERMOSTAT_EDITOR_TAG = "control4-thermostat-card-editor";
+const REMOTE_CARD_TAG = "control4-remote-card";
+const REMOTE_EDITOR_TAG = "control4-remote-card-editor";
 const DIALOG_TAG = "control4-media-group-dialog";
 const CONTROL4_PLATFORM = "control4_advanced";
 const FEATURE_VOLUME_SET = 4;
@@ -76,6 +78,16 @@ const control4Climates = (hass) =>
           Object.keys(state.attributes || {}).some((key) =>
             key.startsWith("control4_")
           ))
+    )
+    .sort((left, right) => stateName(left).localeCompare(stateName(right)));
+
+const control4Remotes = (hass) =>
+  Object.values(hass?.states || {})
+    .filter(
+      (state) =>
+        state.entity_id.startsWith("remote.") &&
+        (hass.entities?.[state.entity_id]?.platform === CONTROL4_PLATFORM ||
+          Number.isInteger(state.attributes.control4_room_id))
     )
     .sort((left, right) => stateName(left).localeCompare(stateName(right)));
 
@@ -3877,6 +3889,248 @@ class Control4MediaPresetCard extends HTMLElement {
   }
 }
 
+class Control4RemoteCard extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._config = undefined;
+    this._hass = undefined;
+    this._expanded = false;
+    this._busy = false;
+    this._error = "";
+  }
+
+  static getConfigElement() {
+    return document.createElement(REMOTE_EDITOR_TAG);
+  }
+
+  static getStubConfig(hass) {
+    return { entity: control4Remotes(hass)[0]?.entity_id || "" };
+  }
+
+  setConfig(config) {
+    if (!config?.entity || !String(config.entity).startsWith("remote.")) {
+      throw new Error("Select a Control4 remote entity");
+    }
+    this._config = { ...config };
+    this._render();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+  }
+
+  getCardSize() {
+    return this._expanded ? 8 : 6;
+  }
+
+  getGridOptions() {
+    return { rows: this._expanded ? 8 : 6, columns: 6, min_rows: 5, min_columns: 4 };
+  }
+
+  async _run(operation) {
+    if (this._busy) {
+      return;
+    }
+    this._busy = true;
+    this._error = "";
+    this._render();
+    try {
+      await operation();
+    } catch (error) {
+      this._error = error?.message || String(error);
+    } finally {
+      this._busy = false;
+      this._render();
+    }
+  }
+
+  _send(command) {
+    void this._run(() =>
+      this._hass.callService("remote", "send_command", {
+        entity_id: this._config.entity,
+        command: [command],
+      })
+    );
+  }
+
+  _button(command, icon, label, className = "") {
+    const state = this._hass?.states?.[this._config?.entity];
+    const supported = new Set(state?.attributes?.control4_commands || []);
+    if (!supported.has(command)) {
+      return "";
+    }
+    return `<button class="remote-button ${className}" data-command="${command}"
+      title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"
+      ${state?.state !== "on" || this._busy ? "disabled" : ""}>
+      <ha-icon icon="${icon}"></ha-icon>
+    </button>`;
+  }
+
+  _numberButton(value, command) {
+    const state = this._hass?.states?.[this._config?.entity];
+    const supported = state?.attributes?.control4_commands || [];
+    if (!supported.includes(command)) {
+      return "";
+    }
+    return `<button class="number-button" data-command="${command}"
+      ${state?.state !== "on" || this._busy ? "disabled" : ""}>${value}</button>`;
+  }
+
+  _render() {
+    if (!this._config || !this._hass) {
+      return;
+    }
+    const state = this._hass.states[this._config.entity];
+    if (!state) {
+      this.shadowRoot.innerHTML = `<ha-card><div class="missing">Remote entity not found</div></ha-card>`;
+      return;
+    }
+    const activities = state.attributes.activity_list || [];
+    const current = state.attributes.current_activity || "";
+    const roomName = (this._config.name || stateName(state)).replace(/ Remote$/, "");
+    const activityName = current.replace(/^Watch:\s*/i, "").replace(/^Listen:\s*/i, "");
+    const colorButtons = [
+      ["PROGRAM_A", "red"], ["PROGRAM_B", "green"],
+      ["PROGRAM_C", "yellow"], ["PROGRAM_D", "blue"],
+    ].filter(([command]) =>
+      (state.attributes.control4_commands || []).includes(command)
+    );
+    this.shadowRoot.innerHTML = `
+      <style>
+        :host { display: block; }
+        ha-card { overflow: hidden; padding: 14px; }
+        .missing, .error { padding: 16px; color: var(--error-color); }
+        .header { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+        .title { min-width: 0; font-size: 22px; font-weight: 600; color: var(--primary-text-color); }
+        .activity { margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--secondary-text-color); }
+        .source-select {
+          width: 100%; margin-top: 10px; padding: 9px 10px; border: 1px solid var(--divider-color);
+          border-radius: 9px; color: var(--primary-text-color); background: var(--secondary-background-color);
+          font: inherit;
+        }
+        button { color: var(--primary-text-color); font: inherit; -webkit-tap-highlight-color: transparent; }
+        button:disabled { opacity: .32; }
+        .power, .remote-button, .number-button, .more {
+          border: 0; cursor: pointer; background: var(--secondary-background-color);
+        }
+        .power { width: 44px; height: 44px; border-radius: 50%; color: ${state.state === "on" ? "var(--primary-color)" : "var(--secondary-text-color)"}; }
+        .power ha-icon { --mdc-icon-size: 25px; }
+        .quick-row, .transport, .colors { display: flex; justify-content: center; gap: 9px; margin-top: 14px; }
+        .remote-button { width: 43px; height: 43px; border-radius: 50%; display: grid; place-items: center; }
+        .remote-button ha-icon { --mdc-icon-size: 22px; }
+        .remote-layout {
+          display: grid; grid-template-columns: 58px minmax(170px, 214px) 58px;
+          justify-content: center; align-items: center; gap: 12px; margin: 15px 0 8px;
+        }
+        .side { display: grid; gap: 7px; justify-items: center; }
+        .side-label { font-size: 11px; letter-spacing: .08em; color: var(--secondary-text-color); }
+        .dpad {
+          display: grid; grid-template-columns: repeat(3, 58px); grid-template-rows: repeat(3, 58px);
+          justify-content: center; border-radius: 50%; padding: 9px; background: var(--secondary-background-color);
+          box-shadow: inset 0 0 0 1px var(--divider-color);
+        }
+        .dpad .remote-button { width: 58px; height: 58px; background: transparent; }
+        .dpad .enter { width: 48px; height: 48px; align-self: center; justify-self: center; border: 1px solid var(--divider-color); }
+        .up { grid-column: 2; grid-row: 1; } .left { grid-column: 1; grid-row: 2; }
+        .enter { grid-column: 2; grid-row: 2; } .right { grid-column: 3; grid-row: 2; }
+        .down { grid-column: 2; grid-row: 3; }
+        .colors button { width: 44px; height: 10px; border: 0; border-radius: 6px; cursor: pointer; }
+        .colors .red { background: #e53935; } .colors .green { background: #43a047; }
+        .colors .yellow { background: #fdd835; } .colors .blue { background: #1e88e5; }
+        .more { display: flex; align-items: center; gap: 6px; margin: 12px auto 0; padding: 7px 13px; border-radius: 18px; }
+        .number-pad { display: grid; grid-template-columns: repeat(3, 54px); justify-content: center; gap: 8px; margin-top: 13px; }
+        .number-button { width: 54px; height: 42px; border-radius: 21px; font-size: 18px; }
+        .number-button.zero { grid-column: 2; }
+        .error { padding: 10px 4px 0; overflow-wrap: anywhere; }
+        @media (max-width: 380px) {
+          ha-card { padding: 12px 9px; }
+          .remote-layout { grid-template-columns: 48px minmax(162px, 190px) 48px; gap: 7px; }
+          .dpad { grid-template-columns: repeat(3, 52px); grid-template-rows: repeat(3, 52px); }
+          .dpad .remote-button { width: 52px; height: 52px; }
+          .remote-button { width: 40px; height: 40px; }
+        }
+      </style>
+      <ha-card aria-busy="${this._busy ? "true" : "false"}">
+        <div class="header">
+          <div><div class="title">${escapeHtml(roomName)}</div>
+            <div class="activity">${escapeHtml(state.state === "on" ? activityName || "On" : "Off")}</div></div>
+          <button class="power" data-power title="Power off" aria-label="Power off"
+            ${state.state !== "on" || this._busy ? "disabled" : ""}><ha-icon icon="mdi:power"></ha-icon></button>
+        </div>
+        ${activities.length ? `<select class="source-select" ${this._busy ? "disabled" : ""}>
+          ${state.state !== "on" || !activities.includes(current) ? `<option value="" selected disabled>Choose Watch source…</option>` : ""}
+          ${activities.map((activity) => `<option value="${escapeHtml(activity)}" ${activity === current ? "selected" : ""}>${escapeHtml(activity.replace(/^Watch:\s*/i, ""))}</option>`).join("")}
+        </select>` : ""}
+        <div class="quick-row">
+          ${this._button("CONTROL4", "mdi:home", "Home")}
+          ${this._button("MENU", "mdi:menu", "Menu")}
+          ${this._button("GUIDE", "mdi:television-guide", "Guide")}
+          ${this._button("INFO", "mdi:information-outline", "Info")}
+          ${this._button("BACK", "mdi:arrow-u-left-top", "Back")}
+        </div>
+        <div class="remote-layout">
+          <div class="side"><span class="side-label">VOL</span>
+            ${this._button("PULSE_VOL_UP", "mdi:plus", "Volume up")}
+            ${this._button("MUTE_TOGGLE", "mdi:volume-mute", "Mute")}
+            ${this._button("PULSE_VOL_DOWN", "mdi:minus", "Volume down")}
+          </div>
+          <div class="dpad">
+            ${this._button("UP", "mdi:chevron-up", "Up", "up")}
+            ${this._button("LEFT", "mdi:chevron-left", "Left", "left")}
+            ${this._button("ENTER", "mdi:circle-outline", "Select", "enter")}
+            ${this._button("RIGHT", "mdi:chevron-right", "Right", "right")}
+            ${this._button("DOWN", "mdi:chevron-down", "Down", "down")}
+          </div>
+          <div class="side"><span class="side-label">CH</span>
+            ${this._button("PULSE_CH_UP", "mdi:plus", "Channel up")}
+            ${this._button("RECALL", "mdi:backup-restore", "Last channel")}
+            ${this._button("PULSE_CH_DOWN", "mdi:minus", "Channel down")}
+          </div>
+        </div>
+        <div class="transport">
+          ${this._button("SKIP_REV", "mdi:skip-previous", "Previous")}
+          ${this._button("SCAN_REV", "mdi:rewind", "Rewind")}
+          ${this._button("PLAY", "mdi:play", "Play")}
+          ${this._button("PAUSE", "mdi:pause", "Pause")}
+          ${this._button("SCAN_FWD", "mdi:fast-forward", "Fast forward")}
+          ${this._button("SKIP_FWD", "mdi:skip-next", "Next")}
+        </div>
+        ${colorButtons.length ? `<div class="colors">${colorButtons.map(([command, color]) =>
+          `<button class="${color}" data-command="${command}" aria-label="${command}" ${state.state !== "on" || this._busy ? "disabled" : ""}></button>`
+        ).join("")}</div>` : ""}
+        <button class="more" data-more><ha-icon icon="mdi:dialpad"></ha-icon>${this._expanded ? "Hide keypad" : "Keypad"}</button>
+        ${this._expanded ? `<div class="number-pad">
+          ${[1,2,3,4,5,6,7,8,9].map((number) => this._numberButton(number, `NUMBER_${number}`)).join("")}
+          ${this._numberButton("*", "STAR")}${this._numberButton(0, "NUMBER_0").replace('class="number-button"', 'class="number-button zero"')}${this._numberButton("#", "POUND")}
+        </div>` : ""}
+        ${this._error ? `<div class="error">${escapeHtml(this._error)}</div>` : ""}
+      </ha-card>`;
+    for (const button of this.shadowRoot.querySelectorAll("[data-command]")) {
+      button.addEventListener("click", () => this._send(button.dataset.command));
+    }
+    this.shadowRoot.querySelector("[data-power]")?.addEventListener("click", () =>
+      void this._run(() => this._hass.callService("remote", "turn_off", {
+        entity_id: this._config.entity,
+      }))
+    );
+    this.shadowRoot.querySelector(".source-select")?.addEventListener("change", (event) => {
+      const activity = event.currentTarget.value;
+      if (activity) {
+        void this._run(() => this._hass.callService("remote", "turn_on", {
+          entity_id: this._config.entity,
+          activity,
+        }));
+      }
+    });
+    this.shadowRoot.querySelector("[data-more]")?.addEventListener("click", () => {
+      this._expanded = !this._expanded;
+      this._render();
+    });
+  }
+}
+
 class Control4MediaPresetCardEditor extends HTMLElement {
   constructor() {
     super();
@@ -4507,6 +4761,62 @@ class Control4ThermostatCardEditor extends HTMLElement {
   }
 }
 
+class Control4RemoteCardEditor extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._hass = undefined;
+    this._config = {};
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+  }
+
+  setConfig(config) {
+    this._config = { ...config };
+    this._render();
+  }
+
+  _changed(updates) {
+    const config = { ...this._config, ...updates };
+    if (!config.name) {
+      delete config.name;
+    }
+    this._config = config;
+    this.dispatchEvent(new CustomEvent("config-changed", {
+      detail: { config }, bubbles: true, composed: true,
+    }));
+  }
+
+  _render() {
+    if (!this._hass) {
+      return;
+    }
+    const remotes = control4Remotes(this._hass);
+    this.shadowRoot.innerHTML = `
+      <style>
+        label { display: block; margin: 16px 0; color: var(--primary-text-color); }
+        select, input { width: 100%; box-sizing: border-box; margin-top: 8px; padding: 12px;
+          border: 1px solid var(--divider-color); border-radius: 8px;
+          color: var(--primary-text-color); background: var(--card-background-color); font: inherit; }
+      </style>
+      <label>Control4 room remote<select>
+        ${remotes.map((state) => `<option value="${escapeHtml(state.entity_id)}" ${
+          state.entity_id === this._config.entity ? "selected" : ""
+        }>${escapeHtml(stateName(state))}</option>`).join("")}
+      </select></label>
+      <label>Card title (optional)<input type="text" value="${escapeHtml(this._config.name || "")}" /></label>`;
+    this.shadowRoot.querySelector("select")?.addEventListener("change", (event) =>
+      this._changed({ entity: event.currentTarget.value })
+    );
+    this.shadowRoot.querySelector("input")?.addEventListener("change", (event) =>
+      this._changed({ name: event.currentTarget.value.trim() })
+    );
+  }
+}
+
 class Control4MediaGroupCardEditor extends HTMLElement {
   constructor() {
     super();
@@ -4604,6 +4914,12 @@ const registerCard = () => {
   if (!customElements.get(THERMOSTAT_CARD_TAG)) {
     customElements.define(THERMOSTAT_CARD_TAG, Control4ThermostatCard);
   }
+  if (!customElements.get(REMOTE_EDITOR_TAG)) {
+    customElements.define(REMOTE_EDITOR_TAG, Control4RemoteCardEditor);
+  }
+  if (!customElements.get(REMOTE_CARD_TAG)) {
+    customElements.define(REMOTE_CARD_TAG, Control4RemoteCard);
+  }
   if (!customElements.get(FAVORITES_EDITOR_TAG)) {
     customElements.define(
       FAVORITES_EDITOR_TAG,
@@ -4645,6 +4961,15 @@ const registerCard = () => {
       description: "Control4 climate, humidity, presets, fan, hold, and schedule",
       preview: true,
       documentationURL: "https://github.com/eonnet/control4-ha#control4-thermostat-card",
+    });
+  }
+  if (!window.customCards.some((card) => card.type === REMOTE_CARD_TAG)) {
+    window.customCards.push({
+      type: REMOTE_CARD_TAG,
+      name: "Control4 Remote",
+      description: "Control4 Watch source selection and virtual room remote",
+      preview: true,
+      documentationURL: "https://github.com/eonnet/control4-ha#control4-remote-card",
     });
   }
   if (!window.customCards.some((card) => card.type === FAVORITES_CARD_TAG)) {
