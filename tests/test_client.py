@@ -231,6 +231,28 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
             25.4,
         )
 
+    async def test_native_lock_push_triggers_rest_refresh(self) -> None:
+        self.rest.items = [{
+            "id": 3403, "name": "Z-Wave Lock", "proxy": "lock",
+        }]
+        self.rest.variables = [{"varName": "LockStatus", "value": "unlocked"}]
+        self.transport = Control4Transport(
+            self.rest, [3403], websocket_factory=FakeWebsocket
+        )
+        await self.transport.start()
+        first_reads = self.rest.read_count
+        self.rest.variables = [{"varName": "LockStatus", "value": "locked"}]
+
+        await FakeWebsocket.instances[-1].push(3403, {"changed": True})
+
+        self.assertEqual(self.rest.read_count, first_reads + 1)
+        self.assertEqual(
+            self.transport.state.snapshot(3403)["lock_status"], "locked"
+        )
+        self.rest.variables = [{"varName": "LockStatus", "value": "unknown"}]
+        await FakeWebsocket.instances[-1].push(3403, {"changed": True})
+        self.assertIsNone(self.transport.state.snapshot(3403)["lock_status"])
+
     async def test_reconnect_reloads_rest_state(self) -> None:
         statuses = []
         self.transport.subscribe_connection(statuses.append)

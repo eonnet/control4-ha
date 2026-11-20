@@ -82,6 +82,42 @@ class EventNormalizationTests(unittest.TestCase):
             ),
         })
 
+    def test_native_lock_rest_status_is_normalized(self) -> None:
+        for raw, expected in (
+            ("locked", "locked"),
+            ("UNLOCKED", "unlocked"),
+            (" Locking ", "locking"),
+            ("unlocking", "unlocking"),
+            ("JAMMED", "jammed"),
+        ):
+            with self.subTest(raw=raw):
+                event = normalize_rest_variables(
+                    3403,
+                    "lock",
+                    [
+                        {"varName": "LockStatus", "value": raw},
+                        {"varName": "LastUserName", "value": "private"},
+                    ],
+                )
+                self.assertEqual(event.changes, {"lock_status": expected})
+                self.assertTrue(event.authoritative)
+
+        for invalid in (None, "", "open", "broken", 1, True):
+            with self.subTest(invalid=invalid):
+                event = normalize_rest_variables(
+                    3403, "lock", [{"varName": "LockStatus", "value": invalid}]
+                )
+                self.assertEqual(event.changes, {"lock_status": None})
+                self.assertTrue(event.authoritative)
+
+        missing = normalize_rest_variables(3403, "lock", [])
+        self.assertEqual(missing.changes, {"lock_status": None})
+        relay = normalize_rest_variables(
+            2394, "relaysingle_doorlock_c4",
+            [{"varName": "RelayState", "value": 1}],
+        )
+        self.assertEqual(relay.changes, {})
+
     def test_wiim_output_status_push_is_device_scoped_and_bounded(self) -> None:
         event = normalize_websocket_event({
             "evtName": "OnDataToUI", "iddevice": 623,

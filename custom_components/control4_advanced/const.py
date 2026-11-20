@@ -2,7 +2,7 @@
 
 DOMAIN = "control4_advanced"
 PLATFORMS = (
-    "light", "climate", "switch", "binary_sensor", "sensor", "select",
+    "light", "climate", "switch", "lock", "binary_sensor", "sensor", "select",
     "media_player", "remote", "button",
 )
 CONF_RECONCILIATION_SECONDS = "reconciliation_seconds"

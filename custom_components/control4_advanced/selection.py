@@ -9,6 +9,7 @@ from .const import DOMAIN
 from .transport.proxies import (
     CONTACT_SENSOR_PROXIES,
     SUPPORTED_RELAY_PROXIES,
+    ZWAVE_LOCK_PROXY,
     ZWAVE_NUMERIC_SENSOR_PROXIES,
 )
 
@@ -23,6 +24,8 @@ def is_candidate_item(item: dict[str, Any]) -> bool:
         return True
     if isinstance(proxy, str) and proxy in ZWAVE_NUMERIC_SENSOR_PROXIES:
         return True
+    if proxy == ZWAVE_LOCK_PROXY:
+        return type(item["id"]) is int and item["id"] > 0
     capabilities = item.get("capabilities")
     if not isinstance(capabilities, dict):
         return False
@@ -80,6 +83,21 @@ def supported_binary_sensor_ids(
         for device_id in sorted(tracked_ids)
         if is_candidate_item(items[device_id])
         and items[device_id].get("proxy") in CONTACT_SENSOR_PROXIES
+    ]
+
+
+def supported_lock_ids(
+    items: Mapping[int, dict[str, Any]],
+    tracked_ids: Iterable[int],
+    supports_lock: Callable[[int], bool],
+) -> list[int]:
+    """Discover native locks independently of their first state read."""
+    return [
+        device_id
+        for device_id in sorted(tracked_ids)
+        if is_candidate_item(items[device_id])
+        and items[device_id].get("proxy") == ZWAVE_LOCK_PROXY
+        and supports_lock(device_id)
     ]
 
 

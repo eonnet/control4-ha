@@ -13,7 +13,7 @@ from typing import Any
 from pyControl4.websocket import C4Websocket
 
 from .events import NormalizedEvent, normalize_rest_variables, normalize_websocket_event
-from .proxies import ZWAVE_NUMERIC_SENSOR_PROXIES
+from .proxies import REST_REFRESH_PROXIES
 from .rest import DirectorRestClient
 
 
@@ -221,8 +221,8 @@ class Control4Transport:
 
             await asyncio.gather(*(sync_one(device_id) for device_id in sorted(self.tracked_ids)))
 
-    async def sync_device(self, device_id: int) -> None:
-        """Refresh one tracked item after a push trigger, preserving newer fields."""
+    async def sync_device(self, device_id: int) -> bool:
+        """Refresh a tracked item and report whether the cache accepted any fields."""
         if device_id not in self.tracked_ids:
             raise ValueError("item is not tracked")
         baseline = self.state.revision
@@ -230,10 +230,11 @@ class Control4Transport:
             variables = await self.rest.get_variables(device_id)
         except Exception as exc:
             _LOGGER.warning("REST state sync failed for %s: %s", device_id, type(exc).__name__)
-            return
+            return False
         event = normalize_rest_variables(device_id, self.inventory.proxy(device_id), variables)
         accepted = self.state.apply(event, only_if_unchanged_since=baseline)
         await self.events.publish(replace(event, changes=accepted, authoritative=bool(accepted)))
+        return bool(accepted)
 
     async def sync_room_source(self, room_id: int) -> None:
         """Reconcile source, power, and volume binding from one room read.
@@ -318,10 +319,10 @@ class Control4Transport:
             if event.device_id != routed_device_id:
                 _LOGGER.warning("Control4 WebSocket event route mismatch; ignoring")
                 return
-            # The common and native security Z-Wave drivers publish dynamic
-            # variables. Their push does not carry one stable variable/value
-            # pair, so use it as a trigger for an authoritative item read.
-            if proxy in ZWAVE_NUMERIC_SENSOR_PROXIES and event.event_type in {
+            # Dynamic Z-Wave sensors and locks publish change notifications
+            # without one stable state field. Use them as triggers for an
+            # authoritative, targeted item read.
+            if proxy in REST_REFRESH_PROXIES and event.event_type in {
                 "OnDataToUI", "OnVariableChanged",
             }:
                 await self.sync_device(routed_device_id)

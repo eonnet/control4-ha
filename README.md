@@ -1,7 +1,7 @@
 # Control4 Advanced for Home Assistant
 
 Control4 Advanced is an unofficial custom integration that brings compatible
-Control4 lighting, climate, relay, sensor, contact-sensor, and room-media
+Control4 lighting, climate, relay, lock, sensor, contact-sensor, and room-media
 devices into Home Assistant. It also includes media browsing, multi-room audio
 controls, saved group presets, privacy-preserving diagnostics, and five
 dashboard cards.
@@ -52,6 +52,7 @@ credentials are stored in Home Assistant's config entry.
 | Light | `light_v2` | On, off, and brightness for dimmable devices; on/off control for non-dimmable lights |
 | Climate | Celsius `thermostatV2` | Heat, Cool, Auto, Off, target temperature, current humidity, fan mode, named presets, hold mode, and humidity status when available |
 | Switch | Compatible standard, wireless, and radiant-floor relays | On and off; newly discovered relay entities are disabled by default |
+| Lock | Native Control4 Z-Wave locks that advertise both lock and unlock | Lock, unlock, and state reported by Control4 |
 | Binary sensor | Window contacts, door contacts, and motion/PIR sensors | Window, door, and motion state |
 | Sensor | Control4 `zwave-common-sensor` and `zwave-security-sensor` devices | Battery level, Celsius temperature, relative humidity, and illumination when exposed by the device |
 | Media player | Rooms with compatible Watch or Listen sources | Source browsing, metadata, artwork, transport, power-off, volume, mute, and grouping as available |
@@ -95,6 +96,13 @@ capability expose only the reading.
   motion/PIR entity. The native security source takes priority when both old
   and new Control4 sensor proxies describe the same PIR, avoiding duplicates.
 - Multi-endpoint readings appear as separate Home Assistant sensor entities.
+
+## Door locks
+
+Compatible native Control4 Z-Wave locks appear as standard Home Assistant lock
+entities. The displayed state comes from the lock status reported by Control4.
+Control4's relay-based door-lock proxies and lock PIN management are outside the
+scope of this platform.
 
 ## Media players
 

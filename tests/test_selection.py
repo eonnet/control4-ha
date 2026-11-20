@@ -6,7 +6,8 @@ from types import SimpleNamespace
 from custom_components.control4_advanced import _discover_media_room_ids
 from custom_components.control4_advanced.selection import (
     command_metadata_ids, is_candidate_item, supported_binary_sensor_ids, supported_light_ids,
-    registered_media_room_ids, supported_media_room_ids, supported_relay_ids,
+    registered_media_room_ids, supported_lock_ids, supported_media_room_ids,
+    supported_relay_ids,
 )
 
 
@@ -82,6 +83,37 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(supported_binary_sensor_ids(items, items), [335, 377, 378])
         self.assertEqual(
             command_metadata_ids(items, {335, 377, 378, 2140, 3416, 431}), [431]
+        )
+
+    def test_native_lock_discovery_requires_both_commands(self) -> None:
+        items = {
+            2394: {"id": 2394, "typeName": "device",
+                   "proxy": "relaysingle_doorlock_c4"},
+            3402: {"id": 3402, "typeName": "device", "proxy": "lock"},
+            3403: {"id": 3403, "typeName": "device", "proxy": "lock"},
+            3404: {"id": 3404, "typeName": "device", "proxy": "lock"},
+            3405: {"id": 3405, "typeName": "room", "proxy": "lock"},
+        }
+        commands = {
+            3402: {"Enable User Access"},
+            3403: {"LOCK", "UNLOCK"},
+            3404: {"LOCK"},
+            3405: {"LOCK", "UNLOCK"},
+        }
+        self.assertFalse(is_candidate_item(items[2394]))
+        self.assertTrue(is_candidate_item(items[3402]))
+        self.assertTrue(is_candidate_item(items[3403]))
+        self.assertEqual(
+            supported_lock_ids(
+                items,
+                items,
+                lambda device_id: {"LOCK", "UNLOCK"} <= commands[device_id],
+            ),
+            [3403],
+        )
+        self.assertEqual(
+            command_metadata_ids(items, {3402, 3403, 3404}),
+            [3402, 3403, 3404],
         )
 
     def test_media_rooms_require_complete_state_and_inventory_volume_binding(self) -> None:

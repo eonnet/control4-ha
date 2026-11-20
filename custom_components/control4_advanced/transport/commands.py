@@ -155,6 +155,12 @@ class DeviceCommandClient:
         record = self._metadata.get(device_id, {}).get(command)
         return record is not None and record.get("params") in (None, [], {})
 
+    def supports_lock(self, device_id: int) -> bool:
+        """Require the exact parameterless native-lock command pair."""
+        return self.supports_parameterless(
+            device_id, "LOCK"
+        ) and self.supports_parameterless(device_id, "UNLOCK")
+
     def choices(self, device_id: int, command: str, parameter: str) -> list[str]:
         spec = self._parameter(device_id, command, parameter)
         values = spec.get("values")
@@ -346,6 +352,22 @@ class DeviceCommandClient:
     async def relay_open(self, device_id: int) -> Any:
         """Open an advertised relay; physical mapping was observed for both supported proxies."""
         return await self.send(device_id, "OPEN")
+
+    async def lock_device(self, device_id: int) -> Any:
+        """Lock a native Control4 lock after metadata validation."""
+        if not self.supports_lock(device_id):
+            raise UnsupportedCommand(
+                f"LOCK/UNLOCK are not advertised for device {device_id}"
+            )
+        return await self.send(device_id, "LOCK")
+
+    async def unlock_device(self, device_id: int) -> Any:
+        """Unlock a native Control4 lock after metadata validation."""
+        if not self.supports_lock(device_id):
+            raise UnsupportedCommand(
+                f"LOCK/UNLOCK are not advertised for device {device_id}"
+            )
+        return await self.send(device_id, "UNLOCK")
 
     async def room_volume(self, room_id: int, level_percent: int) -> Any:
         if not self.supports_room_volume(room_id):

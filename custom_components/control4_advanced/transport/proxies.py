@@ -24,3 +24,11 @@ ZWAVE_NUMERIC_SENSOR_PROXIES = frozenset({
     ZWAVE_COMMON_SENSOR_PROXY,
     ZWAVE_SECURITY_SENSOR_PROXY,
 })
+
+# Control4's native Z-Wave lock proxy. The controllable child advertises
+# parameterless LOCK/UNLOCK commands and exposes LockStatus over REST.
+ZWAVE_LOCK_PROXY = "lock"
+
+# These proxies publish a change notification without one stable state field.
+# Treat the notification as a trigger for one targeted, authoritative REST read.
+REST_REFRESH_PROXIES = ZWAVE_NUMERIC_SENSOR_PROXIES | {ZWAVE_LOCK_PROXY}

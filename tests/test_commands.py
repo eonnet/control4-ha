@@ -67,6 +67,12 @@ class FakeRest:
                 {"command": "CLOSE", "deviceId": 431},
                 {"command": "TOGGLE", "deviceId": 431},
             ]
+        if device_id == 3403:
+            return [
+                {"command": "UNLOCK", "deviceId": 3403, "params": []},
+                {"command": "LOCK", "deviceId": 3403},
+                {"command": "TOGGLE", "deviceId": 3403},
+            ]
         if device_id == 579:
             return [
                 {"command": "OPEN", "deviceId": 579},
@@ -146,7 +152,9 @@ class CommandTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.rest = FakeRest()
         self.commands = DeviceCommandClient(self.rest)
-        await self.commands.refresh([22, 91, 93, 2726, 2646, 2811, 579, 431, 404])
+        await self.commands.refresh([
+            22, 91, 93, 2726, 2646, 2811, 579, 431, 404, 3403,
+        ])
 
     async def test_room_volume_and_mute_use_advertised_commands(self) -> None:
         self.assertTrue(self.commands.supports_room_volume(22))
@@ -408,6 +416,26 @@ class CommandTests(unittest.IsolatedAsyncioTestCase):
             ("/api/v1/items/431/commands", {"command": "OPEN"}),
             ("/api/v1/items/431/commands", {"command": "CLOSE"}),
         ])
+
+    async def test_native_lock_uses_only_advertised_parameterless_commands(self) -> None:
+        self.assertTrue(self.commands.supports_lock(3403))
+        await self.commands.lock_device(3403)
+        await self.commands.unlock_device(3403)
+        self.assertEqual(self.rest.sent, [
+            ("/api/v1/items/3403/commands", {"command": "LOCK"}),
+            ("/api/v1/items/3403/commands", {"command": "UNLOCK"}),
+        ])
+
+        self.rest.sent.clear()
+        self.commands._metadata[3403]["UNLOCK"]["params"] = [
+            {"name": "UNEXPECTED"},
+        ]
+        self.assertFalse(self.commands.supports_lock(3403))
+        with self.assertRaises(UnsupportedCommand):
+            await self.commands.lock_device(3403)
+        with self.assertRaises(UnsupportedCommand):
+            await self.commands.unlock_device(3403)
+        self.assertFalse(self.rest.sent)
 
     async def test_one_metadata_failure_does_not_hide_other_devices(self) -> None:
         class FailingRest(FakeRest):

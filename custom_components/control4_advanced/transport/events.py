@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 from .proxies import (
     CONTACT_SENSOR_PROXIES,
     SUPPORTED_RELAY_PROXIES,
+    ZWAVE_LOCK_PROXY,
     ZWAVE_NUMERIC_SENSOR_PROXIES,
 )
 from .sensor_variables import valid_zwave_sensor_value, zwave_sensor_metric
@@ -194,6 +195,16 @@ def _rest_binary_state(value: Any) -> bool | None:
     if isinstance(value, str) and value.strip() in {"0", "1"}:
         return value.strip() == "1"
     return None
+
+
+def _lock_status(value: Any) -> str | None:
+    """Return one state supported by Home Assistant's lock entity model."""
+    if not isinstance(value, str):
+        return None
+    status = value.strip().casefold()
+    return status if status in {
+        "locked", "unlocked", "locking", "unlocking", "jammed",
+    } else None
 
 
 def _contact_changes(data: Mapping[str, Any]) -> tuple[dict[str, Any], bool]:
@@ -391,6 +402,10 @@ def normalize_rest_variables(
             changes["zwave_sensor_variables"] = tuple(
                 metric_names[key] for key in sorted(metric_names)
             )
+    elif proxy == ZWAVE_LOCK_PROXY:
+        # An unrecognized or missing status must clear any old indication
+        # that the door was secured.
+        changes["lock_status"] = _lock_status(by_name.get("LOCKSTATUS"))
     elif proxy == "roomdevice":
         power = _rest_binary_state(by_name.get("POWER_STATE"))
         if power is not None:
