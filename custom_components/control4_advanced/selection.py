@@ -6,7 +6,11 @@ from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
 from .const import DOMAIN
-from .transport.proxies import CONTACT_SENSOR_PROXIES, SUPPORTED_RELAY_PROXIES
+from .transport.proxies import (
+    CONTACT_SENSOR_PROXIES,
+    SUPPORTED_RELAY_PROXIES,
+    ZWAVE_COMMON_SENSOR_PROXY,
+)
 
 
 def is_candidate_item(item: dict[str, Any]) -> bool:
@@ -16,6 +20,8 @@ def is_candidate_item(item: dict[str, Any]) -> bool:
     if isinstance(proxy, str) and proxy in SUPPORTED_RELAY_PROXIES:
         return True
     if isinstance(proxy, str) and proxy in CONTACT_SENSOR_PROXIES:
+        return True
+    if proxy == ZWAVE_COMMON_SENSOR_PROXY:
         return True
     capabilities = item.get("capabilities")
     if not isinstance(capabilities, dict):
@@ -140,9 +146,11 @@ def registered_media_room_ids(
 def command_metadata_ids(
     items: Mapping[int, dict[str, Any]], tracked_ids: Iterable[int]
 ) -> list[int]:
-    """Do not fetch command metadata for read-only contact sensors."""
+    """Do not fetch command metadata for read-only sensors."""
     return [
         device_id
         for device_id in sorted(tracked_ids)
-        if items[device_id].get("proxy") not in CONTACT_SENSOR_PROXIES
+        if items[device_id].get("proxy") not in (
+            CONTACT_SENSOR_PROXIES | {ZWAVE_COMMON_SENSOR_PROXY}
+        )
     ]

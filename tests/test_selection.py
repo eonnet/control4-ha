@@ -74,11 +74,13 @@ class SelectionTests(unittest.TestCase):
         self.assertTrue(is_candidate_item(items[335]))
         self.assertTrue(is_candidate_item(items[377]))
         self.assertTrue(is_candidate_item(items[378]))
-        self.assertFalse(is_candidate_item(items[2140]))
+        self.assertTrue(is_candidate_item(items[2140]))
         self.assertFalse(is_candidate_item(items[400]))
         self.assertFalse(is_candidate_item(items[401]))
         self.assertEqual(supported_binary_sensor_ids(items, items), [335, 377, 378])
-        self.assertEqual(command_metadata_ids(items, {335, 377, 378, 431}), [431])
+        self.assertEqual(
+            command_metadata_ids(items, {335, 377, 378, 2140, 431}), [431]
+        )
 
     def test_media_rooms_require_complete_state_and_inventory_volume_binding(self) -> None:
         items = {

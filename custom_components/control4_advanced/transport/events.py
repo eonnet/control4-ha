@@ -14,7 +14,9 @@ from urllib.parse import urlsplit
 from .proxies import (
     CONTACT_SENSOR_PROXIES,
     SUPPORTED_RELAY_PROXIES,
+    ZWAVE_COMMON_SENSOR_PROXY,
 )
+from .sensor_variables import valid_zwave_sensor_value, zwave_sensor_metric
 
 
 Source = Literal["websocket", "rest"]
@@ -370,6 +372,28 @@ def normalize_rest_variables(
         state = _rest_binary_state(_first(by_name, "CONTACTSTATE"))
         if state is not None:
             changes = {"director_contact_state": "CLOSED" if state else "OPENED", "is_on": not state}
+    elif proxy == ZWAVE_COMMON_SENSOR_PROXY:
+        metric_names: dict[str, str] = {}
+        for item in variables:
+            if not isinstance(item, Mapping):
+                continue
+            metric = zwave_sensor_metric(item.get("varName"))
+            if metric is None:
+                continue
+            metric_names[metric.state_key] = metric.variable_name
+            value = _number(item.get("value"))
+            changes[metric.state_key] = (
+                value
+                if value is not None and valid_zwave_sensor_value(metric, value)
+                else None
+            )
+        if metric_names:
+            changes["zwave_sensor_variables"] = tuple(
+                metric_names[key] for key in sorted(metric_names)
+            )
+        status = _mode(by_name.get("DEVICE STATUS"))
+        if status in {"ONLINE", "OFFLINE"}:
+            changes["is_connected"] = status == "ONLINE"
     elif proxy == "roomdevice":
         power = _rest_binary_state(by_name.get("POWER_STATE"))
         if power is not None:

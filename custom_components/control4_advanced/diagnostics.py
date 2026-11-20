@@ -74,7 +74,8 @@ def _state_diagnostics(state: Mapping[str, Any]) -> dict[str, Any]:
     values = {
         key: value
         for key, value in state.items()
-        if key in _SAFE_STATE_VALUES
+        if (key in _SAFE_STATE_VALUES or key.startswith("zwave_sensor_"))
+        and key != "zwave_sensor_variables"
         and (
             value is None
             or isinstance(value, bool)

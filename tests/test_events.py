@@ -8,6 +8,49 @@ from control4_transport.events import normalize_rest_variables, normalize_websoc
 
 
 class EventNormalizationTests(unittest.TestCase):
+    def test_common_zwave_sensor_rest_uses_exact_dynamic_variables(self) -> None:
+        event = normalize_rest_variables(2144, "zwave-common-sensor", [
+            {"varName": "Device Status", "value": "ONLINE"},
+            {"varName": "Battery Level", "value": 82},
+            {"varName": "Local Temperature 0", "value": "23.5"},
+            {"varName": "Humidity percentage 0", "value": 47},
+            {"varName": "Illumination 1", "value": 125.25},
+            {"varName": "Last Notification", "value": "private text"},
+        ])
+        self.assertEqual(event.changes, {
+            "zwave_sensor_battery": 82.0,
+            "zwave_sensor_temperature_0": 23.5,
+            "zwave_sensor_humidity_0": 47.0,
+            "zwave_sensor_illumination_1": 125.25,
+            "zwave_sensor_variables": (
+                "Battery Level", "Humidity percentage 0", "Illumination 1",
+                "Local Temperature 0",
+            ),
+            "is_connected": True,
+        })
+        self.assertTrue(event.authoritative)
+
+    def test_common_zwave_sensor_retains_shape_and_rejects_bad_values(self) -> None:
+        event = normalize_rest_variables(2144, "zwave-common-sensor", [
+            {"varName": "Device Status", "value": "OFFLINE"},
+            {"varName": "Battery Level", "value": 101},
+            {"varName": "Local Temperature 0", "value": "not-a-number"},
+            {"varName": "Humidity percentage 0", "value": -1},
+            {"varName": "Illumination 0", "value": True},
+            {"varName": "Local Temperature 999", "value": 22},
+        ])
+        self.assertEqual(event.changes, {
+            "zwave_sensor_battery": None,
+            "zwave_sensor_temperature_0": None,
+            "zwave_sensor_humidity_0": None,
+            "zwave_sensor_illumination_0": None,
+            "zwave_sensor_variables": (
+                "Battery Level", "Humidity percentage 0", "Illumination 0",
+                "Local Temperature 0",
+            ),
+            "is_connected": False,
+        })
+
     def test_wiim_output_status_push_is_device_scoped_and_bounded(self) -> None:
         event = normalize_websocket_event({
             "evtName": "OnDataToUI", "iddevice": 623,

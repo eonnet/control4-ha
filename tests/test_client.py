@@ -179,6 +179,32 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
             {"brightness_percent": 41.0, "is_on": True},
         )
 
+    async def test_common_zwave_sensor_push_triggers_rest_refresh(self) -> None:
+        self.rest.items = [{
+            "id": 2144, "name": "Heiman HT", "proxy": "zwave-common-sensor",
+        }]
+        self.rest.variables = [
+            {"varName": "Device Status", "value": "ONLINE"},
+            {"varName": "Local Temperature 0", "value": 22},
+        ]
+        self.transport = Control4Transport(
+            self.rest, [2144], websocket_factory=FakeWebsocket
+        )
+        await self.transport.start()
+        first_reads = self.rest.read_count
+        self.rest.variables = [
+            {"varName": "Device Status", "value": "ONLINE"},
+            {"varName": "Local Temperature 0", "value": 23},
+        ]
+
+        await FakeWebsocket.instances[-1].push(2144, {"changed": True})
+
+        self.assertEqual(self.rest.read_count, first_reads + 1)
+        self.assertEqual(
+            self.transport.state.snapshot(2144)["zwave_sensor_temperature_0"],
+            23.0,
+        )
+
     async def test_reconnect_reloads_rest_state(self) -> None:
         statuses = []
         self.transport.subscribe_connection(statuses.append)

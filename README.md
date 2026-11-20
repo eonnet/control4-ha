@@ -1,9 +1,10 @@
 # Control4 Advanced for Home Assistant
 
 Control4 Advanced is an unofficial custom integration that brings compatible
-Control4 lighting, climate, relay, contact-sensor, and room-media devices into
-Home Assistant. It also includes media browsing, multi-room audio controls,
-saved group presets, privacy-preserving diagnostics, and five dashboard cards.
+Control4 lighting, climate, relay, sensor, contact-sensor, and room-media
+devices into Home Assistant. It also includes media browsing, multi-room audio
+controls, saved group presets, privacy-preserving diagnostics, and five
+dashboard cards.
 
 ## Requirements
 
@@ -52,6 +53,7 @@ credentials are stored in Home Assistant's config entry.
 | Climate | Celsius `thermostatV2` | Heat, Cool, Auto, Off, target temperature, current humidity, fan mode, named presets, hold mode, and humidity status when available |
 | Switch | Compatible standard, wireless, and radiant-floor relays | On and off; newly discovered relay entities are disabled by default |
 | Binary sensor | Window contacts, door contacts, and motion/PIR sensors | Window, door, and motion state |
+| Sensor | Control4 `zwave-common-sensor` devices | Battery level, Celsius temperature, relative humidity, and illumination when exposed by the device |
 | Media player | Rooms with compatible Watch or Listen sources | Source browsing, metadata, artwork, transport, power-off, volume, mute, and grouping as available |
 | Button | Room playback and thermostat humidity actions | Previous, Play, Pause, Stop, Next, and one-percent humidify/dehumidify setpoint adjustments when available |
 | Select | Thermostat and media choices | Hold mode, humidity mode, TIDAL account, and TIDAL playlist when available |
@@ -87,6 +89,9 @@ capability expose only the reading.
 - Compatible relay loads appear as switches and are disabled by default so the
   user can explicitly enable the required devices.
 - Window, door, and motion/PIR devices appear as read-only binary sensors.
+- Control4 common Z-Wave sensors automatically expose their available battery,
+  temperature, humidity, and illumination readings. Multi-endpoint readings
+  appear as separate Home Assistant sensor entities.
 
 ## Media players
 
