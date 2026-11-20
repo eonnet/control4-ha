@@ -44,8 +44,8 @@ def ha_stub_modules():
     sensor.SensorEntity = type("SensorEntity", (), {})
     sensor.SensorStateClass = FakeSensorStateClass
     modules["homeassistant.config_entries"].ConfigEntry = type("ConfigEntry", (), {})
+    modules["homeassistant.const"].LIGHT_LUX = "lx"
     modules["homeassistant.const"].PERCENTAGE = "%"
-    modules["homeassistant.const"].UnitOfIlluminance = SimpleNamespace(LUX="lx")
     modules["homeassistant.const"].UnitOfTemperature = SimpleNamespace(CELSIUS="°C")
     modules["homeassistant.core"].HomeAssistant = type("HomeAssistant", (), {})
     modules["homeassistant.helpers.device_registry"].DeviceInfo = dict

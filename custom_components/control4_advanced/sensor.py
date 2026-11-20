@@ -10,7 +10,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, UnitOfIlluminance, UnitOfTemperature
+from homeassistant.const import LIGHT_LUX, PERCENTAGE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -156,7 +156,7 @@ class Control4ZWaveSensor(Control4Entity, SensorEntity):
             self._attr_native_unit_of_measurement = PERCENTAGE
         elif metric.kind == "illumination":
             self._attr_device_class = SensorDeviceClass.ILLUMINANCE
-            self._attr_native_unit_of_measurement = UnitOfIlluminance.LUX
+            self._attr_native_unit_of_measurement = LIGHT_LUX
 
     @property
     def native_value(self) -> float | None:
