@@ -299,7 +299,7 @@ class MediaPlayerUITests(unittest.IsolatedAsyncioTestCase):
             bedroom.supported_features & FakeMediaPlayerFeature.SELECT_SOURCE
         )
 
-    async def test_browse_configured_tidal_accounts_and_playlists(self):
+    async def test_browse_and_play_configured_tidal_playlists_from_an_off_room(self):
         evening = TidalPlaylist(
             "Miki", "Evening Mix", "01234567-89ab-cdef-0123-456789abcdef"
         )
@@ -316,10 +316,12 @@ class MediaPlayerUITests(unittest.IsolatedAsyncioTestCase):
             RoomTidalCatalog(22, 1417, 1416, "Miki", (evening,)),
             RoomTidalCatalog(22, 1366, 1365, "Juliane", (acoustic,)),
         )
+        self.state[22].update(is_on=False, selected_source_id=0, volume_device_id=0)
         entity = self.media_player.Control4RoomMediaPlayer(
             self.runtime, self.items[22]
         )
 
+        self.assertEqual(entity.state, FakeMediaPlayerState.OFF)
         self.assertTrue(
             entity.supported_features & FakeMediaPlayerFeature.BROWSE_MEDIA
         )

@@ -77,6 +77,20 @@ class FakeRest:
         ]}
 
 
+class AudioVideoOnlyRest(FakeRest):
+    def __init__(self, host, provider, session):
+        super().__init__(host, provider, session)
+        self.items = [item for item in self.items if item["id"] != 2726]
+
+
+class NoMediaRest(AudioVideoOnlyRest):
+    async def get_variables(self, device_id):
+        return [{"varName": "POWER_STATE", "value": 0}]
+
+    async def get_ui_configuration(self):
+        return {"experiences": []}
+
+
 class FakeTransport:
     instances = []
 
@@ -170,6 +184,15 @@ class FakeSessionCoordinator:
 
 class MediaPlayerSetupTests(unittest.IsolatedAsyncioTestCase):
     async def test_setup_registers_room_and_unload_stops_coordinator(self):
+        await self._check_room_setup(FakeRest, {2726})
+
+    async def test_audio_video_only_setup_registers_tidal_in_an_off_room(self):
+        await self._check_room_setup(AudioVideoOnlyRest, set())
+
+    async def test_setup_without_a_compatible_room_closes_the_transport(self):
+        await self._check_room_setup(NoMediaRest, set(), has_media=False)
+
+    async def _check_room_setup(self, rest_factory, tracked_ids, *, has_media=True):
         FakeTransport.instances.clear()
         FakeCoordinator.instances.clear()
         FakeSessionCoordinator.instances.clear()
@@ -220,7 +243,7 @@ class MediaPlayerSetupTests(unittest.IsolatedAsyncioTestCase):
                                      "homeassistant.helpers.entity_registry": entity_registry}),
             patch.object(integration.aiohttp, "TCPConnector", return_value=object()),
             patch.object(integration.aiohttp, "ClientSession", return_value=session),
-            patch.object(integration, "DirectorRestClient", FakeRest),
+            patch.object(integration, "DirectorRestClient", rest_factory),
             patch.object(integration, "Control4Transport", FakeTransport),
             patch.object(integration, "DeviceCommandClient", FakeCommands),
             patch.object(integration, "RoomVolumeCoordinator", FakeCoordinator),
@@ -234,6 +257,16 @@ class MediaPlayerSetupTests(unittest.IsolatedAsyncioTestCase):
                 integration, "_async_register_group_presets", register_group_presets
             ),
         ):
+            if not has_media:
+                with self.assertRaisesRegex(
+                    exceptions.ConfigEntryNotReady, "no compatible media rooms"
+                ):
+                    await integration.async_setup_entry(hass, entry)
+                self.assertEqual(forwarded, [])
+                self.assertIsNone(entry.runtime_data)
+                self.assertTrue(FakeTransport.instances[0].stopped)
+                self.assertTrue(session.closed)
+                return
             self.assertTrue(await integration.async_setup_entry(hass, entry))
             register_frontend.assert_awaited_once_with(hass)
             register_group_presets.assert_awaited_once_with(hass)
@@ -242,10 +275,10 @@ class MediaPlayerSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("lock", forwarded)
             self.assertIn("scene", forwarded)
             self.assertNotIn("number", forwarded)
-            self.assertEqual(FakeTransport.instances[0].tracked_ids, {2726})
+            self.assertEqual(FakeTransport.instances[0].tracked_ids, tracked_ids)
             self.assertEqual(
                 entry.runtime_data.commands.metadata_ids,
-                [[2726], [22, 23], [93], [91]],
+                [sorted(tracked_ids), [22, 23], [93], [91]],
             )
             self.assertEqual(list(entry.runtime_data.media_coordinators), [22, 23])
             self.assertEqual(

@@ -19,13 +19,14 @@ from .const import (
     DEFAULT_RECONCILIATION_SECONDS,
     PLATFORMS,
 )
+from .media_discovery import discover_media_sources, discover_volume_room_ids
 from .registry_cleanup import (
     migrate_tidal_playlist_registry_entries,
     remove_stale_registry_entries,
 )
 from .selection import (
-    command_metadata_ids, is_candidate_item, registered_media_room_ids,
-    supported_media_room_ids,
+    command_metadata_ids, is_candidate_item, is_media_room_item,
+    registered_media_room_ids,
 )
 from .transport import (
     AccountTokenProvider,
@@ -36,7 +37,6 @@ from .transport import (
     RoomTuneInCatalog,
     RoomTidalCatalog,
     RoomVolumeCoordinator,
-    normalize_rest_variables,
     parse_tidal_playlists,
     parse_tunein_favorites,
     room_tidal_catalogs,
@@ -44,7 +44,7 @@ from .transport import (
 )
 from .transport.auth import AuthenticationError, AuthenticationTransportError
 from .transport.rest import DirectorRestError
-from .transport.sources import RoomSource, room_sources
+from .transport.sources import RoomSource
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -81,36 +81,6 @@ async def _async_register_group_presets(hass: HomeAssistant) -> None:
     await async_register_group_presets(hass)
 
 
-async def _discover_media_room_ids(
-    transport: Control4Transport, known_room_ids: set[int] | None = None,
-) -> list[int]:
-    """Read rooms once; retain registered media rooms while powered off."""
-    room_ids = [
-        room_id
-        for room_id, item in sorted(transport.inventory.items.items())
-        if item.get("typeName") == "room" and item.get("proxy") == "roomdevice"
-    ]
-    limit = asyncio.Semaphore(4)
-
-    async def inspect(room_id: int) -> tuple[int, dict] | None:
-        async with limit:
-            try:
-                variables = await asyncio.wait_for(
-                    transport.rest.get_variables(room_id), timeout=5
-                )
-            except Exception as exc:
-                # Optional media discovery must not hold up existing devices.
-                _LOGGER.warning("Control4 room state discovery failed: %s", type(exc).__name__)
-                return None
-            return room_id, normalize_rest_variables(room_id, "roomdevice", variables).changes
-
-    snapshots = dict(
-        result for result in await asyncio.gather(*(inspect(room_id) for room_id in room_ids))
-        if result is not None
-    )
-    return supported_media_room_ids(transport.inventory.items, snapshots, known_room_ids or ())
-
-
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Authenticate, load an initial snapshot, then forward push-capable entities."""
     from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
@@ -133,7 +103,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             for item in items
             if is_candidate_item(item)
         ]
-        if not tracked_ids:
+        if not tracked_ids and not any(is_media_room_item(item) for item in items):
             raise ConfigEntryNotReady("Director has no supported items")
         transport = Control4Transport(
             rest,
@@ -158,30 +128,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception as exc:
             _LOGGER.warning("Control4 media registry lookup failed: %s", type(exc).__name__)
         volume_room_ids = set(
-            await _discover_media_room_ids(transport, known_media_rooms)
+            await discover_volume_room_ids(
+                rest, transport.inventory.items, known_media_rooms
+            )
         )
-        all_room_ids = [
-            room_id
-            for room_id, item in sorted(transport.inventory.items.items())
-            if item.get("typeName") == "room" and item.get("proxy") == "roomdevice"
-        ]
-        media_sources: dict[int, tuple[RoomSource, ...]] = {}
-        try:
-            ui_configuration = await rest.get_ui_configuration()
-        except Exception as exc:
-            # Source discovery is optional and raw UI configuration may
-            # include account or media labels; never log it.
-            _LOGGER.warning("Control4 source discovery failed: %s", type(exc).__name__)
-        else:
-            media_sources = {
-                room_id: sources
-                for room_id in all_room_ids
-                if (
-                    sources := room_sources(
-                        ui_configuration, room_id, transport.inventory.items
-                    )
-                )
-            }
+        media_sources = await discover_media_sources(rest, transport.inventory.items)
         media_room_ids = sorted(volume_room_ids | set(media_sources))
         if media_room_ids:
             try:
@@ -199,6 +150,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 continue
             coordinator.enable_volume_fallback()
             media_coordinators[room_id] = coordinator
+        if not tracked_ids and not media_coordinators:
+            raise ConfigEntryNotReady("Director has no compatible media rooms")
         media_sources = {
             room_id: sources
             for room_id, sources in media_sources.items()

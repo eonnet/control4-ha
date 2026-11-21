@@ -53,7 +53,11 @@ def room_sources(
     found: list[tuple[int, Experience, str, str]] = []
     seen: set[tuple[str, int]] = set()
     for experience in experiences:
-        if not isinstance(experience, Mapping) or experience.get("room_id") != room_id:
+        if (
+            not isinstance(experience, Mapping)
+            or type(experience.get("room_id")) is not int
+            or experience["room_id"] != room_id
+        ):
             continue
         kind = experience.get("type")
         if kind not in ("watch", "listen"):
@@ -72,13 +76,15 @@ def room_sources(
             if (
                 type(device_id) is not int
                 or not 0 < device_id <= 2147483647
+                or not isinstance(source_type, str)
                 or source_type not in _SOURCE_TYPES
             ):
                 continue
             item = inventory.get(device_id)
             if not isinstance(item, Mapping) or item.get("typeName") != "device":
                 continue
-            if item.get("proxy") not in _SOURCE_PROXIES:
+            proxy = item.get("proxy")
+            if not isinstance(proxy, str) or proxy not in _SOURCE_PROXIES:
                 continue
             name = item.get("name")
             if not isinstance(name, str) or not name.strip():

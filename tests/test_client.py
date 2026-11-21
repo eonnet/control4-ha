@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from control4_transport.auth import DirectorToken
 from control4_transport.client import Control4Transport
+from control4_transport import RoomVolumeCoordinator
 
 
 class FakeTokenProvider:
@@ -124,6 +125,29 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.rest.variables = [{"varName": "Brightness Percent", "value": 0}]
         await self.transport.sync_all(reason="reconciliation")
         self.assertEqual(self.transport.state.snapshot(2726)["brightness_percent"], 0.0)
+
+    async def test_transport_can_attach_a_media_room_after_starting_empty(self) -> None:
+        self.rest.items = [
+            {"id": 22, "name": "Audio", "typeName": "room", "proxy": "roomdevice"},
+            {"id": 70, "name": "Amplifier", "typeName": "device", "proxy": "aswitch"},
+        ]
+        self.rest.variables_by_id[22] = [
+            {"varName": "POWER_STATE", "value": 1},
+            {"varName": "CURRENT_VOLUME_DEVICE_ID", "value": 70},
+            {"varName": "CURRENT_VOLUME", "value": 31},
+            {"varName": "IS_MUTED", "value": 0},
+        ]
+        self.transport = Control4Transport(self.rest, [], websocket_factory=FakeWebsocket)
+        await self.transport.start()
+        socket = FakeWebsocket.instances[-1]
+        self.assertEqual(socket.callbacks, {})
+        self.assertEqual(self.rest.read_ids, [])
+
+        coordinator = RoomVolumeCoordinator(self.transport, 22)
+        self.addAsyncCleanup(coordinator.stop)
+        await coordinator.start()
+        self.assertEqual(set(socket.callbacks), {22, 70})
+        self.assertEqual(self.transport.state.snapshot(22)["volume_percent"], 31.0)
 
     async def test_push_during_rest_read_wins(self) -> None:
         await self.transport.start()

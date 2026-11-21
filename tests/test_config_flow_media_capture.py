@@ -1,4 +1,4 @@
-"""Offline shape checks for the guided media options flow."""
+"""Offline checks for initial setup and the guided media options flow."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import importlib
 import sys
 from types import ModuleType, SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 
 class FakeFlowBase:
@@ -34,6 +34,15 @@ class FakeFlowBase:
 
     def async_create_entry(self, *, data, **kwargs):
         return {"type": "create_entry", "data": data, **kwargs}
+
+    async def async_set_unique_id(self, unique_id):
+        self.unique_id = unique_id
+
+    def _abort_if_unique_id_configured(self):
+        pass
+
+    def async_show_form(self, *, step_id, data_schema, errors):
+        return {"type": "form", "step_id": step_id, "errors": errors}
 
 
 def _ha_modules():
@@ -72,7 +81,7 @@ def _ha_modules():
     }
 
 
-class MediaCaptureOptionsFlowTests(unittest.IsolatedAsyncioTestCase):
+class ConfigFlowTests(unittest.IsolatedAsyncioTestCase):
     @classmethod
     def setUpClass(cls):
         cls.module_patcher = patch.dict(sys.modules, _ha_modules())
@@ -85,6 +94,55 @@ class MediaCaptureOptionsFlowTests(unittest.IsolatedAsyncioTestCase):
     def tearDownClass(cls):
         sys.modules.pop("custom_components.control4_advanced.config_flow", None)
         cls.module_patcher.stop()
+
+    async def test_setup_form_accepts_media_only_inventory(self):
+        items = [
+            {"id": 22, "typeName": "room", "proxy": "roomdevice", "name": "Listening Room"},
+            {"id": 54, "typeName": "device", "proxy": "media_service", "name": "TIDAL"},
+            {"id": 70, "typeName": "device", "proxy": "aswitch", "name": "Amplifier"},
+        ]
+        listen = {
+            "room_id": 22,
+            "type": "listen",
+            "sources": {"source": [{"id": 54, "type": "DIGITAL_AUDIO_SERVER"}]},
+        }
+        invalid = {**listen, "sources": {"source": [{"id": 54, "type": []}]}}
+        off = [
+            {"varName": "POWER_STATE", "value": 0},
+            {"varName": "CURRENT_VOLUME_DEVICE_ID", "value": 0},
+        ]
+        active = [
+            {"varName": "POWER_STATE", "value": 1},
+            {"varName": "CURRENT_VOLUME_DEVICE_ID", "value": 70},
+            {"varName": "CURRENT_VOLUME", "value": 31},
+            {"varName": "IS_MUTED", "value": 0},
+        ]
+        credentials = {"host": "director.example.test", "username": "test", "password": "test"}
+        for name, experiences, variables, result_type, state_reads in (
+            ("off_with_tidal", [listen], off, "create_entry", 0),
+            ("active_with_volume_binding", [], active, "create_entry", 1),
+            ("room_without_media", [invalid], off, "form", 1),
+        ):
+            with self.subTest(name=name):
+                rest = SimpleNamespace(
+                    get_items=AsyncMock(return_value=items),
+                    get_ui_configuration=AsyncMock(return_value={"experiences": experiences}),
+                    get_variables=AsyncMock(return_value=variables),
+                )
+                session = AsyncMock()
+                flow = self.flow_module.Control4ConfigFlow()
+                with (
+                    patch.object(self.flow_module.aiohttp, "TCPConnector", return_value=object()),
+                    patch.object(self.flow_module.aiohttp, "ClientSession", return_value=session),
+                    patch.object(self.flow_module, "DirectorRestClient", return_value=rest),
+                ):
+                    result = await flow.async_step_user(credentials)
+                self.assertEqual(result["type"], result_type)
+                self.assertEqual(rest.get_variables.await_count, state_reads)
+                if result_type == "form":
+                    self.assertEqual(result["errors"], {"base": "no_devices"})
+                else:
+                    self.assertEqual(result["data"], credentials)
 
     def _flow(self):
         flow = self.flow_module.Control4OptionsFlow()

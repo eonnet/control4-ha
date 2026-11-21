@@ -14,6 +14,10 @@ dashboard cards.
 - A valid Control4 account username and password.
 - Compatible devices and actions exposed by the Control4 project.
 
+Media-only Control4 projects are supported. A room can be discovered from
+its Watch or Listen sources even when it is off, or from a compatible volume
+binding while it is active.
+
 ## Installation
 
 ### HACS

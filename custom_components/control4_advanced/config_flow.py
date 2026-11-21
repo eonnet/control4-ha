@@ -18,6 +18,7 @@ from .entity_ids import (
     config_entry_entity_id_recreation_plan,
     recreate_config_entry_entity_ids,
 )
+from .media_discovery import discover_media_sources, discover_volume_room_ids
 from .selection import is_candidate_item
 from .transport import AccountTokenProvider, DirectorRestClient
 from .transport.auth import AuthenticationError, AuthenticationTransportError
@@ -53,20 +54,31 @@ class Control4ConfigFlow(ConfigFlow, domain=DOMAIN):
     def async_get_options_flow(config_entry: ConfigEntry):
         return Control4OptionsFlow()
 
-    async def _validate(self, host: str, username: str, password: str) -> str | None:
+    async def _validate(
+        self, host: str, username: str, password: str, *,
+        require_supported_items: bool = True,
+    ) -> str | None:
         provider = AccountTokenProvider(username, password)
         try:
             async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
-                items = await DirectorRestClient(host, provider, session).get_items()
+                rest = DirectorRestClient(host, provider, session)
+                items = await rest.get_items()
+                if not require_supported_items or any(is_candidate_item(item) for item in items):
+                    return None
+                inventory = {
+                    item["id"]: item for item in items if type(item.get("id")) is int
+                }
+                if await discover_media_sources(rest, inventory):
+                    return None
+                if await discover_volume_room_ids(rest, inventory):
+                    return None
         except AuthenticationTransportError:
             return "cannot_connect"
         except AuthenticationError:
             return "invalid_auth"
         except (DirectorRestError, aiohttp.ClientError, TimeoutError, OSError):
             return "cannot_connect"
-        if not any(is_candidate_item(item) for item in items):
-            return "no_devices"
-        return None
+        return "no_devices"
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
         errors: dict[str, str] = {}
@@ -104,7 +116,8 @@ class Control4ConfigFlow(ConfigFlow, domain=DOMAIN):
         entry = self._get_reauth_entry()
         if user_input is not None:
             error = await self._validate(
-                entry.data[CONF_HOST], entry.data[CONF_USERNAME], user_input[CONF_PASSWORD]
+                entry.data[CONF_HOST], entry.data[CONF_USERNAME], user_input[CONF_PASSWORD],
+                require_supported_items=False,
             )
             if error is None:
                 await self.async_set_unique_id(entry.data[CONF_HOST])

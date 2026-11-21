@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
-from custom_components.control4_advanced import _discover_media_room_ids
+from custom_components.control4_advanced.media_discovery import discover_volume_room_ids
 from custom_components.control4_advanced.selection import (
     command_metadata_ids, is_candidate_item, supported_binary_sensor_ids, supported_light_ids,
     registered_media_room_ids, supported_lock_ids, supported_media_room_ids,
@@ -199,12 +199,9 @@ class MediaRoomDiscoveryTests(unittest.IsolatedAsyncioTestCase):
                 {"varName": "CURRENT_VOLUME_DEVICE_ID", "value": 623 if item_id == 22 else 0},
             ]
 
-        transport = SimpleNamespace(
-            inventory=SimpleNamespace(items=items),
-            rest=SimpleNamespace(get_variables=get_variables),
-        )
+        rest = SimpleNamespace(get_variables=get_variables)
         with self.assertLogs("custom_components.control4_advanced", level="WARNING"):
-            self.assertEqual(await _discover_media_room_ids(transport), [22])
+            self.assertEqual(await discover_volume_room_ids(rest, items), [22])
         self.assertEqual(reads, [22, 23, 24])
 
     async def test_discovery_retains_registered_room_with_off_snapshot(self) -> None:
@@ -218,12 +215,9 @@ class MediaRoomDiscoveryTests(unittest.IsolatedAsyncioTestCase):
                 {"varName": "CURRENT_VOLUME_DEVICE_ID", "value": 0},
             ]
 
-        transport = SimpleNamespace(
-            inventory=SimpleNamespace(items=items),
-            rest=SimpleNamespace(get_variables=get_variables),
-        )
-        self.assertEqual(await _discover_media_room_ids(transport), [])
-        self.assertEqual(await _discover_media_room_ids(transport, {22}), [22])
+        rest = SimpleNamespace(get_variables=get_variables)
+        self.assertEqual(await discover_volume_room_ids(rest, items), [])
+        self.assertEqual(await discover_volume_room_ids(rest, items, {22}), [22])
 
 
 if __name__ == "__main__":

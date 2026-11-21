@@ -116,9 +116,9 @@ class Control4Transport:
         websocket_factory: Callable[..., C4Websocket] = C4Websocket,
     ) -> None:
         self.rest = rest
+        # Room coordinators can attach their subscriptions after this
+        # connection is ready on projects with no standalone devices.
         self.tracked_ids = set(int(item_id) for item_id in tracked_ids)
-        if not self.tracked_ids:
-            raise ValueError("at least one tracked Control4 item ID is required")
         if reconciliation_seconds is not None and reconciliation_seconds <= 0:
             raise ValueError("reconciliation_seconds must be positive")
         self.reconciliation_seconds = reconciliation_seconds

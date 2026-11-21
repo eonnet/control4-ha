@@ -104,6 +104,18 @@ def supported_lock_ids(
     ]
 
 
+def is_media_room_item(item: Mapping[str, Any]) -> bool:
+    """Identify a Director room that can be checked for media capabilities."""
+    return item.get("typeName") == "room" and item.get("proxy") == "roomdevice"
+
+
+def media_room_ids(items: Mapping[int, dict[str, Any]]) -> list[int]:
+    return sorted(
+        room_id for room_id, item in items.items()
+        if type(room_id) is int and room_id > 0 and is_media_room_item(item)
+    )
+
+
 def supported_media_room_ids(
     items: Mapping[int, dict[str, Any]], snapshots: Mapping[int, Mapping[str, Any]],
     known_room_ids: Iterable[int] = (),
@@ -118,7 +130,7 @@ def supported_media_room_ids(
     result: list[int] = []
     for room_id, state in snapshots.items():
         item = items.get(room_id)
-        if not item or item.get("typeName") != "room" or item.get("proxy") != "roomdevice":
+        if not item or not is_media_room_item(item):
             continue
         bound_id = state.get("volume_device_id")
         bound = items.get(bound_id) if type(bound_id) is int and bound_id > 0 else None
@@ -150,7 +162,7 @@ def registered_media_room_ids(
     """Recognize only this integration's existing media entities for live rooms."""
     room_unique_ids = {
         f"{host}_{room_id}": room_id for room_id, item in items.items()
-        if item.get("typeName") == "room" and item.get("proxy") == "roomdevice"
+        if is_media_room_item(item)
     }
     return {
         room_unique_ids[entry.unique_id]
