@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 from typing import Any
 
 from homeassistant.components.lock import LockEntity
@@ -18,8 +19,9 @@ from .transport.proxies import ZWAVE_LOCK_PROXY
 
 
 PARALLEL_UPDATES = 1
-_CONFIRMATION_DELAYS = (0, 0.5, 1, 2)
-_CONFIRMATION_TIMEOUT = 8
+_CONFIRMATION_TIMEOUT = 15
+_CONFIRMATION_INTERVAL = 0.75
+_CONFIRMATION_READ_TIMEOUT = 2
 
 
 async def async_setup_entry(
@@ -84,30 +86,49 @@ class Control4NativeLock(Control4Entity, LockEntity):
 
     async def async_lock(self, **kwargs: Any) -> None:
         self._require_available()
+        baseline = self._status_revision()
         await self.runtime.commands.lock_device(self.device_id)
-        await self._async_confirm_status("locked")
+        await self._async_confirm_status("locked", baseline)
 
     async def async_unlock(self, **kwargs: Any) -> None:
         self._require_available()
+        baseline = self._status_revision()
         await self.runtime.commands.unlock_device(self.device_id)
-        await self._async_confirm_status("unlocked")
+        await self._async_confirm_status("unlocked", baseline)
 
     def _require_available(self) -> None:
         if not self.available:
             raise HomeAssistantError("Control4 lock state is unavailable")
 
-    async def _async_confirm_status(self, expected: str) -> None:
-        """Read back the state while a motorized lock settles."""
+    def _status_revision(self) -> int:
+        return self.runtime.transport.state.field_revision(self.device_id, "lock_status")
+
+    async def _async_confirm_status(self, expected: str, baseline: int) -> None:
+        """Wait for fresh Director feedback throughout the confirmation window."""
+        transport = self.runtime.transport
+
+        def confirmed() -> bool:
+            return self.available and self._status_revision() > baseline and (
+                self._control4_status == expected
+            )
+
         try:
             async with asyncio.timeout(_CONFIRMATION_TIMEOUT):
-                for delay in _CONFIRMATION_DELAYS:
-                    if delay:
-                        await asyncio.sleep(delay)
-                    refreshed = await self.runtime.transport.sync_device(self.device_id)
-                    if refreshed and self.available and self._control4_status == expected:
+                while transport.connected:
+                    if confirmed():
                         return
+                    with suppress(TimeoutError):
+                        await asyncio.wait_for(
+                            transport.sync_device(self.device_id),
+                            timeout=_CONFIRMATION_READ_TIMEOUT,
+                        )
+                    if confirmed():
+                        return
+                    await asyncio.sleep(_CONFIRMATION_INTERVAL)
         except TimeoutError:
             pass
+        if confirmed():
+            return
         raise HomeAssistantError(
             f"Control4 did not confirm the lock reached the {expected} state"
         )

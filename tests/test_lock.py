@@ -8,6 +8,11 @@ from types import ModuleType, SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, patch
 
+from custom_components.control4_advanced.transport import (
+    DeviceStateCache,
+    normalize_rest_variables,
+)
+
 
 class FakeEntity:
     async def async_added_to_hass(self):
@@ -92,19 +97,20 @@ class LockTests(unittest.IsolatedAsyncioTestCase):
                 "proxy": "lock", "roomName": "Living",
             },
         }
-        states = {
-            3402: {},
-            3403: {},
-            3404: {"lock_status": "locked"},
-        }
+        state = DeviceStateCache()
+
+        def report(status, device_id=3403):
+            state.apply(normalize_rest_variables(
+                device_id, "lock", [{"varName": "LockStatus", "value": status}]
+            ))
+
+        report("locked", 3404)
         commands = FakeCommands()
         transport = SimpleNamespace(
             inventory=SimpleNamespace(items=items),
             tracked_ids=set(items),
             rest=SimpleNamespace(host="192.168.0.24"),
-            state=SimpleNamespace(
-                snapshot=lambda device_id: dict(states.get(device_id, {}))
-            ),
+            state=state,
             sync_device=AsyncMock(),
             connected=True,
         )
@@ -132,49 +138,58 @@ class LockTests(unittest.IsolatedAsyncioTestCase):
             await entity.async_unlock()
         self.assertEqual(commands.calls, [])
 
-        states[3403]["lock_status"] = "unlocked"
+        report("unlocked")
         self.assertFalse(entity.is_locked)
         self.assertTrue(entity.available)
 
-        states[3403]["lock_status"] = "locking"
+        report("locking")
         self.assertTrue(entity.is_locking)
         self.assertIsNone(entity.is_locked)
-        states[3403]["lock_status"] = "unlocking"
+        report("unlocking")
         self.assertTrue(entity.is_unlocking)
-        states[3403]["lock_status"] = "jammed"
+        report("jammed")
         self.assertTrue(entity.is_jammed)
-        states[3403]["lock_status"] = "unlocked"
+        report("unlocked")
 
-        reports = iter(("unlocked", "locked", "unlocked"))
+        reports = iter((
+            "unlocked", "locking", "locking", "locking", "locking", "locked",
+            "unlocked",
+        ))
 
         async def sync_device(device_id):
-            states[device_id]["lock_status"] = next(reports)
-            return True
+            status = next(reports)
+            report(status, device_id)
+            # The final locked report can arrive through the push-triggered
+            # refresh while the direct read loses the cache revision race.
+            return status != "locked"
 
         transport.sync_device.side_effect = sync_device
-        with patch.object(self.lock, "_CONFIRMATION_DELAYS", (0, 0)):
+        with patch.object(self.lock, "_CONFIRMATION_INTERVAL", 0):
             await entity.async_lock()
             self.assertTrue(entity.is_locked)
             await entity.async_unlock()
             self.assertFalse(entity.is_locked)
-        self.assertEqual(transport.sync_device.await_count, 3)
+        self.assertEqual(transport.sync_device.await_count, 7)
         self.assertEqual(commands.calls, [("lock", 3403), ("unlock", 3403)])
 
-        transport.sync_device.side_effect = None
+        async def unrelated_report(_device_id):
+            report("unlocked", 3404)
+            return False
+
+        transport.sync_device.side_effect = unrelated_report
         with (
-            patch.object(self.lock, "_CONFIRMATION_DELAYS", (0,)),
-            self.assertRaisesRegex(self.lock.HomeAssistantError, "did not confirm"),
+            patch.object(self.lock, "_CONFIRMATION_TIMEOUT", 0.02),
+            patch.object(self.lock, "_CONFIRMATION_INTERVAL", 0.001),
         ):
-            await entity.async_lock()
+            with self.assertRaisesRegex(self.lock.HomeAssistantError, "did not confirm"):
+                await entity.async_lock()
+            # An old unlocked reading is not confirmation of a new command.
+            with self.assertRaisesRegex(self.lock.HomeAssistantError, "did not confirm"):
+                await entity.async_unlock()
+
         self.assertFalse(entity.is_locked)
         self.assertEqual(commands.calls.count(("lock", 3403)), 2)
-
-        transport.sync_device.return_value = False
-        with (
-            patch.object(self.lock, "_CONFIRMATION_DELAYS", (0,)),
-            self.assertRaisesRegex(self.lock.HomeAssistantError, "did not confirm"),
-        ):
-            await entity.async_unlock()
+        self.assertEqual(commands.calls.count(("unlock", 3403)), 2)
 
 
 if __name__ == "__main__":

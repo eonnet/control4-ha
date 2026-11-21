@@ -61,6 +61,10 @@ class DeviceStateCache:
     def snapshot(self, device_id: int) -> dict[str, Any]:
         return deepcopy(self._states.get(device_id, {}))
 
+    def field_revision(self, device_id: int, key: str) -> int:
+        """Return the revision of the last accepted update to one field."""
+        return self._field_revisions.get((device_id, key), 0)
+
     def apply(
         self, event: NormalizedEvent, *, only_if_unchanged_since: int | None = None
     ) -> dict[str, Any]:
@@ -70,7 +74,7 @@ class DeviceStateCache:
         for key, value in event.changes.items():
             if (
                 only_if_unchanged_since is not None
-                and self._field_revisions.get((event.device_id, key), 0) > only_if_unchanged_since
+                and self.field_revision(event.device_id, key) > only_if_unchanged_since
             ):
                 continue
             accepted[key] = value
